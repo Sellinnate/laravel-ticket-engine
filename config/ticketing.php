@@ -36,6 +36,14 @@ return [
 
         'allow_shared' => true,
 
+        // Fail closed on writes: when true, persisting a tenant-scoped model
+        // while tenancy is enabled but no tenant is resolved throws instead of
+        // silently creating a shared (null-tenant) row. Recommended for
+        // multi-tenant production. An explicit null tenant (intentional shared
+        // record) is always allowed. Default false to keep seeders/factories
+        // and single-tenant setups ergonomic.
+        'require_tenant_for_writes' => false,
+
         // Bind your own resolver, or one of the optional bridges:
         //   \Selli\Ticketing\Tenancy\DefaultTenantResolver::class (from auth user)
         'resolver' => DefaultTenantResolver::class,

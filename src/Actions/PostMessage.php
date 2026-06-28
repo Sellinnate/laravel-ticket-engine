@@ -91,7 +91,17 @@ class PostMessage
             return;
         }
 
-        $data->ticket->forceFill(['first_response_at' => now()])->save();
+        $now = now();
+        $model = Ticketing::ticketModel();
+
+        // Update without the tenant scope so a queue/CLI flow whose ambient
+        // context differs from the ticket's tenant still persists the stamp.
+        $model::query()
+            ->withoutTenancy()
+            ->whereKey($data->ticket->getKey())
+            ->update(['first_response_at' => $now]);
+
+        $data->ticket->first_response_at = $now;
     }
 
     /**

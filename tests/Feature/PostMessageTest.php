@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\Event;
 use Selli\Ticketing\Enums\MessageVisibility;
 use Selli\Ticketing\Events\MessagePosted;
 use Selli\Ticketing\Facades\Ticketing;
+use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Models\TicketMessage;
 use Selli\Ticketing\Tenancy\TenantContext;
 
@@ -53,6 +54,20 @@ it('recognises the requester even without an ambient tenant context', function (
     Ticketing::for($ticket)->postMessage($user, 'Any update?', MessageVisibility::Public);
 
     expect($ticket->fresh()->first_response_at)->toBeNull();
+});
+
+it('stamps first response even when the ambient context differs from the ticket tenant', function (): void {
+    $context = app(TenantContext::class);
+
+    $ticket = $context->forTenant(6, fn () => Ticketing::open(type: 'support', title: 'Help', requester: makeUser(['tenant_id' => 6])));
+    $agent = makeUser(['name' => 'Agent', 'tenant_id' => 6]);
+
+    // Reply as an agent with NO ambient tenant context (queue/CLI flow).
+    Ticketing::for($ticket)->postMessage($agent, 'Working on it', MessageVisibility::Public);
+
+    $persisted = Ticket::query()->withoutTenancy()->find($ticket->getKey());
+
+    expect($persisted->first_response_at)->not->toBeNull();
 });
 
 it('does not stamp first_response_at for internal notes', function (): void {

@@ -7,6 +7,7 @@ namespace Selli\Ticketing\Concerns;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Selli\Ticketing\Contracts\TenantScoped;
+use Selli\Ticketing\Exceptions\MissingTenantException;
 use Selli\Ticketing\Tenancy\TenantContext;
 use Selli\Ticketing\Tenancy\TenantScope;
 
@@ -36,9 +37,19 @@ trait BelongsToTenant
             // Only auto-assign when the column was not provided at all. An
             // explicit null is a deliberate "shared" record and must be kept,
             // even while a tenant is resolved (honours allow_shared).
-            if (! array_key_exists($column, $model->getAttributes())) {
-                $model->setAttribute($column, $context->current());
+            if (array_key_exists($column, $model->getAttributes())) {
+                return;
             }
+
+            $current = $context->current();
+
+            // Optionally fail closed on writes: a missing tenant context would
+            // otherwise create a null (shared) row visible to every tenant.
+            if ($current === null && config('ticketing.tenancy.require_tenant_for_writes', false)) {
+                throw MissingTenantException::forModel($model::class);
+            }
+
+            $model->setAttribute($column, $current);
         });
     }
 

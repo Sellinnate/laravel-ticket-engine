@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Selli\Ticketing\Enums\MessageVisibility;
 use Selli\Ticketing\Enums\Priority;
+use Selli\Ticketing\Exceptions\MissingTenantException;
 use Selli\Ticketing\Facades\Ticketing;
 use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Models\TicketActivity;
@@ -77,6 +78,27 @@ it('keeps references unique even after a ticket is soft-deleted', function (): v
     $second = Ticketing::open(type: 'support', title: 'Two', requester: makeUser());
 
     expect($second->reference)->not->toBe($first->reference);
+});
+
+it('can fail closed on writes when no tenant is resolved', function (): void {
+    config()->set('ticketing.tenancy.require_tenant_for_writes', true);
+
+    Ticketing::open(type: 'support', title: 'No context', requester: makeUser());
+})->throws(MissingTenantException::class);
+
+it('still allows explicit shared writes when failing closed is enabled', function (): void {
+    config()->set('ticketing.tenancy.require_tenant_for_writes', true);
+
+    $type = TicketType::query()->create([
+        'key' => 'shared-explicit',
+        'name' => 'Shared',
+        'workflow' => 'default',
+        'default_priority' => Priority::Normal,
+        'is_active' => true,
+        'tenant_id' => null, // explicit shared is always allowed
+    ]);
+
+    expect($type->tenant_id)->toBeNull();
 });
 
 it('never leaks another tenant when no tenant is resolved', function (): void {
