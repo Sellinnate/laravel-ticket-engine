@@ -8,8 +8,6 @@ use Illuminate\Broadcasting\Channel;
 use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Broadcasting\PrivateChannel;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
-use Illuminate\Foundation\Events\Dispatchable;
-use Illuminate\Queue\SerializesModels;
 use Selli\Ticketing\Broadcasting\Channels;
 use Selli\Ticketing\Listeners\BroadcastSubscriber;
 use Selli\Ticketing\Models\Ticket;
@@ -19,12 +17,16 @@ use Selli\Ticketing\Models\Ticket;
  * ids + the delta (status, the message id, …); a subscribed client reloads the
  * full detail through the API. Dispatched by {@see BroadcastSubscriber}
  * off the domain events, so the domain events themselves stay broadcast-free.
+ *
+ * It carries SCALAR SNAPSHOTS (not the Ticket model) taken at dispatch time. A
+ * queued ShouldBroadcast that held the model would, via SerializesModels,
+ * re-fetch a fresh row when the job runs — so a rapid reassignment/transition
+ * could route the broadcast to the wrong channel or ship an inconsistent
+ * payload. The snapshot freezes exactly what changed.
  */
 class TicketBroadcasted implements ShouldBroadcast
 {
-    use Dispatchable;
     use InteractsWithSockets;
-    use SerializesModels;
 
     /** Everyone watching the ticket, including a requester. */
     public const AUDIENCE_ALL = 'all';
@@ -42,7 +44,11 @@ class TicketBroadcasted implements ShouldBroadcast
      * @param  array<string, mixed>  $payload
      */
     public function __construct(
-        public Ticket $ticket,
+        public int|string $ticketId,
+        public int|string|null $tenantId,
+        public int|string|null $assigneeId,
+        public string $reference,
+        public string $status,
         public string $action,
         public array $payload = [],
         public string $audience = self::AUDIENCE_ALL,
@@ -55,6 +61,25 @@ class TicketBroadcasted implements ShouldBroadcast
     }
 
     /**
+     * Snapshot the channel-routing + payload scalars off a live ticket.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    public static function fromTicket(Ticket $ticket, string $action, array $payload = [], string $audience = self::AUDIENCE_ALL): self
+    {
+        return new self(
+            ticketId: $ticket->getKey(),
+            tenantId: $ticket->getAttribute($ticket->getTenantColumn()),
+            assigneeId: $ticket->assignee_id,
+            reference: (string) $ticket->reference,
+            status: (string) $ticket->status,
+            action: $action,
+            payload: $payload,
+            audience: $audience,
+        );
+    }
+
+    /**
      * @return list<Channel>
      */
     public function broadcastOn(): array
@@ -64,16 +89,14 @@ class TicketBroadcasted implements ShouldBroadcast
         // The per-ticket channel can have a requester listening, so internal /
         // agent-only changes never go there — only the tenant agent feeds.
         if ($this->audience === self::AUDIENCE_ALL) {
-            $channels[] = new PrivateChannel(Channels::ticket((string) $this->ticket->getKey()));
+            $channels[] = new PrivateChannel(Channels::ticket($this->ticketId));
         }
 
-        $tenantId = $this->ticket->getAttribute($this->ticket->getTenantColumn());
+        if ($this->tenantId !== null) {
+            $channels[] = new PrivateChannel(Channels::tenantTickets($this->tenantId));
 
-        if ($tenantId !== null) {
-            $channels[] = new PrivateChannel(Channels::tenantTickets($tenantId));
-
-            if ($this->ticket->assignee_id !== null) {
-                $channels[] = new PrivateChannel(Channels::agent($tenantId, $this->ticket->assignee_id));
+            if ($this->assigneeId !== null) {
+                $channels[] = new PrivateChannel(Channels::agent($this->tenantId, $this->assigneeId));
             }
         }
 
@@ -91,9 +114,9 @@ class TicketBroadcasted implements ShouldBroadcast
     public function broadcastWith(): array
     {
         return array_merge([
-            'ticket_id' => $this->ticket->getKey(),
-            'reference' => $this->ticket->reference,
-            'status' => $this->ticket->status,
+            'ticket_id' => $this->ticketId,
+            'reference' => $this->reference,
+            'status' => $this->status,
             'action' => $this->action,
         ], $this->payload);
     }

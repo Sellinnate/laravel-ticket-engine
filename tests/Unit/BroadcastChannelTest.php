@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Illuminate\Support\Facades\Event;
 use Selli\Ticketing\Broadcasting\Channels;
 use Selli\Ticketing\Broadcasting\DefaultChannelAuthorizer;
+use Selli\Ticketing\Contracts\TenantResolver;
 use Selli\Ticketing\Enums\ParticipantRole;
 use Selli\Ticketing\Events\TicketBroadcasted;
 use Selli\Ticketing\Facades\Ticketing;
@@ -34,7 +35,7 @@ it('broadcasts on the ticket, tenant and assignee channels for an all-audience e
         return Ticketing::assign(ticket: $ticket, assignee: $agent);
     });
 
-    $names = broadcastChannelNames(new TicketBroadcasted($ticket, 'opened'));
+    $names = broadcastChannelNames(TicketBroadcasted::fromTicket($ticket, 'opened'));
 
     expect($names)->toContain('private-'.Channels::ticket((string) $ticket->getKey()))
         ->toContain('private-'.Channels::tenantTickets(5))
@@ -45,7 +46,7 @@ it('keeps an agents-only event off the per-ticket channel', function (): void {
     $context = app(TenantContext::class);
     $ticket = $context->forTenant(5, fn () => Ticketing::open(type: 'support', title: 'x', requester: makeUser(['tenant_id' => 5])));
 
-    $names = broadcastChannelNames(new TicketBroadcasted($ticket, 'assigned', [], TicketBroadcasted::AUDIENCE_AGENTS));
+    $names = broadcastChannelNames(TicketBroadcasted::fromTicket($ticket, 'assigned', [], TicketBroadcasted::AUDIENCE_AGENTS));
 
     expect($names)->not->toContain('private-'.Channels::ticket((string) $ticket->getKey()))
         ->and($names)->toContain('private-'.Channels::tenantTickets(5));
@@ -54,7 +55,7 @@ it('keeps an agents-only event off the per-ticket channel', function (): void {
 it('carries a minimal id + delta payload and a stable event name', function (): void {
     $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
 
-    $event = new TicketBroadcasted($ticket, 'message.posted', ['message_id' => 7, 'visibility' => 'public']);
+    $event = TicketBroadcasted::fromTicket($ticket, 'message.posted', ['message_id' => 7, 'visibility' => 'public']);
 
     expect($event->broadcastAs())->toBe('ticket.message.posted')
         ->and($event->broadcastWith())->toMatchArray([
@@ -112,6 +113,53 @@ it('authorizes a ticket channel for its tenant agents and denies cross-tenant', 
     $agent9 = makeUser(['tenant_id' => 9]);
     $this->actingAs($agent9);
     expect($authorizer->forTicket($agent9, $ticket->getKey()))->toBeFalse();
+});
+
+it('denies a ticket channel for an unknown ticket id', function (): void {
+    $agent = makeUser(['tenant_id' => 5]);
+    $this->actingAs($agent);
+
+    expect(app(DefaultChannelAuthorizer::class)->forTicket($agent, 999999))->toBeFalse();
+});
+
+it('authorizes a ticket channel for the morph subject', function (): void {
+    $context = app(TenantContext::class);
+    $subject = TestRequester::query()->create(['name' => 'Subj', 'tenant_id' => 5]);
+    // The subject is the thing the ticket is "about" (the for() target), distinct
+    // from the requester participant.
+    $ticket = $context->forTenant(5, fn () => Ticketing::for($subject)->open(type: 'support', title: 'x', requester: makeUser(['tenant_id' => 5])));
+
+    $this->actingAs($subject);
+    expect(app(DefaultChannelAuthorizer::class)->forTicket($subject, $ticket->getKey()))->toBeTrue();
+});
+
+it('lets a null-tenant requester watch their own tenant-scoped ticket', function (): void {
+    // A requester whose own tenant_id is null is still the subject of a ticket
+    // that lives in a tenant — loading without the scope is what makes this work.
+    $context = app(TenantContext::class);
+    $requester = TestRequester::query()->create(['name' => 'R']);
+    $ticket = $context->forTenant(5, fn () => Ticketing::open(type: 'support', title: 'x', requester: $requester));
+
+    $this->actingAs($requester);
+    expect(app(DefaultChannelAuthorizer::class)->forTicket($requester, $ticket->getKey()))->toBeTrue();
+});
+
+it('authorizes tenant and agent feeds by role alone in single-tenant mode', function (): void {
+    $agent = makeUser();
+
+    // Rebind a tenancy-disabled context: there is no tenant to match on.
+    app()->instance(TenantContext::class, new TenantContext(
+        resolver: app(TenantResolver::class),
+        enabled: false,
+        column: 'tenant_id',
+        allowShared: true,
+    ));
+
+    $authorizer = app(DefaultChannelAuthorizer::class);
+
+    expect($authorizer->forTenantTickets($agent, 1))->toBeTrue()
+        ->and($authorizer->forAgent($agent, 1, $agent->getKey()))->toBeTrue()
+        ->and($authorizer->forAgent($agent, 1, $agent->getKey() + 1))->toBeFalse();
 });
 
 it('authorizes a ticket channel for its requester/subject and explicit participants', function (): void {

@@ -35,9 +35,12 @@ class DefaultChannelAuthorizer implements ChannelAuthorizer
 
     public function forTicket(Authenticatable $user, int|string $ticketId): bool
     {
-        // find() applies the tenant global scope, so a ticket outside the user's
-        // tenant resolves to null → denied, never leaking a cross-tenant channel.
-        $ticket = Ticketing::ticketModel()::query()->find($ticketId);
+        // Load WITHOUT the tenant scope, then enforce the tenant explicitly. The
+        // scope keys off the resolver's tenant (the user's tenant_id); a legit
+        // requester with a null tenant — or single-tenant mode — would otherwise
+        // never see a tenant-scoped row and be wrongly denied. The checks below
+        // bind the user to the ticket, so loading unscoped leaks nothing.
+        $ticket = Ticketing::ticketModel()::withoutTenancy()->find($ticketId);
 
         if (! $ticket instanceof Ticket) {
             return false;
@@ -54,6 +57,12 @@ class DefaultChannelAuthorizer implements ChannelAuthorizer
 
     protected function tenantMatches(Authenticatable $user, int|string $tenantId): bool
     {
+        // Single-tenant mode (tenancy disabled) is a supported setup with no
+        // tenant to match on — role/identity alone decides, so don't hard-deny.
+        if (! app(TenantContext::class)->enabled()) {
+            return true;
+        }
+
         $userTenant = $this->userTenant($user);
 
         // A null-tenant (shared) user is never entitled to a specific tenant feed.
@@ -81,7 +90,10 @@ class DefaultChannelAuthorizer implements ChannelAuthorizer
             return false;
         }
 
-        return $ticket->participants()
+        // withoutTenancy for the same reason as forTicket: the participant rows
+        // carry the ticket's tenant, which a null current-tenant scope would hide.
+        // Scoping by ticket_id (the relation) + the user's morph keys is enough.
+        return $ticket->participants()->withoutTenancy()
             ->where('participant_type', $user->getMorphClass())
             ->where('participant_id', $user->getKey())
             ->exists();

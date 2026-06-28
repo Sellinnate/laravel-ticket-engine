@@ -102,9 +102,10 @@ class TicketingServiceProvider extends PackageServiceProvider
             return $this->app->make($class);
         });
 
-        // Default, tenant-scoped broadcast channel authorization. A host binds
-        // its own ChannelAuthorizer (e.g. delegating to its policies) to override.
-        $this->app->bind(ChannelAuthorizer::class, DefaultChannelAuthorizer::class);
+        // Default, tenant-scoped broadcast channel authorization. bindIf so a
+        // host that already bound its own ChannelAuthorizer (e.g. delegating to
+        // its policies) keeps it — we never override the host's broadcast policy.
+        $this->app->bindIf(ChannelAuthorizer::class, DefaultChannelAuthorizer::class);
     }
 
     public function packageBooted(): void

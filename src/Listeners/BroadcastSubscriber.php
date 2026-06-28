@@ -14,6 +14,7 @@ use Selli\Ticketing\Events\TicketClosed;
 use Selli\Ticketing\Events\TicketOpened;
 use Selli\Ticketing\Events\TicketReopened;
 use Selli\Ticketing\Events\TicketResolved;
+use Selli\Ticketing\Models\Ticket;
 
 /**
  * Turns the relevant domain events into a single queued, minimal
@@ -26,12 +27,12 @@ class BroadcastSubscriber
 {
     public function onOpened(TicketOpened $event): void
     {
-        TicketBroadcasted::dispatch($event->ticket, 'opened');
+        $this->emit($event->ticket, 'opened');
     }
 
     public function onTransitioned(StateTransitioned $event): void
     {
-        TicketBroadcasted::dispatch($event->ticket, 'transitioned', [
+        $this->emit($event->ticket, 'transitioned', [
             'from' => $event->from,
             'to' => $event->to,
             'transition' => $event->transition,
@@ -40,17 +41,17 @@ class BroadcastSubscriber
 
     public function onResolved(TicketResolved $event): void
     {
-        TicketBroadcasted::dispatch($event->ticket, 'resolved');
+        $this->emit($event->ticket, 'resolved');
     }
 
     public function onClosed(TicketClosed $event): void
     {
-        TicketBroadcasted::dispatch($event->ticket, 'closed');
+        $this->emit($event->ticket, 'closed');
     }
 
     public function onReopened(TicketReopened $event): void
     {
-        TicketBroadcasted::dispatch($event->ticket, 'reopened', [
+        $this->emit($event->ticket, 'reopened', [
             'from' => $event->from,
             'to' => $event->to,
         ]);
@@ -60,7 +61,7 @@ class BroadcastSubscriber
     {
         // Assignment is agent-facing — it never goes to the per-ticket channel a
         // requester may watch.
-        TicketBroadcasted::dispatch($event->ticket, 'assigned', [
+        $this->emit($event->ticket, 'assigned', [
             'assignee_id' => $event->assignee?->getKey(),
             'team_id' => $event->team?->getKey(),
         ], TicketBroadcasted::AUDIENCE_AGENTS);
@@ -68,7 +69,7 @@ class BroadcastSubscriber
 
     public function onPriorityChanged(PriorityChanged $event): void
     {
-        TicketBroadcasted::dispatch($event->ticket, 'priority.changed', [
+        $this->emit($event->ticket, 'priority.changed', [
             'from' => $event->from->value,
             'to' => $event->to->value,
         ], TicketBroadcasted::AUDIENCE_AGENTS);
@@ -83,10 +84,20 @@ class BroadcastSubscriber
             ? TicketBroadcasted::AUDIENCE_AGENTS
             : TicketBroadcasted::AUDIENCE_ALL;
 
-        TicketBroadcasted::dispatch($event->ticket, 'message.posted', [
+        $this->emit($event->ticket, 'message.posted', [
             'message_id' => $event->message->getKey(),
             'visibility' => $event->message->visibility->value,
         ], $audience);
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    protected function emit(Ticket $ticket, string $action, array $payload = [], string $audience = TicketBroadcasted::AUDIENCE_ALL): void
+    {
+        // event() (not broadcast()) so the in-process listeners still see it; the
+        // ShouldBroadcast contract handles the realtime fan-out from there.
+        event(TicketBroadcasted::fromTicket($ticket, $action, $payload, $audience));
     }
 
     /**
