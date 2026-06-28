@@ -76,6 +76,18 @@ it('excludes tickets where the user is only an assignee, not the requester', fun
         ->and(Ticketing::exportRequesterData($customer))->toHaveCount(1);
 });
 
+it('reaches a soft-deleted ticket when anonymising (PII must not survive in trash)', function (): void {
+    $requester = TestRequester::query()->create(['name' => 'Soft', 'email' => 'soft@example.test']);
+    $ticket = Ticketing::open(type: 'support', title: 'trashed', requester: $requester);
+    Ticketing::postMessage($ticket, $requester, 'hi', meta: ['from' => 'soft@example.test']);
+    $ticket->delete(); // soft delete
+
+    expect(Ticketing::anonymiseRequester($requester))->toBe(1);
+
+    $message = TicketMessage::query()->withoutGlobalScopes()->where('ticket_id', $ticket->getKey())->first();
+    expect($message->meta['from'])->toBe('[anonymized]');
+});
+
 it('anonymises old closed tickets via a retention rule', function (): void {
     config()->set('ticketing.gdpr.retention', [['type' => 'support', 'after_days' => 30, 'action' => 'anonymize']]);
 

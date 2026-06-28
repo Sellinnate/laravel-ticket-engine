@@ -12,6 +12,7 @@ use Selli\Ticketing\Events\RequesterAnonymized;
 use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Models\TicketMessage;
 use Selli\Ticketing\Support\AuditLogger;
+use Selli\Ticketing\Support\Ticketing;
 
 /**
  * Scrubs the denormalised personal data the package stores for a requester (the
@@ -58,7 +59,13 @@ class AnonymizeRequester
 
     protected function scrubMessages(Ticket $ticket, Model $requester, ?string $email, string $label): bool
     {
-        $messages = $ticket->messages()->withoutTenancy()
+        $relation = $ticket->messages()->withoutTenancy();
+
+        if (RequesterTickets::softDeletes(Ticketing::ticketMessageModel())) {
+            $relation->withTrashed();
+        }
+
+        $messages = $relation
             ->where(function (Builder $query) use ($requester, $email): void {
                 $query->where(function (Builder $author) use ($requester): void {
                     $author->where('author_type', $requester->getMorphClass())

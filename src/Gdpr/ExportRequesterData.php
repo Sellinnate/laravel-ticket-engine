@@ -9,6 +9,7 @@ use Selli\Ticketing\Enums\MessageVisibility;
 use Selli\Ticketing\Models\SatisfactionRating;
 use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Models\TicketMessage;
+use Selli\Ticketing\Support\Ticketing;
 
 /**
  * Builds a data-subject export for a requester: their tickets, the public
@@ -25,10 +26,19 @@ class ExportRequesterData
      */
     public function handle(Model $requester): array
     {
+        $includeTrashedMessages = RequesterTickets::softDeletes(Ticketing::ticketMessageModel());
+
         $tickets = RequesterTickets::query($requester)
-            // withoutTenancy on the eager load too, or public messages on the
-            // requester's tickets in OTHER tenants come back empty.
-            ->with(['messages' => fn ($query) => $query->withoutTenancy()->where('visibility', MessageVisibility::Public->value)])
+            // withoutTenancy + withTrashed on the eager load too, or public
+            // messages on the requester's tickets in OTHER tenants — or on
+            // soft-deleted threads — come back empty.
+            ->with(['messages' => function ($query) use ($includeTrashedMessages): void {
+                if ($includeTrashedMessages) {
+                    $query->withTrashed();
+                }
+
+                $query->withoutTenancy()->where('visibility', MessageVisibility::Public->value);
+            }])
             ->get();
 
         $ratings = $this->ratingsByTicket($tickets->modelKeys());
@@ -61,7 +71,7 @@ class ExportRequesterData
             return [];
         }
 
-        return SatisfactionRating::query()->withoutTenancy()
+        return Ticketing::satisfactionRatingModel()::query()->withoutTenancy()
             ->whereIn('ticket_id', $ticketIds)
             ->get()
             ->keyBy(fn (SatisfactionRating $rating): string => (string) $rating->ticket_id)

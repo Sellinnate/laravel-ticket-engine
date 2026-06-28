@@ -71,6 +71,12 @@ class ApplyRetention
         /** @var Builder<Ticket> $query */
         $query = Ticketing::ticketModel()::withoutTenancy();
 
+        // Reach soft-deleted tickets too — a trashed-but-not-erased ticket still
+        // holds PII that retention must act on.
+        if (RequesterTickets::softDeletes(Ticketing::ticketModel())) {
+            $query->withTrashed();
+        }
+
         $query->whereNotNull('closed_at')->where('closed_at', '<=', $cutoff);
 
         if ($type !== '*') {
@@ -91,7 +97,13 @@ class ApplyRetention
     {
         $label = (string) config('ticketing.gdpr.anonymized_label', '[anonymized]');
 
-        foreach ($ticket->messages()->withoutTenancy()->get() as $message) {
+        $relation = $ticket->messages()->withoutTenancy();
+
+        if (RequesterTickets::softDeletes(Ticketing::ticketMessageModel())) {
+            $relation->withTrashed();
+        }
+
+        foreach ($relation->get() as $message) {
             $meta = $message->meta ?? [];
             $changed = false;
 

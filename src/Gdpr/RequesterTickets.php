@@ -6,6 +6,7 @@ namespace Selli\Ticketing\Gdpr;
 
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Selli\Ticketing\Enums\ParticipantRole;
 use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Models\TicketParticipant;
@@ -26,6 +27,13 @@ class RequesterTickets
         /** @var Builder<Ticket> $query */
         $query = Ticketing::ticketModel()::withoutTenancy();
 
+        // Include soft-deleted tickets — a trashed row (e.g. a source ticket a
+        // merge soft-deleted) still holds the requester's denormalised PII, which
+        // erasure/retention must reach.
+        if (self::softDeletes(Ticketing::ticketModel())) {
+            $query->withTrashed();
+        }
+
         return $query->where(function (Builder $scoped) use ($requester): void {
             $scoped
                 ->where(function (Builder $subject) use ($requester): void {
@@ -45,5 +53,16 @@ class RequesterTickets
                         ->where('participant_id', $requester->getKey());
                 });
         });
+    }
+
+    /**
+     * Whether a model class uses SoftDeletes (so GDPR queries should reach
+     * trashed rows that may still hold personal data).
+     *
+     * @param  class-string<Model>  $model
+     */
+    public static function softDeletes(string $model): bool
+    {
+        return in_array(SoftDeletes::class, class_uses_recursive($model), true);
     }
 }
