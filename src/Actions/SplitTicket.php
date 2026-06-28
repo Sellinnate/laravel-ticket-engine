@@ -61,15 +61,17 @@ class SplitTicket
             // Lock the source so concurrent split/merge/message moves serialise.
             $source = $ticketModel::query()->withoutTenancy()->lockForUpdate()->findOrFail($source->getKey());
 
-            // Refuse a no-op split (no given message actually belongs to the
-            // source), so we never create an empty ticket + fire its events.
+            // Require a non-empty set where every requested message belongs to
+            // the source, so we never create an empty ticket nor silently drop
+            // ids that point at another ticket.
+            $unique = array_values(array_unique($messageIds));
             $movable = $messageModel::query()->withoutTenancy()
                 ->where('ticket_id', $source->getKey())
-                ->whereIn((new $messageModel)->getKeyName(), $messageIds)
+                ->whereIn((new $messageModel)->getKeyName(), $unique)
                 ->count();
 
-            if ($movable === 0) {
-                throw new \InvalidArgumentException('No messages from the source ticket were given to split.');
+            if ($unique === [] || $movable !== count($unique)) {
+                throw new \InvalidArgumentException('Every message to split must belong to the source ticket.');
             }
 
             $typeKey = $this->typeKey($source);

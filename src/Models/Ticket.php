@@ -160,7 +160,7 @@ class Ticket extends Model
         $prefix = (string) config('ticketing.tables.prefix', '');
         $table = $prefix.(string) config('ticketing.tables.taggables', 'taggables');
 
-        return $this->morphToMany(Ticketing::tagModel(), 'taggable', $table, 'taggable_id', 'tag_id');
+        return $this->morphToMany(Ticketing::tagModel(), 'taggable', $table, 'taggable_id', 'tag_id')->withTimestamps();
     }
 
     /**

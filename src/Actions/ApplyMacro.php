@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 use Selli\Ticketing\Enums\MessageVisibility;
 use Selli\Ticketing\Exceptions\CrossTenantException;
+use Selli\Ticketing\Exceptions\InvalidConfigurationException;
 use Selli\Ticketing\Models\Macro;
 use Selli\Ticketing\Models\Team;
 use Selli\Ticketing\Models\Ticket;
@@ -38,9 +39,15 @@ class ApplyMacro
 
         DB::transaction(function () use ($ticket, $macro, $actor, $actions, $reply): void {
             if (! empty($reply['body'])) {
-                $visibility = ($reply['visibility'] ?? 'public') === 'internal'
-                    ? MessageVisibility::Internal
-                    : MessageVisibility::Public;
+                $visibility = MessageVisibility::tryFrom((string) ($reply['visibility'] ?? 'public'));
+
+                if ($visibility === null) {
+                    // Fail closed on an unknown visibility rather than defaulting
+                    // to public (which could leak an intended-internal reply).
+                    throw new InvalidConfigurationException(
+                        'Macro reply has an invalid visibility ['.(string) ($reply['visibility'] ?? '').'].'
+                    );
+                }
 
                 $this->manager->postMessage($ticket, $actor, (string) $reply['body'], $visibility);
             }

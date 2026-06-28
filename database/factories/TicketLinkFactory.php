@@ -20,10 +20,13 @@ class TicketLinkFactory extends Factory
      */
     public function definition(): array
     {
+        $ticketModel = Ticketing::ticketModel();
+
         return [
-            'ticket_id' => Ticketing::ticketModel()::factory(),
-            'linkable_type' => 'tickets.link',
-            'linkable_id' => (string) fake()->unique()->numberBetween(1, 1000000),
+            'ticket_id' => $ticketModel::factory(),
+            // Default to a real (another) ticket as the linked subject.
+            'linkable_type' => (new $ticketModel)->getMorphClass(),
+            'linkable_id' => $ticketModel::factory(),
             'role' => 'references',
         ];
     }

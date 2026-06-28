@@ -29,12 +29,17 @@ class CollaborationSubscriber
     public function onMessage(MessagePosted $event): void
     {
         foreach ($this->parser->extract($event->message->body) as $handle) {
-            $actor = $this->resolver->resolve($handle);
+            try {
+                $actor = $this->resolver->resolve($handle);
 
-            // Never attach an actor from another tenant, even if a custom
-            // resolver returns one.
-            if ($actor instanceof Model && $this->tenant->belongsToTicketTenant($actor, $event->ticket)) {
-                $this->addCollaborator($event->ticket, $actor);
+                // Never attach an actor from another tenant, even if a custom
+                // resolver returns one.
+                if ($actor instanceof Model && $this->tenant->belongsToTicketTenant($actor, $event->ticket)) {
+                    $this->addCollaborator($event->ticket, $actor);
+                }
+            } catch (\Throwable $exception) {
+                // Isolate failures so one bad handle doesn't drop the rest.
+                report($exception);
             }
         }
     }

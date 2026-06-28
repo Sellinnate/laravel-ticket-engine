@@ -6,7 +6,6 @@ namespace Selli\Ticketing\Database\Factories;
 
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Database\Eloquent\Model;
-use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Models\TicketAttachment;
 use Selli\Ticketing\Support\Ticketing;
 
@@ -22,9 +21,11 @@ class TicketAttachmentFactory extends Factory
      */
     public function definition(): array
     {
+        $ticketModel = Ticketing::ticketModel();
+
         return [
-            'attachable_type' => (new Ticket)->getMorphClass(),
-            'attachable_id' => Ticketing::ticketModel()::factory(),
+            'attachable_type' => (new $ticketModel)->getMorphClass(),
+            'attachable_id' => $ticketModel::factory(),
             'disk' => 'local',
             'path' => 'attachments/'.fake()->uuid().'.txt',
             'name' => fake()->word().'.txt',

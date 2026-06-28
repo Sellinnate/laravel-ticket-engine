@@ -34,7 +34,13 @@ class AddAttachment
         // Store the file BEFORE the transaction and capture its metadata, then
         // delete it if the database write rolls back — so a failed insert can't
         // leave an orphaned blob on the disk.
-        $path = (string) $file->store('ticketing/attachments', $disk);
+        $stored = $file->store('ticketing/attachments', $disk);
+
+        if ($stored === false) {
+            throw AttachmentRejectedException::storageFailed();
+        }
+
+        $path = $stored;
         $name = $file->getClientOriginalName();
         $mime = $file->getMimeType();
         $size = (int) $file->getSize();

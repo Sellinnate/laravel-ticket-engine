@@ -87,3 +87,26 @@ it('carries the requester onto the split ticket', function (): void {
         ->where('participant_id', (string) $requester->getKey())
         ->exists())->toBeTrue();
 });
+
+it('copies requester participants from sources to the target on merge', function (): void {
+    $targetRequester = makeUser(['name' => 'Tgt']);
+    $sourceRequester = makeUser(['name' => 'Src']);
+    $target = Ticketing::open(type: 'support', title: 'T', requester: $targetRequester);
+    $source = Ticketing::open(type: 'support', title: 'S', requester: $sourceRequester);
+
+    Ticketing::for($target)->mergeFrom([$source]);
+
+    expect($target->participants()
+        ->where('role', ParticipantRole::Requester->value)
+        ->where('participant_id', (string) $sourceRequester->getKey())
+        ->exists())->toBeTrue();
+});
+
+it('refuses to split a message that belongs to another ticket', function (): void {
+    $a = Ticketing::open(type: 'support', title: 'A', requester: makeUser());
+    $b = Ticketing::open(type: 'support', title: 'B', requester: makeUser());
+    $own = Ticketing::for($a)->postMessage(makeUser(), 'mine');
+    $foreign = Ticketing::for($b)->postMessage(makeUser(), 'theirs');
+
+    Ticketing::for($a)->split([$own->getKey(), $foreign->getKey()]);
+})->throws(InvalidArgumentException::class);

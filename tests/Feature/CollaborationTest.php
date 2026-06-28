@@ -8,6 +8,7 @@ use Selli\Ticketing\Contracts\MentionResolver;
 use Selli\Ticketing\Enums\ParticipantRole;
 use Selli\Ticketing\Events\MessagePosted;
 use Selli\Ticketing\Exceptions\CrossTenantException;
+use Selli\Ticketing\Exceptions\InvalidConfigurationException;
 use Selli\Ticketing\Facades\Ticketing;
 use Selli\Ticketing\Listeners\CollaborationSubscriber;
 use Selli\Ticketing\Models\CannedResponse;
@@ -66,6 +67,13 @@ it('applies a macro with no reply key', function (): void {
     expect($ticket->fresh()->tags()->count())->toBe(1)
         ->and($ticket->fresh()->messages()->count())->toBe(0);
 });
+
+it('rejects a macro reply with an invalid visibility', function (): void {
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+    $macro = Macro::factory()->create(['actions' => ['reply' => ['body' => 'hi', 'visibility' => 'secret']]]);
+
+    Ticketing::for($ticket)->applyMacro($macro);
+})->throws(InvalidConfigurationException::class);
 
 it('rejects a macro from another tenant', function (): void {
     $context = app(TenantContext::class);

@@ -18,4 +18,9 @@ class AttachmentRejectedException extends TicketingException
     {
         return new self("Attachment mime type [{$mime}] is not allowed.");
     }
+
+    public static function storageFailed(): self
+    {
+        return new self('The attachment could not be stored on the configured disk.');
+    }
 }
