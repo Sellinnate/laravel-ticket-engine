@@ -7,6 +7,7 @@ namespace Selli\Ticketing\Sla;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Carbon;
+use Selli\Ticketing\Contracts\CanActOnTickets;
 use Selli\Ticketing\Enums\MessageVisibility;
 use Selli\Ticketing\Enums\ParticipantRole;
 use Selli\Ticketing\Enums\SlaTarget;
@@ -75,8 +76,22 @@ class SlaManager
             return;
         }
 
-        $this->handleFirstResponse($ticket);
-        $this->completeClock($ticket, SlaTarget::NextResponse);
+        // Only a real agent reply (author implements CanActOnTickets) completes
+        // the response clocks — a public watcher/CC note or a system post with no
+        // author must not stop the first/next-response timers.
+        if ($this->isAgentAuthor($message)) {
+            $this->handleFirstResponse($ticket);
+            $this->completeClock($ticket, SlaTarget::NextResponse);
+        }
+    }
+
+    protected function isAgentAuthor(TicketMessage $message): bool
+    {
+        if ($message->author_id === null) {
+            return false;
+        }
+
+        return $message->author instanceof CanActOnTickets;
     }
 
     /**
@@ -281,7 +296,16 @@ class SlaManager
         foreach ([SlaTarget::FirstResponse, SlaTarget::Resolution] as $target) {
             $minutes = $this->minutesFor($policy, $target);
 
-            if ($minutes === null || $this->clock($ticket, $target) !== null) {
+            if ($minutes === null) {
+                continue;
+            }
+
+            // Skip only when an *incomplete* clock already exists. A previously
+            // completed clock (e.g. target was removed then re-enabled) is
+            // restarted via writeClock's updateOrCreate.
+            $existing = $this->clock($ticket, $target);
+
+            if ($existing !== null && ! $existing->isCompleted()) {
                 continue;
             }
 

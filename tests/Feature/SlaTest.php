@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Event;
+use Selli\Ticketing\Enums\MessageVisibility;
 use Selli\Ticketing\Enums\Priority;
 use Selli\Ticketing\Enums\SlaTarget;
 use Selli\Ticketing\Events\SlaBreached;
@@ -270,6 +271,30 @@ it('reads the threshold percent from config when the option is omitted', functio
 
     // 50% would not trip the default 75% gate, proving the config value was used.
     Event::assertDispatched(SlaThresholdReached::class);
+});
+
+it('does not complete response clocks for a non-agent public note', function (): void {
+    SlaPolicy::factory()->create(['first_response_minutes' => 60, 'resolution_minutes' => 480]);
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+
+    // A public note from a model that is neither the requester nor an agent.
+    $watcher = makeOrder();
+    Ticketing::for($ticket)->postMessage($watcher, 'FYI', MessageVisibility::Public);
+
+    expect(clockFor($ticket->getKey(), SlaTarget::FirstResponse)->isCompleted())->toBeFalse();
+});
+
+it('restarts a re-enabled target whose clock was previously completed', function (): void {
+    $policy = SlaPolicy::factory()->create(['first_response_minutes' => 60, 'resolution_minutes' => 480]);
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+
+    $policy->update(['first_response_minutes' => null]);
+    app(SlaManager::class)->recalculate($ticket->fresh());
+    expect(clockFor($ticket->getKey(), SlaTarget::FirstResponse)->isCompleted())->toBeTrue();
+
+    $policy->update(['first_response_minutes' => 30]);
+    app(SlaManager::class)->recalculate($ticket->fresh());
+    expect(clockFor($ticket->getKey(), SlaTarget::FirstResponse)->isCompleted())->toBeFalse();
 });
 
 it('stops every SLA clock on resolution', function (): void {
