@@ -10,14 +10,14 @@ use Selli\Ticketing\Facades\Ticketing;
 use Selli\Ticketing\Http\Requests\StoreAttachmentRequest;
 use Selli\Ticketing\Models\Ticket;
 
-class AttachmentController
+class AttachmentController extends Controller
 {
     public function store(StoreAttachmentRequest $request, Ticket $ticket): JsonResponse
     {
         /** @var UploadedFile $file */
         $file = $request->file('file');
 
-        $attachment = Ticketing::addAttachment($ticket, $file, uploadedBy: $request->user());
+        $attachment = $this->guard('file', fn () => Ticketing::addAttachment($ticket, $file, uploadedBy: $request->user()));
 
         return response()->json([
             'id' => $attachment->getKey(),

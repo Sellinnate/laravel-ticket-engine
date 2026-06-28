@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Selli\Ticketing;
 
 use Illuminate\Contracts\Auth\Factory;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Route;
@@ -158,14 +159,20 @@ class TicketingServiceProvider extends PackageServiceProvider
         $prefix = trim((string) config('ticketing.api.prefix', 'ticketing/api'), '/')
             .'/'.trim((string) config('ticketing.api.version', 'v1'), '/');
 
-        // Always include SubstituteBindings (implicit {ticket} resolution, which
-        // applies the model's tenant scope so a cross-tenant id 404s) and the
-        // throttle, even if the host overrides the rest of the middleware. The
-        // binding stays scoped to this group rather than registered globally.
+        // Always include SubstituteBindings (it resolves {ticket} via the explicit
+        // binding below) and the throttle, even if the host overrides the rest of
+        // the middleware.
         $middleware = array_values(array_unique(array_merge(
             (array) config('ticketing.api.middleware', ['api']),
             [SubstituteBindings::class, 'throttle:'.config('ticketing.api.throttle', '120,1')],
         )));
+
+        // Resolve {ticket} through the *configured* model (honouring a host's
+        // useTicketModel()/config override) rather than the base class an implicit
+        // binding off the controller type-hint would give. query() applies the
+        // tenant global scope, so a cross-tenant id 404s. Only registered when the
+        // API is enabled, so it never pollutes a host that doesn't opt in.
+        Route::bind('ticket', fn (string $value): Model => Ticketing::ticketModel()::query()->findOrFail($value));
 
         Route::group(['prefix' => $prefix, 'middleware' => $middleware], function (): void {
             $this->loadRoutesFrom(__DIR__.'/../routes/api.php');

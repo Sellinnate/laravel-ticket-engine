@@ -120,6 +120,21 @@ it('lets an agent post an internal note but not a requester', function (): void 
         ->assertStatus(422)->assertJsonValidationErrors('visibility');
 });
 
+it('returns 422 (not 500) for an unknown ticket type', function (): void {
+    $this->actingAs(makeUser());
+
+    $this->postJson(API.'/tickets', ['type' => 'no-such-type', 'title' => 'x'])
+        ->assertStatus(422)->assertJsonValidationErrors('type');
+});
+
+it('returns 422 (not 500) for a disallowed transition', function (): void {
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+    $this->actingAs(makeUser());
+
+    $this->postJson(API.'/tickets/'.$ticket->getKey().'/transitions', ['transition' => 'reopen'])
+        ->assertStatus(422)->assertJsonValidationErrors('transition');
+});
+
 it('transitions a ticket', function (): void {
     $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
     $this->actingAs(makeUser());

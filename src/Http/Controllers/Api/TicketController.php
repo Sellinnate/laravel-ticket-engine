@@ -19,7 +19,7 @@ use Selli\Ticketing\Support\Ticketing as TicketingManager;
  * Tickets resource. Reads are tenant-scoped by the engine's global scope, so a
  * caller only ever sees its own tenant's tickets.
  */
-class TicketController
+class TicketController extends Controller
 {
     public function index(Request $request): AnonymousResourceCollection
     {
@@ -51,13 +51,13 @@ class TicketController
 
     public function store(StoreTicketRequest $request): JsonResponse
     {
-        $ticket = Ticketing::open(
+        $ticket = $this->guard('type', fn () => Ticketing::open(
             type: (string) $request->string('type'),
             title: (string) $request->string('title'),
             requester: $request->user(),
             priority: $request->filled('priority') ? Priority::from($request->integer('priority')) : null,
             category: $request->input('category'),
-        );
+        ));
 
         return (new TicketResource($ticket))->response()->setStatusCode(201);
     }
