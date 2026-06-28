@@ -61,6 +61,23 @@ trait BelongsToTenant
     }
 
     /**
+     * Attributes that propagate this record's tenant onto a child record.
+     *
+     * Child rows of a ticket (messages, participants, activities, …) must
+     * inherit the ticket's tenant explicitly rather than rely on ambient
+     * context — otherwise a queue/CLI write with no resolved tenant would
+     * persist a null (shared) row, leaking across tenants.
+     *
+     * @return array<string, int|string|null>
+     */
+    public function tenantAttributes(): array
+    {
+        $column = $this->getTenantColumn();
+
+        return [$column => $this->getAttribute($column)];
+    }
+
+    /**
      * Escape hatch: query without the tenant scope. Use deliberately.
      *
      * @param  Builder<static>  $query

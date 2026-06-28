@@ -29,22 +29,19 @@ class AuditLogger
     ): TicketActivity {
         $model = Ticketing::ticketActivityModel();
 
-        $attributes = [
+        // Inherit the ticket's tenant so system/CLI writes are attributed
+        // correctly even without a resolved context.
+        $attributes = array_merge($ticket->tenantAttributes(), [
             'ticket_id' => $ticket->getKey(),
             'event' => $event,
             'changes' => $changes === [] ? null : $changes,
             'context' => $context === [] ? null : $context,
-        ];
+        ]);
 
         if ($actor !== null) {
             $attributes['actor_type'] = $actor->getMorphClass();
             $attributes['actor_id'] = $actor->getKey();
         }
-
-        // Inherit the ticket's tenant so system/CLI writes are attributed
-        // correctly even without a resolved context.
-        $tenantColumn = $ticket->getTenantColumn();
-        $attributes[$tenantColumn] = $ticket->getAttribute($tenantColumn);
 
         return $model::query()->create($attributes);
     }

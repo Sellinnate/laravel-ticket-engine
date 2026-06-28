@@ -2,9 +2,13 @@
 
 declare(strict_types=1);
 
+use Selli\Ticketing\Enums\MessageVisibility;
 use Selli\Ticketing\Enums\Priority;
 use Selli\Ticketing\Facades\Ticketing;
 use Selli\Ticketing\Models\Ticket;
+use Selli\Ticketing\Models\TicketActivity;
+use Selli\Ticketing\Models\TicketMessage;
+use Selli\Ticketing\Models\TicketParticipant;
 use Selli\Ticketing\Models\TicketType;
 use Selli\Ticketing\Tenancy\TenantContext;
 
@@ -30,6 +34,28 @@ it('scopes reads to the current tenant', function (): void {
     expect($tenant1Count)->toBe(1)
         ->and($tenant2Count)->toBe(1)
         ->and(Ticket::query()->withoutTenancy()->count())->toBe(2);
+});
+
+it('inherits the ticket tenant on child rows even without ambient context', function (): void {
+    $context = app(TenantContext::class);
+
+    // Open a ticket as tenant 4, then post a message OUTSIDE any tenant context
+    // (as a queue/CLI worker would). The message must inherit the ticket tenant.
+    $ticket = $context->forTenant(4, fn () => Ticketing::open(
+        type: 'support',
+        title: 'Scoped',
+        requester: makeUser(['tenant_id' => 4]),
+    ));
+
+    Ticketing::for($ticket)->postMessage(makeUser(['tenant_id' => 4]), 'Internal', MessageVisibility::Internal);
+
+    $message = TicketMessage::query()->withoutTenancy()->first();
+    $participant = TicketParticipant::query()->withoutTenancy()->first();
+    $activity = TicketActivity::query()->withoutTenancy()->where('event', 'message.posted')->first();
+
+    expect($message->tenant_id)->toBe(4)
+        ->and($participant->tenant_id)->toBe(4)
+        ->and($activity->tenant_id)->toBe(4);
 });
 
 it('allocates reference sequences independently per tenant', function (): void {

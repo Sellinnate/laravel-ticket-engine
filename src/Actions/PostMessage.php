@@ -27,14 +27,16 @@ class PostMessage
         $model = Ticketing::ticketMessageModel();
 
         $message = DB::transaction(function () use ($model, $data): TicketMessage {
-            $attributes = [
+            // Inherit the ticket's tenant explicitly so a queue/CLI write with
+            // no resolved context cannot persist a cross-tenant (null) message.
+            $attributes = array_merge($data->ticket->tenantAttributes(), [
                 'ticket_id' => $data->ticket->getKey(),
                 'visibility' => $data->visibility,
                 'body' => $data->body,
                 'body_format' => $data->bodyFormat,
                 'source' => $data->source,
                 'meta' => $data->meta === [] ? null : $data->meta,
-            ];
+            ]);
 
             if ($data->author !== null) {
                 $attributes['author_type'] = $data->author->getMorphClass();

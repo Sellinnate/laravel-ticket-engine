@@ -120,9 +120,9 @@ class OpenTicket
             'participant_type' => $data->requester?->getMorphClass(),
             'participant_id' => $data->requester?->getKey(),
             'role' => ParticipantRole::Requester->value,
-        ], [
+        ], array_merge($ticket->tenantAttributes(), [
             'notify' => true,
-        ]);
+        ]));
     }
 
     protected function initialState(string $workflow): string

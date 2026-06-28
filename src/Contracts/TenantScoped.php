@@ -13,4 +13,9 @@ interface TenantScoped
     public function getTenantColumn(): string;
 
     public function getQualifiedTenantColumn(): string;
+
+    /**
+     * @return array<string, int|string|null>
+     */
+    public function tenantAttributes(): array;
 }
