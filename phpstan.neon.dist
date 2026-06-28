@@ -2,9 +2,16 @@ includes:
     - phpstan-baseline.neon
 
 parameters:
-    level: 5
+    level: 6
     paths:
         - src
         - config
         - database
     tmpDir: build/phpstan
+    treatPhpDocTypesAsCertain: false
+    ignoreErrors:
+        # Traits are part of the package's public API and consumed by host apps,
+        # so they legitimately appear "unused" within src.
+        -
+            identifier: trait.unused
+            path: src/Concerns/HasTickets.php

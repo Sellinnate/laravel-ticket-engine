@@ -1,0 +1,61 @@
+<?php
+
+declare(strict_types=1);
+
+use Illuminate\Support\Facades\Event;
+use Selli\Ticketing\Enums\MessageVisibility;
+use Selli\Ticketing\Events\MessagePosted;
+use Selli\Ticketing\Facades\Ticketing;
+use Selli\Ticketing\Models\TicketMessage;
+
+it('posts a public message to a ticket', function (): void {
+    $ticket = Ticketing::open(type: 'support', title: 'Help', requester: makeUser());
+    $agent = makeUser(['name' => 'Agent']);
+
+    $message = Ticketing::for($ticket)->postMessage($agent, 'On it', MessageVisibility::Public);
+
+    expect($message)->toBeInstanceOf(TicketMessage::class)
+        ->and($message->body)->toBe('On it')
+        ->and($message->visibility)->toBe(MessageVisibility::Public)
+        ->and((string) $message->author_id)->toBe((string) $agent->getKey());
+});
+
+it('stamps first_response_at on the first public agent reply', function (): void {
+    $ticket = Ticketing::open(type: 'support', title: 'Help', requester: makeUser());
+    $agent = makeUser(['name' => 'Agent']);
+
+    expect($ticket->first_response_at)->toBeNull();
+
+    Ticketing::for($ticket)->postMessage($agent, 'Working on it');
+
+    expect($ticket->fresh()->first_response_at)->not->toBeNull();
+});
+
+it('does not stamp first_response_at for internal notes', function (): void {
+    $ticket = Ticketing::open(type: 'support', title: 'Help', requester: makeUser());
+    $agent = makeUser(['name' => 'Agent']);
+
+    Ticketing::for($ticket)->postMessage($agent, 'Internal note', MessageVisibility::Internal);
+
+    expect($ticket->fresh()->first_response_at)->toBeNull();
+});
+
+it('separates public and internal messages via scopes', function (): void {
+    $ticket = Ticketing::open(type: 'support', title: 'Help', requester: makeUser());
+    $agent = makeUser(['name' => 'Agent']);
+
+    Ticketing::for($ticket)->postMessage($agent, 'Public reply', MessageVisibility::Public);
+    Ticketing::for($ticket)->postMessage($agent, 'Secret', MessageVisibility::Internal);
+
+    expect($ticket->messages()->public()->count())->toBe(1)
+        ->and($ticket->messages()->internal()->count())->toBe(1);
+});
+
+it('dispatches MessagePosted', function (): void {
+    Event::fake([MessagePosted::class]);
+
+    $ticket = Ticketing::open(type: 'support', title: 'Help', requester: makeUser());
+    Ticketing::for($ticket)->postMessage(makeUser(), 'Hi');
+
+    Event::assertDispatched(MessagePosted::class);
+});

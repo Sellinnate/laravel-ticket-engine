@@ -1,0 +1,70 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Selli\Ticketing\Concerns;
+
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
+use Selli\Ticketing\Contracts\TenantScoped;
+use Selli\Ticketing\Tenancy\TenantContext;
+use Selli\Ticketing\Tenancy\TenantScope;
+
+/**
+ * Applied to every package model. Adds the tenant global scope on reads and an
+ * automatic tenant assignment on writes, so a developer never has to remember
+ * to filter — it is structural.
+ *
+ * @method static Builder<static> withoutTenancy()
+ */
+trait BelongsToTenant
+{
+    public static function bootBelongsToTenant(): void
+    {
+        static::addGlobalScope(new TenantScope);
+
+        static::creating(function (Model $model): void {
+            $context = app(TenantContext::class);
+
+            if (! $context->enabled()) {
+                return;
+            }
+
+            /** @var Model&TenantScoped $model */
+            $column = $model->getTenantColumn();
+
+            if ($model->getAttribute($column) === null) {
+                $model->setAttribute($column, $context->current());
+            }
+        });
+    }
+
+    /**
+     * The tenant column for this model. Override per-model via a $tenantColumn
+     * property; otherwise the package-wide configured column is used.
+     */
+    public function getTenantColumn(): string
+    {
+        if (property_exists($this, 'tenantColumn') && is_string($this->tenantColumn)) {
+            return $this->tenantColumn;
+        }
+
+        return app(TenantContext::class)->column();
+    }
+
+    public function getQualifiedTenantColumn(): string
+    {
+        return $this->qualifyColumn($this->getTenantColumn());
+    }
+
+    /**
+     * Escape hatch: query without the tenant scope. Use deliberately.
+     *
+     * @param  Builder<static>  $query
+     * @return Builder<static>
+     */
+    public function scopeWithoutTenancy(Builder $query): Builder
+    {
+        return $query->withoutGlobalScope(TenantScope::class);
+    }
+}
