@@ -6,6 +6,7 @@ namespace Selli\Ticketing;
 
 use Illuminate\Contracts\Auth\Factory;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Route;
 use Selli\Ticketing\Automation\RuleEngine;
 use Selli\Ticketing\Collaboration\NullMentionResolver;
 use Selli\Ticketing\Commands\EscalateCommand;
@@ -102,7 +103,13 @@ class TicketingServiceProvider extends PackageServiceProvider
             $this->publishesMigrations([
                 __DIR__.'/../database/migrations' => database_path('migrations'),
             ], 'ticketing-migrations');
+
+            $this->publishes([
+                __DIR__.'/../routes/api.php' => base_path('routes/ticketing-api.php'),
+            ], 'ticketing-routes');
         }
+
+        $this->registerApiRoutes();
 
         if (config('ticketing.workflow.validate_on_boot', true) !== false) {
             $this->app->make(ConfigValidator::class)->validate();
@@ -135,6 +142,33 @@ class TicketingServiceProvider extends PackageServiceProvider
         if (config('ticketing.automation.enabled', true) !== false) {
             $this->subscribe($this->app->make(AutomationSubscriber::class));
         }
+    }
+
+    /**
+     * Mount the opt-in REST API under the configured prefix/version + middleware,
+     * binding {ticket} to the configured (tenant-scoped) model.
+     */
+    protected function registerApiRoutes(): void
+    {
+        if (config('ticketing.api.enabled', false) !== true) {
+            return;
+        }
+
+        // Resolve {ticket} via the configured model so a host override is honoured
+        // (and the model's tenant global scope still makes a cross-tenant id 404).
+        Route::model('ticket', Ticketing::ticketModel());
+
+        $prefix = trim((string) config('ticketing.api.prefix', 'ticketing/api'), '/')
+            .'/'.trim((string) config('ticketing.api.version', 'v1'), '/');
+
+        $middleware = array_merge(
+            (array) config('ticketing.api.middleware', ['api']),
+            ['throttle:'.config('ticketing.api.throttle', '120,1')],
+        );
+
+        Route::group(['prefix' => $prefix, 'middleware' => $middleware], function (): void {
+            $this->loadRoutesFrom(__DIR__.'/../routes/api.php');
+        });
     }
 
     /**

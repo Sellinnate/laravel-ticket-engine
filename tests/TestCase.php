@@ -6,6 +6,7 @@ namespace Selli\Ticketing\Tests;
 
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Support\Facades\Schema;
 use Orchestra\Testbench\TestCase as Orchestra;
 use Selli\Ticketing\Support\Ticketing;
@@ -39,6 +40,13 @@ class TestCase extends Orchestra
         // A real Laravel app always has an application key; set one so signed
         // CSAT tokens have a secret (the package fails closed without it).
         config()->set('app.key', 'base64:'.base64_encode(str_repeat('a', 32)));
+
+        // Mount the REST API for the suite; the host's auth is its concern, so the
+        // tests authenticate via actingAs() and run without an auth middleware —
+        // but still need SubstituteBindings for route-model binding.
+        config()->set('ticketing.api.enabled', true);
+        config()->set('ticketing.api.middleware', [SubstituteBindings::class]);
+
         config()->set('database.default', 'testing');
         config()->set('database.connections.testing', [
             'driver' => 'sqlite',
