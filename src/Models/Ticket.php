@@ -44,6 +44,8 @@ use Selli\Ticketing\Support\Ticketing;
  * @property Carbon|null $closed_at
  * @property Carbon|null $due_at
  * @property int $reopened_count
+ * @property Carbon|null $created_at
+ * @property Carbon|null $updated_at
  */
 class Ticket extends Model
 {

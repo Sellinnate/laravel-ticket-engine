@@ -30,16 +30,7 @@ class ApplyMacro
 
     public function handle(Ticket $ticket, Macro $macro, ?Model $actor = null): Ticket
     {
-        if (! $macro->is_active) {
-            // A deactivated macro must not run any of its side effects. (Macro
-            // state is immutable w.r.t. the ticket, so this is a safe fast-fail.)
-            throw new InvalidConfigurationException("Macro [{$macro->key}] is inactive.");
-        }
-
-        $actions = $macro->actions;
-        $reply = is_array($actions['reply'] ?? null) ? $actions['reply'] : [];
-
-        DB::transaction(function () use ($ticket, $macro, $actor, $actions, $reply): void {
+        DB::transaction(function () use ($ticket, $macro, $actor): void {
             // Re-read the ticket under a row lock so the macro's side effects
             // (reply/tags in particular) can't land on a ticket that was
             // soft-deleted — e.g. merged away — concurrently. findOrFail uses the
@@ -48,6 +39,18 @@ class ApplyMacro
             $ticket = Ticketing::ticketModel()::query()->withoutTenancy()
                 ->lockForUpdate()
                 ->findOrFail($ticket->getKey());
+
+            // Re-read the macro inside the transaction too, so a concurrent
+            // deactivation / re-type / re-tenant is honoured rather than running
+            // off the caller's stale instance. findOrFail fails closed if it was
+            // deleted.
+            /** @var Macro $macro */
+            $macro = Ticketing::macroModel()::query()->withoutTenancy()
+                ->findOrFail($macro->getKey());
+
+            if (! $macro->is_active) {
+                throw new InvalidConfigurationException("Macro [{$macro->key}] is inactive.");
+            }
 
             // Validate ticket-dependent preconditions against the LOCKED row, so a
             // concurrent tenant/type change can't slip past a pre-lock check.
@@ -62,6 +65,9 @@ class ApplyMacro
                     "Macro [{$macro->key}] does not apply to this ticket type."
                 );
             }
+
+            $actions = $macro->actions;
+            $reply = is_array($actions['reply'] ?? null) ? $actions['reply'] : [];
 
             if (! empty($reply['body'])) {
                 $visibility = MessageVisibility::tryFrom((string) ($reply['visibility'] ?? 'public'));

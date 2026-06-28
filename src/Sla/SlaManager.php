@@ -122,16 +122,23 @@ class SlaManager
             return;
         }
 
+        // Never record a first response before the ticket itself existed: a
+        // split/merge can inherit an older reply, and a first_response_at that
+        // predates created_at would make "time to first response" go negative.
+        $stamp = $ticket->created_at !== null && $earliest->lessThan($ticket->created_at)
+            ? $ticket->created_at
+            : $earliest;
+
         $current = $ticket->first_response_at;
 
         // Adopt the earliest qualifying reply: set it when unset, or pull it
         // earlier when merged-in history answered sooner than the current stamp.
-        if ($current === null || $earliest->lessThan($current)) {
+        if ($current === null || $stamp->lessThan($current)) {
             Ticketing::ticketModel()::query()->withoutTenancy()
                 ->whereKey($ticket->getKey())
-                ->update(['first_response_at' => $earliest]);
+                ->update(['first_response_at' => $stamp]);
 
-            $ticket->first_response_at = $earliest;
+            $ticket->first_response_at = $stamp;
         }
 
         $this->completeFirstResponseClock($ticket);

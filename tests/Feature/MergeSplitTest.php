@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Storage;
 use Selli\Ticketing\Enums\ParticipantRole;
@@ -45,22 +46,37 @@ it('reflects a merged-in agent reply on the target first response', function ():
 });
 
 it('pulls the target first response earlier when merged history answered sooner', function (): void {
-    $agent = makeUser(['name' => 'Agent']);
-
+    // Target opens first; the source is answered after the target exists but
+    // before the target's own (later) reply.
+    Carbon::setTestNow(Carbon::parse('2026-06-29 09:00:00', 'UTC'));
     $target = Ticketing::open(type: 'support', title: 'T', requester: makeUser());
+
+    Carbon::setTestNow(Carbon::parse('2026-06-29 09:30:00', 'UTC'));
     $source = Ticketing::open(type: 'support', title: 'S', requester: makeUser());
+    Ticketing::for($source)->postMessage(makeUser(['name' => 'Agent A']), 'early');
 
-    // Source answered two hours earlier than the target.
-    $early = Ticketing::for($source)->postMessage($agent, 'early');
-    TicketMessage::query()->withoutTenancy()->whereKey($early->getKey())
-        ->update(['created_at' => now()->subHours(2)]);
-
-    Ticketing::for($target)->postMessage($agent, 'late'); // stamps target now
+    Carbon::setTestNow(Carbon::parse('2026-06-29 10:00:00', 'UTC'));
+    Ticketing::for($target)->postMessage(makeUser(['name' => 'Agent B']), 'late');
     $before = $target->fresh()->first_response_at;
 
     Ticketing::for($target)->mergeFrom([$source]);
 
     expect($target->fresh()->first_response_at->lessThan($before))->toBeTrue();
+
+    Carbon::setTestNow();
+});
+
+it('does not stamp a split first response earlier than the split ticket was created', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-06-29 09:00:00', 'UTC'));
+    $source = Ticketing::open(type: 'support', title: 'src', requester: makeUser());
+    $reply = Ticketing::for($source)->postMessage(makeUser(['name' => 'Agent']), 'old reply');
+
+    Carbon::setTestNow(Carbon::parse('2026-06-29 12:00:00', 'UTC')); // split 3h later
+    $created = Ticketing::for($source)->split([$reply->getKey()])->fresh();
+
+    expect($created->first_response_at->greaterThanOrEqualTo($created->created_at))->toBeTrue();
+
+    Carbon::setTestNow();
 });
 
 it('carries first_response_at onto a split ticket whose moved thread has an agent reply', function (): void {
