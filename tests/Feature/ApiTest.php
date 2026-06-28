@@ -157,6 +157,24 @@ it('rejects an empty or unknown assignment', function (): void {
     $this->postJson(API.'/tickets/'.$ticket->getKey().'/assignment', ['team_id' => 999999])->assertStatus(422);
 });
 
+it('refuses self-assignment by a requester', function (): void {
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+    $requester = TestRequester::query()->create(['name' => 'Req']);
+    $this->actingAs($requester);
+
+    $this->postJson(API.'/tickets/'.$ticket->getKey().'/assignment', ['assign_to_me' => true])
+        ->assertStatus(422)->assertJsonValidationErrors('assign_to_me');
+});
+
+it('returns 422 (not 500) when CSAT is rejected by the domain', function (): void {
+    config()->set('ticketing.csat.enabled', false);
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+    $this->actingAs(makeUser());
+
+    $this->postJson(API.'/tickets/'.$ticket->getKey().'/csat', ['rating' => 5])
+        ->assertStatus(422)->assertJsonValidationErrors('rating');
+});
+
 it('submits CSAT by token', function (): void {
     $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
     $token = Ticketing::csatToken($ticket);

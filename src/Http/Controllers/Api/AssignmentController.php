@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Selli\Ticketing\Http\Controllers\Api;
 
 use Illuminate\Validation\ValidationException;
+use Selli\Ticketing\Contracts\CanActOnTickets;
 use Selli\Ticketing\Facades\Ticketing;
 use Selli\Ticketing\Http\Requests\StoreAssignmentRequest;
 use Selli\Ticketing\Http\Resources\TicketResource;
@@ -26,7 +27,17 @@ class AssignmentController
             }
         }
 
-        $assignee = $request->boolean('assign_to_me') ? $request->user() : null;
+        $assignee = null;
+
+        if ($request->boolean('assign_to_me')) {
+            // Only agents can be assigned a ticket — a requester-only account
+            // can't self-assign.
+            if (! $request->user() instanceof CanActOnTickets) {
+                throw ValidationException::withMessages(['assign_to_me' => 'Only agents can be assigned a ticket.']);
+            }
+
+            $assignee = $request->user();
+        }
 
         if ($team === null && $assignee === null) {
             throw ValidationException::withMessages(['team_id' => 'Provide team_id or assign_to_me.']);
