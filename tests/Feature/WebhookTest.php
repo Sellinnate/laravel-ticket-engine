@@ -112,6 +112,20 @@ it('rejects a host that is not allow-listed', function (): void {
     (new DeliverWebhook('https://evil.test/hook', ['a' => 1]))->handle();
 })->throws(InvalidConfigurationException::class);
 
+it('allows a public hostname resolved under the private guard', function (): void {
+    config()->set('ticketing.webhooks.allowed_hosts', []);
+    Http::fake(['*' => Http::response('', 200)]);
+
+    (new DeliverWebhook('https://example.com/hook', ['a' => 1]))->handle();
+
+    Http::assertSent(fn (Request $request): bool => $request->url() === 'https://example.com/hook');
+})->group('network');
+
+it('fails closed on an unresolvable host', function (): void {
+    config()->set('ticketing.webhooks.allowed_hosts', []);
+    (new DeliverWebhook('https://nonexistent-zzz.invalid/hook', ['a' => 1]))->handle();
+})->throws(InvalidConfigurationException::class)->group('network');
+
 it('round-trips a signature through the verifier', function (): void {
     $body = '{"a":1}';
     $sig = WebhookSigner::sign($body, 'k');

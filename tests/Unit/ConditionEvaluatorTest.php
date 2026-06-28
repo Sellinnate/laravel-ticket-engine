@@ -52,6 +52,13 @@ it('resolves the type field', function (): void {
     expect(evalCond([['field' => 'type', 'operator' => '=', 'value' => 'support']]))->toBeTrue();
 });
 
+it('matches numeric and boolean fields against string values', function (): void {
+    // Rule JSON commonly stores values as strings; they must still match.
+    expect(evalCond([['field' => 'priority', 'operator' => '=', 'value' => '30']]))->toBeTrue()
+        ->and(evalCond([['field' => 'priority', 'operator' => 'in', 'value' => ['20', '30']]]))->toBeTrue()
+        ->and(evalCond([['field' => 'is_assigned', 'operator' => '=', 'value' => 'false']]))->toBeTrue();
+});
+
 it('fails closed on numeric comparisons with a non-numeric/null operand', function (): void {
     // assignee_id is null on a fresh ticket — must not coerce to 0 and match.
     expect(evalCond([['field' => 'assignee_id', 'operator' => 'gt', 'value' => 5]]))->toBeFalse()

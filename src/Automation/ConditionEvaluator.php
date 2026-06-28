@@ -56,17 +56,17 @@ class ConditionEvaluator
         $actual = $this->fieldValue($ticket, $field);
 
         return match ($operator) {
-            '=', 'eq' => $this->scalar($actual) === $this->scalar($expected),
-            '!=', 'neq' => $this->scalar($actual) !== $this->scalar($expected),
+            '=', 'eq' => $this->looseEquals($actual, $expected),
+            '!=', 'neq' => ! $this->looseEquals($actual, $expected),
             'gt' => $this->compareNum($actual, $expected, fn (float $a, float $b): bool => $a > $b),
             'gte' => $this->compareNum($actual, $expected, fn (float $a, float $b): bool => $a >= $b),
             'lt' => $this->compareNum($actual, $expected, fn (float $a, float $b): bool => $a < $b),
             'lte' => $this->compareNum($actual, $expected, fn (float $a, float $b): bool => $a <= $b),
-            'in' => in_array($this->scalar($actual), $this->scalarList($expected), true),
-            'not_in' => ! in_array($this->scalar($actual), $this->scalarList($expected), true),
+            'in' => $this->inList($actual, $expected),
+            'not_in' => ! $this->inList($actual, $expected),
             'is_null' => $actual === null,
             'is_not_null' => $actual !== null,
-            'contains' => $actual !== null && str_contains((string) $actual, (string) $expected),
+            'contains' => $actual !== null && is_scalar($expected) && str_contains((string) $actual, (string) $expected),
             default => throw new InvalidConfigurationException("Unknown automation condition operator [{$operator}]."),
         };
     }
@@ -101,9 +101,50 @@ class ConditionEvaluator
         return is_string($type?->key) ? $type->key : null;
     }
 
-    protected function scalar(mixed $value): string|int|float|bool|null
+    /**
+     * Type-tolerant scalar equality: rule JSON usually stores values as strings,
+     * so "30" must match the integer 30 and "true" the boolean true. Booleans
+     * compare by truthiness, numerics numerically, everything else as strings.
+     */
+    protected function looseEquals(mixed $a, mixed $b): bool
     {
-        return is_scalar($value) || $value === null ? $value : null;
+        if ($a === null || $b === null) {
+            return $a === $b;
+        }
+
+        if (is_bool($a) || is_bool($b)) {
+            return $this->toBool($a) === $this->toBool($b);
+        }
+
+        if (is_numeric($a) && is_numeric($b)) {
+            return (float) $a === (float) $b;
+        }
+
+        if ((is_scalar($a)) && (is_scalar($b))) {
+            return (string) $a === (string) $b;
+        }
+
+        return false;
+    }
+
+    protected function inList(mixed $actual, mixed $expected): bool
+    {
+        if (! is_array($expected)) {
+            return false;
+        }
+
+        foreach ($expected as $candidate) {
+            if ($this->looseEquals($actual, $candidate)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    protected function toBool(mixed $value): bool
+    {
+        return is_bool($value) ? $value : (bool) filter_var($value, FILTER_VALIDATE_BOOL);
     }
 
     /**
@@ -119,17 +160,5 @@ class ConditionEvaluator
         }
 
         return $op((float) $a, (float) $b);
-    }
-
-    /**
-     * @return list<string|int|float|bool|null>
-     */
-    protected function scalarList(mixed $value): array
-    {
-        if (! is_array($value)) {
-            return [];
-        }
-
-        return array_map(fn (mixed $v): string|int|float|bool|null => $this->scalar($v), array_values($value));
     }
 }

@@ -112,8 +112,16 @@ class DeliverWebhook implements ShouldQueue
             return;
         }
 
+        $ips = $this->resolveIps($host);
+
+        if ($ips === []) {
+            // Fail closed: if we can't resolve the host to verify it's public,
+            // don't hand it to the HTTP client (which may resolve it differently).
+            throw new InvalidConfigurationException("Webhook host [{$host}] could not be resolved to verify it is public.");
+        }
+
         // Block if ANY resolved address (v4 or v6) is private/reserved.
-        foreach ($this->resolveIps($host) as $ip) {
+        foreach ($ips as $ip) {
             if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false) {
                 throw new InvalidConfigurationException("Webhook host [{$host}] resolves to a private or reserved address.");
             }
