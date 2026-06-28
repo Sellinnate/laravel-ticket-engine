@@ -20,10 +20,14 @@ class CsatController
             $token = (string) $request->string('token');
             $claims = CsatToken::verify($token);
 
+            if ($claims === null) {
+                throw ValidationException::withMessages(['token' => 'The CSAT token is invalid or has expired.']);
+            }
+
             // The token must name the SAME ticket as the URL, so a caller can't
             // POST to ticket A's route and have the rating land on ticket B (and
             // bypass the route's tenant scope).
-            if ($claims === null || $claims['ticket'] !== (string) $ticket->getKey()) {
+            if ($claims['ticket'] !== (string) $ticket->getKey()) {
                 throw ValidationException::withMessages(['token' => 'The CSAT token does not match this ticket.']);
             }
 

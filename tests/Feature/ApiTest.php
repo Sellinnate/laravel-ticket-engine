@@ -9,6 +9,7 @@ use Selli\Ticketing\Enums\Priority;
 use Selli\Ticketing\Facades\Ticketing;
 use Selli\Ticketing\Models\Team;
 use Selli\Ticketing\Tenancy\TenantContext;
+use Selli\Ticketing\Tests\Fixtures\TestRequester;
 
 const API = '/ticketing/api/v1';
 
@@ -102,6 +103,21 @@ it('posts a message', function (): void {
         ->assertJsonPath('data.body', 'Working on it');
 
     expect($ticket->fresh()->messages()->count())->toBe(1);
+});
+
+it('lets an agent post an internal note but not a requester', function (): void {
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+
+    // An agent (CanActOnTickets) may post internal.
+    $this->actingAs(makeUser());
+    $this->postJson(API.'/tickets/'.$ticket->getKey().'/messages', ['body' => 'note', 'visibility' => 'internal'])
+        ->assertCreated();
+
+    // A requester-only user may not.
+    $requester = TestRequester::query()->create(['name' => 'Req']);
+    $this->actingAs($requester);
+    $this->postJson(API.'/tickets/'.$ticket->getKey().'/messages', ['body' => 'sneaky', 'visibility' => 'internal'])
+        ->assertStatus(422)->assertJsonValidationErrors('visibility');
 });
 
 it('transitions a ticket', function (): void {
