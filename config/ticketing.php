@@ -378,6 +378,12 @@ return [
         'secret' => null,
         'timeout' => 5,
         'tries' => 3,
+
+        // SSRF guard: block requests that resolve to private/loopback/link-local
+        // addresses. Set an explicit allow-list of hosts to bypass the heuristic
+        // (the allow-list is then authoritative).
+        'block_private' => true,
+        'allowed_hosts' => [],
     ],
 
     /*

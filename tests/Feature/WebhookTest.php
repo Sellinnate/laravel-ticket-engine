@@ -11,6 +11,11 @@ use Selli\Ticketing\Exceptions\InvalidConfigurationException;
 use Selli\Ticketing\Jobs\DeliverWebhook;
 use Selli\Ticketing\Support\WebhookSigner;
 
+// The delivery tests target example.test; allow-list it so the SSRF heuristic
+// (which may resolve reserved test domains) doesn't get in the way. The SSRF
+// test below clears this to exercise the heuristic directly.
+beforeEach(fn () => config()->set('ticketing.webhooks.allowed_hosts', ['example.test']));
+
 it('signs and posts the payload', function (): void {
     config()->set('ticketing.webhooks.secret', 'shhh');
     Http::fake(['*' => Http::response('', 200)]);
@@ -57,6 +62,20 @@ it('refuses a non-http(s) url', function (): void {
     (new DeliverWebhook('file:///etc/passwd', ['a' => 1]))->handle();
 })->throws(InvalidConfigurationException::class);
 
+it('blocks a webhook to a private/loopback address (SSRF)', function (): void {
+    config()->set('ticketing.webhooks.allowed_hosts', []); // use the private-range heuristic
+    (new DeliverWebhook('http://127.0.0.1/hook', ['a' => 1]))->handle();
+})->throws(InvalidConfigurationException::class);
+
+it('allows a private address when explicitly allow-listed', function (): void {
+    config()->set('ticketing.webhooks.allowed_hosts', ['127.0.0.1']);
+    Http::fake(['*' => Http::response('', 200)]);
+
+    (new DeliverWebhook('http://127.0.0.1/hook', ['a' => 1]))->handle();
+
+    Http::assertSent(fn (Request $request): bool => $request->url() === 'http://127.0.0.1/hook');
+});
+
 it('emits WebhookFailed when the job is dead-lettered', function (): void {
     Event::fake([WebhookFailed::class]);
 
@@ -64,6 +83,26 @@ it('emits WebhookFailed when the job is dead-lettered', function (): void {
 
     Event::assertDispatched(WebhookFailed::class, fn (WebhookFailed $e): bool => $e->url === 'https://example.test/hook' && $e->error === 'boom');
 });
+
+it('allows a private address when block_private is disabled', function (): void {
+    config()->set('ticketing.webhooks.allowed_hosts', []);
+    config()->set('ticketing.webhooks.block_private', false);
+    Http::fake(['*' => Http::response('', 200)]);
+
+    (new DeliverWebhook('http://127.0.0.1/hook', ['a' => 1]))->handle();
+
+    Http::assertSent(fn (Request $request): bool => $request->url() === 'http://127.0.0.1/hook');
+});
+
+it('rejects a url with no host', function (): void {
+    config()->set('ticketing.webhooks.allowed_hosts', []);
+    (new DeliverWebhook('http:///just-a-path', ['a' => 1]))->handle();
+})->throws(InvalidConfigurationException::class);
+
+it('rejects a host that is not allow-listed', function (): void {
+    config()->set('ticketing.webhooks.allowed_hosts', ['allowed.test']);
+    (new DeliverWebhook('https://evil.test/hook', ['a' => 1]))->handle();
+})->throws(InvalidConfigurationException::class);
 
 it('round-trips a signature through the verifier', function (): void {
     $body = '{"a":1}';

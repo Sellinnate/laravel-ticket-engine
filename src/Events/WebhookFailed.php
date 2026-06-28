@@ -4,13 +4,14 @@ declare(strict_types=1);
 
 namespace Selli\Ticketing\Events;
 
+use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
 use Illuminate\Foundation\Events\Dispatchable;
 
 /**
  * Emitted when an outbound webhook exhausts its retries (dead-letter). The hook
  * for alerting, recording the failure, or persisting it for a later replay.
  */
-class WebhookFailed
+class WebhookFailed implements ShouldDispatchAfterCommit
 {
     use Dispatchable;
 

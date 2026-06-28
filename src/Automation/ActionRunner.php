@@ -76,10 +76,10 @@ class ActionRunner
      */
     protected function reply(Ticket $ticket, array $action, ?Model $actor): void
     {
-        $body = (string) ($action['body'] ?? '');
+        $body = $action['body'] ?? null;
 
-        if ($body === '') {
-            throw new InvalidConfigurationException('Automation reply action requires a non-empty body.');
+        if (! is_string($body) || $body === '') {
+            throw new InvalidConfigurationException('Automation reply action requires a non-empty string body.');
         }
 
         $visibility = MessageVisibility::tryFrom((string) ($action['visibility'] ?? 'public'))
@@ -107,10 +107,10 @@ class ActionRunner
      */
     protected function webhook(Ticket $ticket, array $action, string $eventKey): void
     {
-        $url = (string) ($action['url'] ?? '');
+        $url = $action['url'] ?? null;
 
-        if ($url === '') {
-            throw new InvalidConfigurationException('Automation webhook action requires a url.');
+        if (! is_string($url) || $url === '') {
+            throw new InvalidConfigurationException('Automation webhook action requires a string url.');
         }
 
         DeliverWebhook::dispatch(
@@ -130,8 +130,14 @@ class ActionRunner
 
     protected function priority(mixed $value): Priority
     {
-        if (is_int($value) && ($p = Priority::tryFrom($value)) !== null) {
-            return $p;
+        // Accept the integer weight, a numeric string ("30"), or the case name
+        // ("urgent"), since rule JSON commonly stores any of these.
+        if (is_int($value) || (is_string($value) && is_numeric($value))) {
+            $byValue = Priority::tryFrom((int) $value);
+
+            if ($byValue !== null) {
+                return $byValue;
+            }
         }
 
         if (is_string($value)) {

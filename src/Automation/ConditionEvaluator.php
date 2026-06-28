@@ -58,10 +58,10 @@ class ConditionEvaluator
         return match ($operator) {
             '=', 'eq' => $this->scalar($actual) === $this->scalar($expected),
             '!=', 'neq' => $this->scalar($actual) !== $this->scalar($expected),
-            'gt' => $this->num($actual) > $this->num($expected),
-            'gte' => $this->num($actual) >= $this->num($expected),
-            'lt' => $this->num($actual) < $this->num($expected),
-            'lte' => $this->num($actual) <= $this->num($expected),
+            'gt' => $this->compareNum($actual, $expected, fn (float $a, float $b): bool => $a > $b),
+            'gte' => $this->compareNum($actual, $expected, fn (float $a, float $b): bool => $a >= $b),
+            'lt' => $this->compareNum($actual, $expected, fn (float $a, float $b): bool => $a < $b),
+            'lte' => $this->compareNum($actual, $expected, fn (float $a, float $b): bool => $a <= $b),
             'in' => in_array($this->scalar($actual), $this->scalarList($expected), true),
             'not_in' => ! in_array($this->scalar($actual), $this->scalarList($expected), true),
             'is_null' => $actual === null,
@@ -106,9 +106,19 @@ class ConditionEvaluator
         return is_scalar($value) || $value === null ? $value : null;
     }
 
-    protected function num(mixed $value): float
+    /**
+     * Numeric comparison that fails closed: a non-numeric (or null) operand never
+     * matches, rather than being coerced to 0.
+     *
+     * @param  callable(float, float): bool  $op
+     */
+    protected function compareNum(mixed $a, mixed $b, callable $op): bool
     {
-        return is_numeric($value) ? (float) $value : 0.0;
+        if (! is_numeric($a) || ! is_numeric($b)) {
+            return false;
+        }
+
+        return $op((float) $a, (float) $b);
     }
 
     /**

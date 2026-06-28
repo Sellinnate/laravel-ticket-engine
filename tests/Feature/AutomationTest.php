@@ -182,6 +182,33 @@ it('runs the full set of action types', function (): void {
         ->and($ticket->tags()->pluck('slug')->all())->toContain('from-macro');
 });
 
+it('accepts a numeric-string priority value', function (): void {
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+
+    app(ActionRunner::class)->run($ticket, [
+        ['type' => 'priority', 'value' => (string) Priority::Urgent->value], // "40"
+    ], null, 'ticket.opened');
+
+    expect($ticket->fresh()->priority)->toBe(Priority::Urgent);
+});
+
+it('isolates a failing rule so others still run', function (): void {
+    AutomationRule::factory()->create([
+        'event' => 'ticket.opened', 'priority' => 1,
+        'conditions' => [['field' => 'bogus_field', 'operator' => '=', 'value' => 1]], // throws
+        'actions' => [['type' => 'tag', 'tags' => ['never']]],
+    ]);
+    AutomationRule::factory()->create([
+        'event' => 'ticket.opened', 'priority' => 2,
+        'actions' => [['type' => 'tag', 'tags' => ['survives']]],
+    ]);
+
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+
+    $slugs = $ticket->fresh()->tags()->pluck('slug')->all();
+    expect($slugs)->toContain('survives')->and($slugs)->not->toContain('never');
+});
+
 it('validates required action params', function (): void {
     $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
     $runner = app(ActionRunner::class);

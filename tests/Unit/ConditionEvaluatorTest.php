@@ -52,6 +52,12 @@ it('resolves the type field', function (): void {
     expect(evalCond([['field' => 'type', 'operator' => '=', 'value' => 'support']]))->toBeTrue();
 });
 
+it('fails closed on numeric comparisons with a non-numeric/null operand', function (): void {
+    // assignee_id is null on a fresh ticket — must not coerce to 0 and match.
+    expect(evalCond([['field' => 'assignee_id', 'operator' => 'gt', 'value' => 5]]))->toBeFalse()
+        ->and(evalCond([['field' => 'priority', 'operator' => 'gt', 'value' => 'not-a-number']]))->toBeFalse();
+});
+
 it('combines with all vs any', function (): void {
     $hit = ['field' => 'category', 'operator' => '=', 'value' => 'billing'];
     $miss = ['field' => 'category', 'operator' => '=', 'value' => 'sales'];

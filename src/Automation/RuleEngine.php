@@ -54,16 +54,23 @@ class RuleEngine
 
             try {
                 foreach ($rules as $rule) {
-                    $current = $ticket->fresh() ?? $ticket;
+                    try {
+                        $current = $ticket->fresh() ?? $ticket;
 
-                    if (! $this->conditions->matches($current, $rule->conditions ?? [], $rule->match)) {
-                        continue;
-                    }
+                        if (! $this->conditions->matches($current, $rule->conditions ?? [], $rule->match)) {
+                            continue;
+                        }
 
-                    $this->actions->run($current, $rule->actions ?? [], $actor, $eventKey);
+                        $this->actions->run($current, $rule->actions ?? [], $actor, $eventKey);
 
-                    if ($rule->stop_processing) {
-                        break;
+                        if ($rule->stop_processing) {
+                            break;
+                        }
+                    } catch (\Throwable $exception) {
+                        // Isolate a misconfigured or failing rule: report it and
+                        // carry on, so one bad rule can't abort the rest (or the
+                        // operation that emitted the event).
+                        report($exception);
                     }
                 }
             } finally {
