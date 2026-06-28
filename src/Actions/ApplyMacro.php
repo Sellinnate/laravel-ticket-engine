@@ -30,21 +30,10 @@ class ApplyMacro
 
     public function handle(Ticket $ticket, Macro $macro, ?Model $actor = null): Ticket
     {
-        if (! $this->tenant->belongsToTicketTenant($macro, $ticket)) {
-            throw CrossTenantException::forAssignment('macro');
-        }
-
         if (! $macro->is_active) {
-            // A deactivated macro must not run any of its side effects.
+            // A deactivated macro must not run any of its side effects. (Macro
+            // state is immutable w.r.t. the ticket, so this is a safe fast-fail.)
             throw new InvalidConfigurationException("Macro [{$macro->key}] is inactive.");
-        }
-
-        if ($macro->ticket_type_id !== null
-            && (string) $macro->ticket_type_id !== (string) $ticket->ticket_type_id) {
-            // A type-scoped macro must not apply to a ticket of another type.
-            throw new InvalidConfigurationException(
-                "Macro [{$macro->key}] does not apply to this ticket type."
-            );
         }
 
         $actions = $macro->actions;
@@ -59,6 +48,20 @@ class ApplyMacro
             $ticket = Ticketing::ticketModel()::query()->withoutTenancy()
                 ->lockForUpdate()
                 ->findOrFail($ticket->getKey());
+
+            // Validate ticket-dependent preconditions against the LOCKED row, so a
+            // concurrent tenant/type change can't slip past a pre-lock check.
+            if (! $this->tenant->belongsToTicketTenant($macro, $ticket)) {
+                throw CrossTenantException::forAssignment('macro');
+            }
+
+            if ($macro->ticket_type_id !== null
+                && (string) $macro->ticket_type_id !== (string) $ticket->ticket_type_id) {
+                // A type-scoped macro must not apply to a ticket of another type.
+                throw new InvalidConfigurationException(
+                    "Macro [{$macro->key}] does not apply to this ticket type."
+                );
+            }
 
             if (! empty($reply['body'])) {
                 $visibility = MessageVisibility::tryFrom((string) ($reply['visibility'] ?? 'public'));

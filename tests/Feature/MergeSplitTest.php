@@ -44,6 +44,25 @@ it('reflects a merged-in agent reply on the target first response', function ():
     expect($target->fresh()->first_response_at)->not->toBeNull();
 });
 
+it('pulls the target first response earlier when merged history answered sooner', function (): void {
+    $agent = makeUser(['name' => 'Agent']);
+
+    $target = Ticketing::open(type: 'support', title: 'T', requester: makeUser());
+    $source = Ticketing::open(type: 'support', title: 'S', requester: makeUser());
+
+    // Source answered two hours earlier than the target.
+    $early = Ticketing::for($source)->postMessage($agent, 'early');
+    TicketMessage::query()->withoutTenancy()->whereKey($early->getKey())
+        ->update(['created_at' => now()->subHours(2)]);
+
+    Ticketing::for($target)->postMessage($agent, 'late'); // stamps target now
+    $before = $target->fresh()->first_response_at;
+
+    Ticketing::for($target)->mergeFrom([$source]);
+
+    expect($target->fresh()->first_response_at->lessThan($before))->toBeTrue();
+});
+
 it('carries first_response_at onto a split ticket whose moved thread has an agent reply', function (): void {
     $source = Ticketing::open(type: 'support', title: 'Help', requester: makeUser());
     $reply = Ticketing::for($source)->postMessage(makeUser(['name' => 'Agent']), 'On it');

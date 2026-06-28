@@ -103,13 +103,45 @@ class SlaManager
      */
     public function reconcileFirstResponse(Ticket $ticket): void
     {
-        if ($ticket->first_response_at !== null) {
-            // Already stamped; just make sure the clock is closed out.
-            $this->handleFirstResponse($ticket);
+        $earliest = $this->earliestAgentReplyAt($ticket);
+
+        if ($earliest === null) {
+            // No qualifying reply in the combined thread; if a stamp already
+            // exists just make sure the clock is closed out.
+            if ($ticket->first_response_at !== null) {
+                $this->handleFirstResponse($ticket);
+            }
 
             return;
         }
 
+        $current = $ticket->first_response_at;
+
+        // Adopt the earliest qualifying reply: set it when unset, or pull it
+        // earlier when merged-in history answered sooner than the current stamp.
+        if ($current === null || $earliest->lessThan($current)) {
+            Ticketing::ticketModel()::query()->withoutTenancy()
+                ->whereKey($ticket->getKey())
+                ->update(['first_response_at' => $earliest]);
+
+            $ticket->first_response_at = $earliest;
+        }
+
+        // Force the first-response clock (if any) to the adopted timestamp, even
+        // if it was previously completed at a later time.
+        $clock = $this->clock($ticket, SlaTarget::FirstResponse);
+
+        if ($clock !== null) {
+            $clock->forceFill(['completed_at' => $ticket->first_response_at])->save();
+        }
+    }
+
+    /**
+     * The created_at of the earliest public reply by an agent who is not the
+     * ticket's requester (mirrors PostMessage's "first response" rule), or null.
+     */
+    protected function earliestAgentReplyAt(Ticket $ticket): ?Carbon
+    {
         /** @var list<string> $requesterKeys */
         $requesterKeys = $ticket->participants()
             ->withoutTenancy()
@@ -130,8 +162,6 @@ class SlaManager
             ->get();
 
         foreach ($messages as $message) {
-            // Mirror PostMessage's "first response" rule: a public reply from an
-            // agent who is not the ticket's requester.
             if (in_array($message->author_type.':'.$message->author_id, $requesterKeys, true)) {
                 continue;
             }
@@ -140,17 +170,10 @@ class SlaManager
                 continue;
             }
 
-            $stamp = $message->created_at;
-
-            Ticketing::ticketModel()::query()->withoutTenancy()
-                ->whereKey($ticket->getKey())
-                ->update(['first_response_at' => $stamp]);
-
-            $ticket->first_response_at = $stamp;
-            $this->handleFirstResponse($ticket);
-
-            return;
+            return $message->created_at;
         }
+
+        return null;
     }
 
     /**
