@@ -8,6 +8,7 @@ use Selli\Ticketing\Models\CannedResponse;
 use Selli\Ticketing\Models\Holiday;
 use Selli\Ticketing\Models\Macro;
 use Selli\Ticketing\Models\RoutingRule;
+use Selli\Ticketing\Models\SatisfactionRating;
 use Selli\Ticketing\Models\SlaClock;
 use Selli\Ticketing\Models\SlaPolicy;
 use Selli\Ticketing\Models\Tag;
@@ -135,6 +136,7 @@ return [
         'macro' => Macro::class,
         'tag' => Tag::class,
         'ticket_link' => TicketLink::class,
+        'satisfaction_rating' => SatisfactionRating::class,
     ],
 
     /*
@@ -310,6 +312,31 @@ return [
         'mentions' => [
             'enabled' => true,
             'resolver' => NullMentionResolver::class,
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | CSAT (customer satisfaction)
+    |--------------------------------------------------------------------------
+    |
+    | On resolution the package can request a satisfaction rating. It is headless:
+    | the CsatRequested event carries a signed token your app embeds in its own
+    | rating URL; the submit Action records the rating (one per ticket, re-armed
+    | if the ticket is reopened and resolved again).
+    |
+    | scale: "five_star" (1-5), "thumbs" (0/1) or "nps" (0-10).
+    | token.secret: HMAC key for the signed token (defaults to the app key).
+    | token.ttl: how long a request link stays valid, in seconds.
+    |
+    */
+    'csat' => [
+        'enabled' => true,
+        'auto_request' => true,
+        'scale' => 'five_star',
+        'token' => [
+            'secret' => null,
+            'ttl' => 1209600, // 14 days
         ],
     ],
 
