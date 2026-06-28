@@ -62,6 +62,7 @@ class TestCase extends Orchestra
                 $table->id();
                 $table->string('name');
                 $table->string('email')->nullable();
+                $table->boolean('available')->default(true);
                 $table->unsignedBigInteger('tenant_id')->nullable();
                 $table->timestamps();
             });

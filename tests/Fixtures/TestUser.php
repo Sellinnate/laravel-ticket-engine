@@ -8,6 +8,7 @@ use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\Eloquent\Model;
 use Selli\Ticketing\Contracts\CanActOnTickets;
 use Selli\Ticketing\Contracts\CanRequestTickets;
+use Selli\Ticketing\Contracts\ReportsAvailability;
 
 /**
  * A test user that can be both a requester and an agent — exercising the dual
@@ -17,12 +18,21 @@ use Selli\Ticketing\Contracts\CanRequestTickets;
  * @property string $name
  * @property string|null $email
  * @property int|null $tenant_id
+ * @property bool $available
  */
-class TestUser extends Model implements Authenticatable, CanActOnTickets, CanRequestTickets
+class TestUser extends Model implements Authenticatable, CanActOnTickets, CanRequestTickets, ReportsAvailability
 {
     protected $table = 'users';
 
     protected $guarded = [];
+
+    protected $casts = ['available' => 'boolean'];
+
+    public function isAvailableForTickets(): bool
+    {
+        // Default to available when the column is not set.
+        return $this->available ?? true;
+    }
 
     public function requesterLabel(): string
     {

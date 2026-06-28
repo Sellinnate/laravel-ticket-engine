@@ -7,6 +7,7 @@ namespace Selli\Ticketing\Support;
 use Illuminate\Database\Eloquent\Model;
 use Selli\Ticketing\Enums\MessageVisibility;
 use Selli\Ticketing\Enums\Priority;
+use Selli\Ticketing\Models\Team;
 use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Models\TicketMessage;
 
@@ -86,6 +87,22 @@ class PendingTicket
             note: $note,
             params: $params,
         );
+    }
+
+    /**
+     * Assign the bound ticket to a specific agent.
+     */
+    public function assignTo(Model $assignee, ?Model $actor = null): Ticket
+    {
+        return $this->manager->assign(ticket: $this->ticket(), assignee: $assignee, actor: $actor);
+    }
+
+    /**
+     * Assign the bound ticket to a team, letting the strategy pick the agent.
+     */
+    public function assignToTeam(Team $team, ?string $strategy = null, ?Model $actor = null): Ticket
+    {
+        return $this->manager->assign(ticket: $this->ticket(), team: $team, strategy: $strategy, actor: $actor);
     }
 
     protected function ticket(): Ticket

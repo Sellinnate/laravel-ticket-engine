@@ -4,6 +4,17 @@ All notable changes to `selli/ticketing` will be documented in this file.
 
 ## Unreleased
 
+### Added — Routing & assignment
+
+- Models: `Team`, `TeamMember` (skills + round-robin state), `RoutingRule`.
+- `AssignmentManager` with interchangeable strategies (`manual`, `round-robin`,
+  `least-busy`, `skill-based`) and `extend()` for custom strategies; optional
+  `ReportsAvailability` contract so routing skips unavailable agents.
+- `RoutingEngine`: ordered, data-driven rules (conditions → team/assignee/
+  strategy) evaluated on open; rich condition operators.
+- `AssignTicket` action (row-locked) + `TicketAssigned` / `ParticipantAdded`
+  events; `Ticketing::assign()`, `for($ticket)->assignTo()` / `assignToTeam()`.
+
 ### Added — SLA, business hours & escalation
 
 - `BusinessHours` value object: deadline/elapsed math over working hours with

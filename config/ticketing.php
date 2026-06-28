@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 use Selli\Ticketing\Models\BusinessHours;
 use Selli\Ticketing\Models\Holiday;
+use Selli\Ticketing\Models\RoutingRule;
 use Selli\Ticketing\Models\SlaClock;
 use Selli\Ticketing\Models\SlaPolicy;
+use Selli\Ticketing\Models\Team;
+use Selli\Ticketing\Models\TeamMember;
 use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Models\TicketActivity;
 use Selli\Ticketing\Models\TicketMessage;
@@ -118,6 +121,25 @@ return [
         'sla_clock' => SlaClock::class,
         'business_hours' => BusinessHours::class,
         'holiday' => Holiday::class,
+        'team' => Team::class,
+        'team_member' => TeamMember::class,
+        'routing_rule' => RoutingRule::class,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Routing & assignment
+    |--------------------------------------------------------------------------
+    |
+    | "default_strategy" picks the agent within a team when a routing rule (or an
+    | explicit team assignment) does not specify one. Available out of the box:
+    | manual, round-robin, least-busy, skill-based. Set "enabled" to false to
+    | disable automatic routing on open.
+    |
+    */
+    'routing' => [
+        'enabled' => true,
+        'default_strategy' => 'manual',
     ],
 
     /*
