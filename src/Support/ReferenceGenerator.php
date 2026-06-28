@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Selli\Ticketing\Support;
 
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Selli\Ticketing\Models\TicketSequence;
 use Selli\Ticketing\Tenancy\TenantContext;
@@ -44,21 +43,25 @@ class ReferenceGenerator
      */
     public function nextSequence(string $typeKey, int $year): int
     {
-        $scope = strtoupper($typeKey).'-'.$year;
         $tenant = $this->tenant->current();
         $column = $this->tenant->column();
 
+        // Encode the tenant into the (non-null) scope key so the unique index
+        // never relies on NULL grouping — a null tenant maps to "shared".
+        $tenantKey = $tenant === null ? 'shared' : (string) $tenant;
+        $scope = $tenantKey.':'.strtoupper($typeKey).'-'.$year;
+
         return DB::transaction(function () use ($scope, $tenant, $column): int {
-            $row = $this->lockedRow($scope, $tenant, $column);
+            $row = $this->lockedRow($scope);
 
             if ($row === null) {
                 // Create the counter row race-safely, then re-acquire the lock.
                 TicketSequence::query()->withoutTenancy()->createOrFirst(
-                    [$column => $tenant, 'scope' => $scope],
-                    ['next_value' => 0],
+                    ['scope' => $scope],
+                    [$column => $tenant, 'next_value' => 0],
                 );
 
-                $row = $this->lockedRow($scope, $tenant, $column);
+                $row = $this->lockedRow($scope);
             }
 
             $next = (int) $row->next_value + 1;
@@ -69,18 +72,13 @@ class ReferenceGenerator
     }
 
     /**
-     * Fetch the sequence row for an explicit tenant under a write lock.
+     * Fetch the sequence row for a scope under a write lock.
      */
-    protected function lockedRow(string $scope, int|string|null $tenant, string $column): ?TicketSequence
+    protected function lockedRow(string $scope): ?TicketSequence
     {
         return TicketSequence::query()
             ->withoutTenancy()
             ->where('scope', $scope)
-            ->when(
-                $tenant === null,
-                fn (Builder $query): Builder => $query->whereNull($column),
-                fn (Builder $query): Builder => $query->where($column, $tenant),
-            )
             ->lockForUpdate()
             ->first();
     }

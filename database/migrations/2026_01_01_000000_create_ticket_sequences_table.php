@@ -17,11 +17,13 @@ return new class extends Migration
             $this->primaryKey($table);
             $this->tenantColumn($table);
 
-            $table->string('scope');
+            // The scope string already encodes the tenant (e.g. "7:SUPPORT-2026"
+            // or "shared:SUPPORT-2026"), so a plain non-null unique fully
+            // enforces one counter per (tenant, type, year) — independent of how
+            // the engine treats NULLs in composite unique indexes.
+            $table->string('scope')->unique('ticket_sequences_scope_unq');
             $table->unsignedBigInteger('next_value')->default(0);
             $table->timestamps();
-
-            $this->uniqueScoped($table, ['scope'], 'ticket_sequences_tenant_scope_unq');
         });
     }
 

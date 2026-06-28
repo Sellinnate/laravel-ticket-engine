@@ -36,13 +36,15 @@ it('builds tables with ULID ids and varied tenant column types', function (strin
         ->and(Schema::hasColumn($name, 'tenant_id'))->toBeTrue();
 })->with(['uuid', 'ulid', 'string']);
 
-it('omits the tenant column and prefix when tenancy is disabled', function (): void {
+it('always creates the (nullable) tenant column even when tenancy is disabled', function (): void {
     config()->set('ticketing.tenancy.enabled', false);
     config()->set('ticketing.ids.type', 'auto');
 
     buildProbeTable('probe_no_tenant');
 
-    expect(Schema::hasColumn('probe_no_tenant', 'tenant_id'))->toBeFalse();
+    // The column is always present (just unused/null) so runtime reads & writes
+    // of tenant_id do not hit a missing column under the single-tenant setup.
+    expect(Schema::hasColumn('probe_no_tenant', 'tenant_id'))->toBeTrue();
 });
 
 it('resolves prefixed table names', function (): void {

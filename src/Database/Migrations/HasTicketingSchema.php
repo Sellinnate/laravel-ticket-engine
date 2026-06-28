@@ -57,10 +57,9 @@ trait HasTicketingSchema
 
     protected function tenantColumn(Blueprint $table): void
     {
-        if (config('ticketing.tenancy.enabled', true) === false) {
-            return;
-        }
-
+        // The column is always created (nullable). When tenancy is disabled it
+        // simply stays null — runtime code still reads/writes it, and the
+        // unique/index helpers leave it out of scoped keys (see uniqueScoped).
         $column = (string) config('ticketing.tenancy.column', 'tenant_id');
         $type = (string) config('ticketing.tenancy.column_type', 'unsignedBigInteger');
 
