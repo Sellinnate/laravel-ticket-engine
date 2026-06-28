@@ -18,10 +18,10 @@ class CsatToken
 {
     /**
      * Build a token for a ticket, valid until $expiresAt and bound to a CSAT
-     * cycle marker (the rating's requested_at timestamp, 0 if none). The marker
-     * lets a verifier reject a link issued for an earlier request cycle.
+     * cycle marker (the rating's per-request nonce, '' if none). The marker lets
+     * a verifier reject a link issued for an earlier request cycle.
      */
-    public static function issue(int|string $ticketId, Carbon $expiresAt, int $cycle = 0): string
+    public static function issue(int|string $ticketId, Carbon $expiresAt, string $cycle = ''): string
     {
         $payload = self::encode([
             't' => (string) $ticketId,
@@ -36,7 +36,7 @@ class CsatToken
      * Return the claims of a valid, unexpired token (ticket id + cycle marker),
      * or null if the token is malformed, tampered with, or expired.
      *
-     * @return array{ticket: string, cycle: int}|null
+     * @return array{ticket: string, cycle: string}|null
      */
     public static function verify(string $token, ?Carbon $now = null): ?array
     {
@@ -67,7 +67,7 @@ class CsatToken
 
         return [
             'ticket' => (string) $data['t'],
-            'cycle' => isset($data['c']) && is_int($data['c']) ? $data['c'] : 0,
+            'cycle' => isset($data['c']) && is_string($data['c']) ? $data['c'] : '',
         ];
     }
 

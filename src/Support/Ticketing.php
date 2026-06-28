@@ -333,9 +333,7 @@ class Ticketing
             ->where('ticket_id', $ticket->getKey())
             ->first();
 
-        $cycle = $existing instanceof SatisfactionRating && $existing->requested_at !== null
-            ? $existing->requested_at->getTimestamp()
-            : 0;
+        $cycle = $existing instanceof SatisfactionRating ? (string) $existing->cycle : '';
 
         return CsatToken::issue($ticket->getKey(), now()->addSeconds($ttl ?? Csat::tokenTtl()), $cycle);
     }

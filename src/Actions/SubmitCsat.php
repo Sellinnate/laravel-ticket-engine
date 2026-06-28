@@ -34,12 +34,14 @@ class SubmitCsat
      *                                already-submitted rating is returned
      *                                unchanged — one valuation per ticket/cycle,
      *                                so a leaked link can't repeatedly rewrite it.
-     * @param  int|null  $expectedCycle  When set (the token path), the rating's
-     *                                   requested_at must match this CSAT cycle
-     *                                   marker. Checked UNDER the ticket lock so a
-     *                                   concurrent re-arm can't be raced past.
+     * @param  string|null  $expectedCycle  When non-empty (a bound token), a
+     *                                      matching rating row with this exact
+     *                                      cycle nonce must exist or the submit
+     *                                      fails closed. Checked UNDER the ticket
+     *                                      lock so a concurrent re-arm can't be
+     *                                      raced past. '' / null means unbound.
      */
-    public function handle(Ticket $ticket, int $rating, ?string $comment = null, ?Model $submittedBy = null, bool $allowOverwrite = true, ?int $expectedCycle = null): SatisfactionRating
+    public function handle(Ticket $ticket, int $rating, ?string $comment = null, ?Model $submittedBy = null, bool $allowOverwrite = true, ?string $expectedCycle = null): SatisfactionRating
     {
         if (! Csat::enabled()) {
             throw CsatException::disabled();
@@ -66,12 +68,12 @@ class SubmitCsat
                 ->where('ticket_id', $ticket->getKey())
                 ->first();
 
-            // Cycle check UNDER the lock: reject a token from an earlier request
-            // cycle, with no TOCTOU window against a concurrent re-arm.
-            if ($expectedCycle !== null
-                && $existing instanceof SatisfactionRating
-                && $existing->requested_at !== null
-                && $existing->requested_at->getTimestamp() !== $expectedCycle) {
+            // Cycle check UNDER the lock: a bound token (non-empty nonce) must
+            // match an existing rating row's current cycle, else fail closed —
+            // covering a stale cycle AND a missing/reset request. No TOCTOU window
+            // against a concurrent re-arm (which also locks the ticket).
+            if ($expectedCycle !== null && $expectedCycle !== ''
+                && (! $existing instanceof SatisfactionRating || $existing->cycle !== $expectedCycle)) {
                 throw CsatException::invalidToken();
             }
 

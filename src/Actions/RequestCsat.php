@@ -7,6 +7,7 @@ namespace Selli\Ticketing\Actions;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Selli\Ticketing\Events\CsatRequested;
 use Selli\Ticketing\Exceptions\CsatException;
 use Selli\Ticketing\Models\SatisfactionRating;
@@ -36,14 +37,15 @@ class RequestCsat
 
         // Resolve the token (TTL + secret) BEFORE persisting, so a misconfigured
         // TTL/secret fails the whole request rather than leaving a "requested"
-        // row whose CsatRequested event never fires. The request timestamp is the
-        // CSAT cycle marker: it is stamped on the row AND signed into the token,
-        // so a stale link from an earlier cycle can't rate a re-armed request.
-        $requestedAt = Carbon::now();
-        $expiresAt = $requestedAt->copy()->addSeconds(Csat::tokenTtl());
-        $token = CsatToken::issue($ticket->getKey(), $expiresAt, $requestedAt->getTimestamp());
+        // row whose CsatRequested event never fires. A fresh random nonce is the
+        // CSAT cycle marker: it is stored on the row AND signed into the token, so
+        // a stale link from an earlier cycle can't rate a re-armed request (and,
+        // unlike a timestamp, two same-second re-requests can't collide).
+        $cycle = Str::random(40);
+        $expiresAt = Carbon::now()->addSeconds(Csat::tokenTtl());
+        $token = CsatToken::issue($ticket->getKey(), $expiresAt, $cycle);
 
-        $rating = DB::transaction(function () use ($ticket, $scale, $actor, $requestedAt): SatisfactionRating {
+        $rating = DB::transaction(function () use ($ticket, $scale, $actor, $cycle): SatisfactionRating {
             // Serialise concurrent CSAT operations for this ticket on the ticket
             // row, so two requests can't both miss the rating and race to create
             // it (which the one-per-ticket constraint would reject).
@@ -62,12 +64,13 @@ class RequestCsat
             $attributes = array_merge($ticket->tenantAttributes(), [
                 'ticket_id' => $ticket->getKey(),
                 'scale' => $scale->value,
+                'cycle' => $cycle,
                 'rating' => null,
                 'comment' => null,
                 'submitted_by_type' => null,
                 'submitted_by_id' => null,
                 'submitted_at' => null,
-                'requested_at' => $requestedAt,
+                'requested_at' => now(),
             ]);
 
             if ($existing instanceof SatisfactionRating) {

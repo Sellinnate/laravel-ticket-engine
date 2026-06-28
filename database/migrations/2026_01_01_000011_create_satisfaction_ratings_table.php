@@ -19,6 +19,7 @@ return new class extends Migration
 
             $this->foreignId($table, 'ticket_id');
             $table->string('scale');
+            $table->string('cycle')->nullable();            // per-request nonce binding the token
             $table->integer('rating')->nullable();          // null until submitted
             $table->longText('comment')->nullable();
             $this->nullableMorph($table, 'submitted_by');

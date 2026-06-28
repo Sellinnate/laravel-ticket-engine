@@ -25,6 +25,7 @@ use Selli\Ticketing\Support\Ticketing;
  * @property int|string|null $tenant_id
  * @property int|string $ticket_id
  * @property CsatScale $scale
+ * @property string|null $cycle
  * @property int|null $rating
  * @property string|null $comment
  * @property string|null $submitted_by_type
