@@ -9,6 +9,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\BroadcastMessage;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
+use Illuminate\Queue\SerializesModels;
 use Selli\Ticketing\Contracts\NotificationPreferences;
 use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Notifications\Channels\SlackWebhookChannel;
@@ -23,11 +24,31 @@ use Selli\Ticketing\Notifications\Channels\SlackWebhookChannel;
 abstract class TicketNotification extends Notification implements ShouldQueue
 {
     use Queueable;
+    use SerializesModels;
+
+    /**
+     * Channels resolved by the subscriber (preferences + digest throttle). When
+     * set they are authoritative, so a queue RETRY re-uses them rather than
+     * re-running the throttle and possibly suppressing the redelivery.
+     *
+     * @var list<string>|null
+     */
+    protected ?array $onlyChannels = null;
 
     public function __construct(public Ticket $ticket)
     {
         $this->onConnection(config('ticketing.queue.connection'));
         $this->onQueue(config('ticketing.queue.queue'));
+    }
+
+    /**
+     * @param  list<string>  $channels
+     */
+    public function onlyChannels(array $channels): static
+    {
+        $this->onlyChannels = $channels;
+
+        return $this;
     }
 
     /**
@@ -52,11 +73,10 @@ abstract class TicketNotification extends Notification implements ShouldQueue
      */
     public function via(object $notifiable): array
     {
-        /** @var NotificationPreferences $preferences */
-        $preferences = app(NotificationPreferences::class);
-
-        $channels = $preferences->channels($notifiable, $this->key(), $this->supportedChannels());
-        $channels = NotificationThrottle::filter($notifiable, $this->key(), $channels, $this->ticket->getKey());
+        // Prefer channels the subscriber already resolved+throttled; otherwise
+        // (e.g. a direct $user->notify()) fall back to raw preferences.
+        $channels = $this->onlyChannels ?? app(NotificationPreferences::class)
+            ->channels($notifiable, $this->key(), $this->supportedChannels());
 
         // Map the package's "slack" key onto the dependency-free webhook channel.
         return array_map(

@@ -43,12 +43,12 @@ class NotificationThrottle
 
             $key = self::key($notifiable, $notification, $channel, $ticketId);
 
-            if (Cache::has($key)) {
-                continue; // recently sent on this channel — suppress (digest)
+            // Atomic claim: add() only succeeds if no marker exists, so two
+            // concurrent dispatches can't both pass the digest window.
+            if (Cache::add($key, true, $seconds)) {
+                $passed[] = $channel;
             }
-
-            Cache::put($key, true, $seconds);
-            $passed[] = $channel;
+            // else: recently sent on this channel — suppress (digest).
         }
 
         return $passed;

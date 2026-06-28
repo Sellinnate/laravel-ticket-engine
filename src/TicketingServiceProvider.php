@@ -116,6 +116,14 @@ class TicketingServiceProvider extends PackageServiceProvider
             $this->subscribe($this->app->make(RoutingSubscriber::class));
         }
 
+        // Notifications subscribe BEFORE collaboration so a reply's recipients
+        // are resolved from the existing participants; a freshly @mentioned user
+        // (added by the collaboration listener for the same message) then only
+        // receives the "added to ticket" notification, not also the reply one.
+        if (config('ticketing.notifications.enabled', true) !== false) {
+            $this->subscribe($this->app->make(NotificationSubscriber::class));
+        }
+
         if (config('ticketing.collaboration.mentions.enabled', true) !== false) {
             $this->subscribe($this->app->make(CollaborationSubscriber::class));
         }
@@ -126,10 +134,6 @@ class TicketingServiceProvider extends PackageServiceProvider
 
         if (config('ticketing.automation.enabled', true) !== false) {
             $this->subscribe($this->app->make(AutomationSubscriber::class));
-        }
-
-        if (config('ticketing.notifications.enabled', true) !== false) {
-            $this->subscribe($this->app->make(NotificationSubscriber::class));
         }
     }
 

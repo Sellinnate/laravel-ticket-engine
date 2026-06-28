@@ -33,7 +33,9 @@ class SlackWebhookChannel
 
         $timeout = max(1, (int) config('ticketing.notifications.slack.timeout', 5));
 
-        Http::timeout($timeout)->asJson()->post($url, ['text' => $text]);
+        // Surface a 4xx/5xx so a failed delivery retries rather than being
+        // silently swallowed.
+        Http::timeout($timeout)->asJson()->post($url, ['text' => $text])->throw();
     }
 
     protected function webhookUrl(object $notifiable, Notification $notification): ?string

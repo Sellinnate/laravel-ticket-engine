@@ -4,9 +4,10 @@ declare(strict_types=1);
 
 namespace Selli\Ticketing\Listeners;
 
+use Closure;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Notifications\Notification;
 use Illuminate\Support\Facades\Notification as NotificationFacade;
+use Selli\Ticketing\Contracts\NotificationPreferences;
 use Selli\Ticketing\Enums\MessageVisibility;
 use Selli\Ticketing\Enums\ParticipantRole;
 use Selli\Ticketing\Events\MessagePosted;
@@ -14,11 +15,13 @@ use Selli\Ticketing\Events\ParticipantAdded;
 use Selli\Ticketing\Events\SlaBreached;
 use Selli\Ticketing\Events\SlaThresholdReached;
 use Selli\Ticketing\Events\TicketAssigned;
+use Selli\Ticketing\Notifications\NotificationThrottle;
 use Selli\Ticketing\Notifications\ParticipantAddedNotification;
 use Selli\Ticketing\Notifications\RecipientResolver;
 use Selli\Ticketing\Notifications\ReplyPostedNotification;
 use Selli\Ticketing\Notifications\SlaNotification;
 use Selli\Ticketing\Notifications\TicketAssignedNotification;
+use Selli\Ticketing\Notifications\TicketNotification;
 
 /**
  * Turns domain events into Laravel notifications to the relevant ticket actors.
@@ -32,7 +35,7 @@ class NotificationSubscriber
     public function onAssigned(TicketAssigned $event): void
     {
         if ($event->assignee instanceof Model) {
-            $this->send([$event->assignee], new TicketAssignedNotification($event->ticket));
+            $this->dispatch([$event->assignee], fn (): TicketNotification => new TicketAssignedNotification($event->ticket));
         }
     }
 
@@ -41,10 +44,10 @@ class NotificationSubscriber
         $author = $event->message->author;
 
         // A public reply reaches the requester too; an internal note stays with
-        // the agents/collaborators.
+        // the agents/collaborators. The assignee is included either way.
         $roles = $event->message->visibility === MessageVisibility::Public
-            ? [ParticipantRole::Requester->value, ParticipantRole::Collaborator->value, ParticipantRole::Watcher->value, ParticipantRole::Cc->value]
-            : [ParticipantRole::Collaborator->value, ParticipantRole::Watcher->value];
+            ? [ParticipantRole::Requester->value, ParticipantRole::Assignee->value, ParticipantRole::Collaborator->value, ParticipantRole::Watcher->value, ParticipantRole::Cc->value]
+            : [ParticipantRole::Assignee->value, ParticipantRole::Collaborator->value, ParticipantRole::Watcher->value];
 
         $recipients = $this->recipients->participants(
             $event->ticket,
@@ -52,15 +55,20 @@ class NotificationSubscriber
             $author instanceof Model ? $author : null,
         );
 
-        $this->send($recipients, new ReplyPostedNotification($event->ticket, $event->message));
+        $this->dispatch($recipients, fn (): TicketNotification => new ReplyPostedNotification($event->ticket, $event->message));
     }
 
     public function onParticipantAdded(ParticipantAdded $event): void
     {
         $model = $event->participant->participant;
 
-        if ($model instanceof Model && $event->participant->notify) {
-            $this->send([$model], new ParticipantAddedNotification($event->ticket, $event->participant->role->value));
+        // The assignee participant is announced by TicketAssigned already; don't
+        // double-notify them on first assignment.
+        if ($model instanceof Model
+            && $event->participant->notify
+            && $event->participant->role !== ParticipantRole::Assignee) {
+            $role = $event->participant->role->value;
+            $this->dispatch([$model], fn (): TicketNotification => new ParticipantAddedNotification($event->ticket, $role));
         }
     }
 
@@ -69,7 +77,7 @@ class NotificationSubscriber
         $assignee = $this->recipients->assignee($event->ticket);
 
         if ($assignee instanceof Model) {
-            $this->send([$assignee], new SlaNotification($event->ticket, $event->clock, breached: true));
+            $this->dispatch([$assignee], fn (): TicketNotification => new SlaNotification($event->ticket, $event->clock, breached: true));
         }
     }
 
@@ -78,17 +86,34 @@ class NotificationSubscriber
         $assignee = $this->recipients->assignee($event->ticket);
 
         if ($assignee instanceof Model) {
-            $this->send([$assignee], new SlaNotification($event->ticket, $event->clock, breached: false));
+            $this->dispatch([$assignee], fn (): TicketNotification => new SlaNotification($event->ticket, $event->clock, breached: false));
         }
     }
 
     /**
+     * Send a notification to each recipient on the channels they prefer, after
+     * the digest throttle. Resolving channels here (not in via()) keeps the
+     * throttle off the queue-retry path.
+     *
      * @param  list<Model>  $recipients
+     * @param  Closure(): TicketNotification  $make
      */
-    protected function send(array $recipients, Notification $notification): void
+    protected function dispatch(array $recipients, Closure $make): void
     {
-        if ($recipients !== []) {
-            NotificationFacade::send($recipients, $notification);
+        /** @var NotificationPreferences $preferences */
+        $preferences = app(NotificationPreferences::class);
+
+        foreach ($recipients as $recipient) {
+            $notification = $make();
+
+            $channels = $preferences->channels($recipient, $notification->key(), $notification->supportedChannels());
+            $channels = NotificationThrottle::filter($recipient, $notification->key(), $channels, $notification->ticket->getKey());
+
+            if ($channels === []) {
+                continue;
+            }
+
+            NotificationFacade::send([$recipient], $notification->onlyChannels($channels));
         }
     }
 

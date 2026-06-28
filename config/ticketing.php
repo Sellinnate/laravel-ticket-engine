@@ -403,7 +403,11 @@ return [
     'notifications' => [
         'enabled' => true,
         'preferences' => ConfigNotificationPreferences::class,
-        'default_channels' => ['mail', 'database'],
+
+        // Opt-in by design: no channels are active until you set them, so a
+        // package upgrade never starts mailing your users unexpectedly. Activate
+        // by listing channels here and/or per-event below.
+        'default_channels' => [],
 
         // Per-event channel overrides, keyed by notification key, e.g.
         // 'sla.breached' => ['mail', 'database', 'broadcast', 'slack'].

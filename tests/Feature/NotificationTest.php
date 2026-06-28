@@ -12,11 +12,19 @@ use Selli\Ticketing\Facades\Ticketing;
 use Selli\Ticketing\Models\SlaClock;
 use Selli\Ticketing\Models\SlaPolicy;
 use Selli\Ticketing\Models\TicketParticipant;
+use Selli\Ticketing\Notifications\NotificationThrottle;
 use Selli\Ticketing\Notifications\ParticipantAddedNotification;
 use Selli\Ticketing\Notifications\ReplyPostedNotification;
 use Selli\Ticketing\Notifications\SlaNotification;
 use Selli\Ticketing\Notifications\TicketAssignedNotification;
 use Selli\Ticketing\Sla\SlaManager;
+
+// Notifications are opt-in (no channels by default); activate them for the suite
+// and disable the throttle so cross-test cache markers don't interfere.
+beforeEach(function (): void {
+    config()->set('ticketing.notifications.default_channels', ['mail', 'database']);
+    config()->set('ticketing.notifications.throttle.seconds', 0);
+});
 
 afterEach(fn () => Carbon::setTestNow());
 
@@ -94,20 +102,26 @@ it('honours configured channel preferences', function (): void {
 });
 
 it('digests a throttled channel within the window', function (): void {
-    config()->set('ticketing.notifications.events.ticket.assigned', ['mail', 'database']);
     config()->set('ticketing.notifications.throttle.seconds', 300);
     config()->set('ticketing.notifications.throttle.channels', ['mail']);
-
-    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
     $agent = makeUser();
-    $notification = new TicketAssignedNotification($ticket);
 
-    $first = $notification->via($agent);
-    $second = $notification->via($agent);
+    $first = NotificationThrottle::filter($agent, 'ticket.assigned', ['mail', 'database'], 1);
+    $second = NotificationThrottle::filter($agent, 'ticket.assigned', ['mail', 'database'], 1);
 
-    expect($first)->toContain('mail')->toContain('database')
-        ->and($second)->not->toContain('mail')   // mail digested
-        ->and($second)->toContain('database');     // in-app still delivered
+    expect($first)->toBe(['mail', 'database'])  // first pass: both delivered
+        ->and($second)->toBe(['database']);      // mail digested, in-app still delivered
+});
+
+it('does not double-notify the assignee on first assignment', function (): void {
+    Notification::fake();
+    $agent = makeUser();
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+
+    Ticketing::assign($ticket, assignee: $agent);
+
+    Notification::assertSentTo($agent, TicketAssignedNotification::class);
+    Notification::assertNotSentTo($agent, ParticipantAddedNotification::class);
 });
 
 it('renders the per-channel payloads', function (): void {
@@ -123,6 +137,21 @@ it('renders the per-channel payloads', function (): void {
         ->and($broadcast->data['key'])->toBe('ticket.assigned')
         ->and($notification->toSlack($user))->toContain($ticket->reference)
         ->and($notification->toMail($user)->subject)->toContain('Ticket assigned');
+});
+
+it('renders reply and participant-added content', function (): void {
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+    $message = Ticketing::for($ticket)->postMessage(makeUser(), 'a fairly long reply body to summarise');
+
+    $reply = new ReplyPostedNotification($ticket, $message);
+    $added = new ParticipantAddedNotification($ticket, 'collaborator');
+
+    expect($reply->key())->toBe('ticket.reply')
+        ->and($reply->title())->toContain($ticket->reference)
+        ->and($reply->body())->toContain('long reply body')
+        ->and($added->key())->toBe('ticket.participant_added')
+        ->and($added->title())->toContain($ticket->reference)
+        ->and($added->body())->toContain('collaborator');
 });
 
 it('renders SLA notification content for breach and threshold', function (): void {
