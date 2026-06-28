@@ -43,11 +43,21 @@ class CalendarResolver
         }
 
         $holidayModel = Ticketing::holidayModel();
+        $tenantColumn = $calendar->getTenantColumn();
+        $tenantValue = $calendar->getAttribute($tenantColumn);
 
+        // Resolve holidays without the ambient tenant scope (the calendar was
+        // loaded unscoped too): scope explicitly to the calendar's own tenant
+        // plus shared (null-tenant) holidays, so a CLI/queue run with no resolved
+        // tenant still includes tenant-specific holidays.
         /** @var list<string> $holidays */
         $holidays = $holidayModel::query()
+            ->withoutTenancy()
             ->where(function ($query) use ($calendar): void {
                 $query->whereNull('business_hours_id')->orWhere('business_hours_id', $calendar->getKey());
+            })
+            ->where(function ($query) use ($tenantColumn, $tenantValue): void {
+                $query->where($tenantColumn, $tenantValue)->orWhereNull($tenantColumn);
             })
             ->pluck('date')
             ->map(fn (Carbon $date): string => $date->format('Y-m-d'))

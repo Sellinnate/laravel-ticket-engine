@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Carbon;
 use Selli\Ticketing\Enums\SlaTarget;
 use Selli\Ticketing\Facades\Ticketing;
@@ -10,6 +11,8 @@ use Selli\Ticketing\Models\Holiday;
 use Selli\Ticketing\Models\SlaClock;
 use Selli\Ticketing\Models\SlaPolicy;
 use Selli\Ticketing\Models\TicketType;
+use Selli\Ticketing\Sla\CalendarResolver;
+use Selli\Ticketing\Tenancy\TenantContext;
 
 afterEach(fn () => Carbon::setTestNow());
 
@@ -81,6 +84,23 @@ it('resolves SLA policy and calendar relations', function (): void {
     expect($policy->type->is($type))->toBeTrue()
         ->and($policy->businessHours->is($calendar))->toBeTrue()
         ->and($calendar->holidays()->count())->toBe(0);
+});
+
+it('applies tenant-specific holidays without ambient tenant context', function (): void {
+    $context = app(TenantContext::class);
+
+    $calendar = $context->forTenant(3, function () {
+        $calendar = BusinessHours::factory()->create(); // tenant 3, Mon–Fri 9–18
+        Holiday::query()->create(['business_hours_id' => $calendar->getKey(), 'date' => '2026-06-29', 'tenant_id' => 3]);
+
+        return $calendar;
+    });
+
+    // Resolve the calendar with NO ambient tenant context (CLI/queue).
+    $working = app(CalendarResolver::class)->forModel($calendar);
+
+    // Monday 2026-06-29 10:00 would normally be open, but the tenant holiday closes it.
+    expect($working->isOpenAt(CarbonImmutable::parse('2026-06-29 10:00:00', 'UTC')))->toBeFalse();
 });
 
 it('starts no clocks when no policy matches', function (): void {
