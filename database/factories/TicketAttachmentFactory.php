@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Database\Eloquent\Model;
 use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Models\TicketAttachment;
+use Selli\Ticketing\Support\Ticketing;
 
 /**
  * @extends Factory<TicketAttachment>
@@ -23,7 +24,7 @@ class TicketAttachmentFactory extends Factory
     {
         return [
             'attachable_type' => (new Ticket)->getMorphClass(),
-            'attachable_id' => Ticket::factory(),
+            'attachable_id' => Ticketing::ticketModel()::factory(),
             'disk' => 'local',
             'path' => 'attachments/'.fake()->uuid().'.txt',
             'name' => fake()->word().'.txt',

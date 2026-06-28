@@ -7,9 +7,11 @@ namespace Selli\Ticketing\Actions;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 use Selli\Ticketing\Events\TicketMerged;
+use Selli\Ticketing\Exceptions\CrossTenantException;
 use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Support\AuditLogger;
 use Selli\Ticketing\Support\Ticketing;
+use Selli\Ticketing\Tenancy\TenantGuard;
 
 /**
  * Unifies duplicate tickets: moves messages and attachments from each source
@@ -18,7 +20,10 @@ use Selli\Ticketing\Support\Ticketing;
  */
 class MergeTickets
 {
-    public function __construct(protected AuditLogger $audit) {}
+    public function __construct(
+        protected AuditLogger $audit,
+        protected TenantGuard $tenant,
+    ) {}
 
     /**
      * @param  iterable<Ticket>  $sources
@@ -28,13 +33,29 @@ class MergeTickets
         $sourceIds = [];
 
         DB::transaction(function () use ($target, $sources, $actor, &$sourceIds): void {
+            $ticketModel = Ticketing::ticketModel();
             $messageModel = Ticketing::ticketMessageModel();
             $attachmentModel = Ticketing::ticketAttachmentModel();
             $ticketMorph = $target->getMorphClass();
 
+            // Lock the target first to serialise concurrent merges.
+            $target = $ticketModel::query()->withoutTenancy()->lockForUpdate()->findOrFail($target->getKey());
+
             foreach ($sources as $source) {
                 if ($source->getKey() === $target->getKey()) {
                     continue;
+                }
+
+                // Lock the source row; skip if it was already merged away.
+                $source = $ticketModel::query()->withoutTenancy()->lockForUpdate()->find($source->getKey());
+
+                if ($source === null) {
+                    continue;
+                }
+
+                // Never merge tickets across tenants.
+                if (! $this->tenant->belongsToTicketTenant($source, $target)) {
+                    throw CrossTenantException::forAssignment('ticket');
                 }
 
                 $messageModel::query()->withoutTenancy()

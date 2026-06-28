@@ -5,9 +5,11 @@ declare(strict_types=1);
 use Illuminate\Support\Facades\Event;
 use Selli\Ticketing\Events\TicketMerged;
 use Selli\Ticketing\Events\TicketSplit;
+use Selli\Ticketing\Exceptions\CrossTenantException;
 use Selli\Ticketing\Facades\Ticketing;
 use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Models\TicketMessage;
+use Selli\Ticketing\Tenancy\TenantContext;
 
 it('merges source tickets into a target', function (): void {
     Event::fake([TicketMerged::class]);
@@ -24,6 +26,14 @@ it('merges source tickets into a target', function (): void {
 
     Event::assertDispatched(TicketMerged::class);
 });
+
+it('refuses to merge tickets across tenants', function (): void {
+    $context = app(TenantContext::class);
+    $target = $context->forTenant(5, fn () => Ticketing::open(type: 'support', title: 'T', requester: makeUser(['tenant_id' => 5])));
+    $source = $context->forTenant(9, fn () => Ticketing::open(type: 'support', title: 'S', requester: makeUser(['tenant_id' => 9])));
+
+    Ticketing::for($target)->mergeFrom([$source]);
+})->throws(CrossTenantException::class);
 
 it('splits messages out of a ticket into a new one', function (): void {
     Event::fake([TicketSplit::class]);

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Selli\Ticketing\Actions;
 
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Selli\Ticketing\Data\AddAttachmentData;
 use Selli\Ticketing\Events\AttachmentAdded;
 use Selli\Ticketing\Exceptions\AttachmentRejectedException;
@@ -30,34 +31,47 @@ class AddAttachment
         $file = $data->file;
         $ticket = $this->ticketOf($data->attachable);
 
-        $attachment = DB::transaction(function () use ($data, $disk, $file, $ticket): TicketAttachment {
-            $path = $file->store('ticketing/attachments', $disk);
+        // Store the file BEFORE the transaction and capture its metadata, then
+        // delete it if the database write rolls back — so a failed insert can't
+        // leave an orphaned blob on the disk.
+        $path = (string) $file->store('ticketing/attachments', $disk);
+        $name = $file->getClientOriginalName();
+        $mime = $file->getMimeType();
+        $size = (int) $file->getSize();
+        $checksum = hash_file('sha256', $file->getRealPath()) ?: null;
 
-            $model = Ticketing::ticketAttachmentModel();
+        try {
+            $attachment = DB::transaction(function () use ($data, $disk, $ticket, $path, $name, $mime, $size, $checksum): TicketAttachment {
+                $model = Ticketing::ticketAttachmentModel();
 
-            /** @var TicketAttachment $attachment */
-            $attachment = $model::query()->create(array_merge($ticket->tenantAttributes(), [
-                'attachable_type' => $data->attachable->getMorphClass(),
-                'attachable_id' => $data->attachable->getKey(),
-                'uploaded_by_type' => $data->uploadedBy?->getMorphClass(),
-                'uploaded_by_id' => $data->uploadedBy?->getKey(),
-                'disk' => $disk,
-                'path' => (string) $path,
-                'name' => $file->getClientOriginalName(),
-                'mime' => $file->getMimeType(),
-                'size' => $file->getSize(),
-                'checksum' => hash_file('sha256', $file->getRealPath()) ?: null,
-            ]));
+                /** @var TicketAttachment $attachment */
+                $attachment = $model::query()->create(array_merge($ticket->tenantAttributes(), [
+                    'attachable_type' => $data->attachable->getMorphClass(),
+                    'attachable_id' => $data->attachable->getKey(),
+                    'uploaded_by_type' => $data->uploadedBy?->getMorphClass(),
+                    'uploaded_by_id' => $data->uploadedBy?->getKey(),
+                    'disk' => $disk,
+                    'path' => $path,
+                    'name' => $name,
+                    'mime' => $mime,
+                    'size' => $size,
+                    'checksum' => $checksum,
+                ]));
 
-            $this->audit->record(
-                ticket: $ticket,
-                event: 'attachment.added',
-                actor: $data->uploadedBy,
-                context: ['attachment_id' => $attachment->getKey(), 'name' => $attachment->name],
-            );
+                $this->audit->record(
+                    ticket: $ticket,
+                    event: 'attachment.added',
+                    actor: $data->uploadedBy,
+                    context: ['attachment_id' => $attachment->getKey(), 'name' => $attachment->name],
+                );
 
-            return $attachment;
-        });
+                return $attachment;
+            });
+        } catch (\Throwable $exception) {
+            Storage::disk($disk)->delete($path);
+
+            throw $exception;
+        }
 
         AttachmentAdded::dispatch($ticket, $attachment);
 

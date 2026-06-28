@@ -13,6 +13,7 @@ use Selli\Ticketing\Events\ParticipantAdded;
 use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Models\TicketParticipant;
 use Selli\Ticketing\Support\Ticketing;
+use Selli\Ticketing\Tenancy\TenantGuard;
 
 /**
  * Resolves @mentions in messages and adds the mentioned actors as collaborators.
@@ -22,6 +23,7 @@ class CollaborationSubscriber
     public function __construct(
         protected MentionParser $parser,
         protected MentionResolver $resolver,
+        protected TenantGuard $tenant,
     ) {}
 
     public function onMessage(MessagePosted $event): void
@@ -29,7 +31,9 @@ class CollaborationSubscriber
         foreach ($this->parser->extract($event->message->body) as $handle) {
             $actor = $this->resolver->resolve($handle);
 
-            if ($actor instanceof Model) {
+            // Never attach an actor from another tenant, even if a custom
+            // resolver returns one.
+            if ($actor instanceof Model && $this->tenant->belongsToTicketTenant($actor, $event->ticket)) {
                 $this->addCollaborator($event->ticket, $actor);
             }
         }

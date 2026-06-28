@@ -14,6 +14,8 @@ use Selli\Ticketing\Models\Macro;
 use Selli\Ticketing\Models\Tag;
 use Selli\Ticketing\Models\TicketMessage;
 use Selli\Ticketing\Models\TicketParticipant;
+use Selli\Ticketing\Tenancy\TenantContext;
+use Selli\Ticketing\Tenancy\TenantGuard;
 
 it('tags and untags a ticket idempotently', function (): void {
     $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
@@ -68,7 +70,7 @@ it('adds a mentioned actor as a collaborator', function (): void {
         }
     };
 
-    $subscriber = new CollaborationSubscriber(new MentionParser, $resolver);
+    $subscriber = new CollaborationSubscriber(new MentionParser, $resolver, app(TenantGuard::class));
     $message = TicketMessage::factory()->internal()->create(['ticket_id' => $ticket->getKey(), 'body' => 'cc @bob please review']);
 
     $subscriber->onMessage(new MessagePosted($ticket, $message));
@@ -78,6 +80,32 @@ it('adds a mentioned actor as a collaborator', function (): void {
         ->where('role', ParticipantRole::Collaborator->value)
         ->where('participant_id', (string) $mentioned->getKey())
         ->exists())->toBeTrue();
+});
+
+it('does not add a mentioned actor from another tenant', function (): void {
+    $context = app(TenantContext::class);
+    $ticket = $context->forTenant(5, fn () => Ticketing::open(type: 'support', title: 'x', requester: makeUser(['tenant_id' => 5])));
+    $otherTenantActor = $context->forTenant(9, fn () => makeUser(['name' => 'Eve', 'tenant_id' => 9]));
+
+    $resolver = new class($otherTenantActor) implements MentionResolver
+    {
+        public function __construct(private Model $user) {}
+
+        public function resolve(string $handle): ?Model
+        {
+            return $this->user;
+        }
+    };
+
+    $subscriber = new CollaborationSubscriber(new MentionParser, $resolver, app(TenantGuard::class));
+    $message = TicketMessage::factory()->internal()->create(['ticket_id' => $ticket->getKey(), 'tenant_id' => 5, 'body' => 'cc @eve']);
+
+    $subscriber->onMessage(new MessagePosted($ticket, $message));
+
+    expect(TicketParticipant::query()->withoutTenancy()
+        ->where('ticket_id', $ticket->getKey())
+        ->where('role', ParticipantRole::Collaborator->value)
+        ->exists())->toBeFalse();
 });
 
 it('parses mention handles from a body', function (): void {
