@@ -1,0 +1,43 @@
+name: code-coverage
+
+on:
+  push:
+    paths:
+      - '**.php'
+      - '.github/workflows/coverage.yml'
+      - 'phpunit.xml.dist'
+      - 'composer.json'
+  pull_request:
+    paths:
+      - '**.php'
+      - '.github/workflows/coverage.yml'
+      - 'phpunit.xml.dist'
+      - 'composer.json'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    name: Coverage (min 90%)
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: 8.4
+          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, intl, fileinfo
+          coverage: pcov
+
+      - name: Install dependencies
+        run: composer update --prefer-dist --no-interaction
+
+      - name: Execute tests with coverage gate
+        run: vendor/bin/pest --coverage --min=90 --ci

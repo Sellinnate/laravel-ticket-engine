@@ -1,47 +1,60 @@
 {
-    "name": ":vendor_slug/:package_slug",
-    "description": ":package_description",
+    "name": "selli/ticketing",
+    "description": "The agnostic, headless, multi-tenant ticketing domain engine for Laravel. Attach tickets to anything — your models, your UI, your tenant.",
     "keywords": [
-        ":vendor_name",
+        "selli",
+        "sellinnate",
         "laravel",
-        ":package_slug"
+        "ticketing",
+        "tickets",
+        "helpdesk",
+        "support",
+        "sla",
+        "multi-tenant",
+        "headless"
     ],
-    "homepage": "https://github.com/:vendor_slug/:package_slug",
+    "homepage": "https://github.com/Sellinnate/laravel-ticketing",
     "license": "MIT",
     "authors": [
         {
-            "name": ":author_name",
-            "email": "author@domain.com",
+            "name": "Sellinnate",
+            "email": "hello@selli.io",
             "role": "Developer"
         }
     ],
     "require": {
-        "php": "^8.4",
+        "php": "^8.3",
         "spatie/laravel-package-tools": "^1.16",
         "illuminate/contracts": "^11.0||^12.0||^13.0"
     },
     "require-dev": {
+        "larastan/larastan": "^3.0",
         "laravel/pint": "^1.14",
         "nunomaduro/collision": "^8.8",
-        "larastan/larastan": "^3.0",
         "orchestra/testbench": "^11.0.0||^10.0.0||^9.0.0",
         "pestphp/pest": "^4.0",
         "pestphp/pest-plugin-arch": "^4.0",
         "pestphp/pest-plugin-laravel": "^4.0",
         "phpstan/extension-installer": "^1.4",
         "phpstan/phpstan-deprecation-rules": "^2.0",
-        "phpstan/phpstan-phpunit": "^2.0",
-        "spatie/laravel-ray": "^1.35"
+        "phpstan/phpstan-phpunit": "^2.0"
+    },
+    "suggest": {
+        "beyondcode/laravel-mailbox": "Required for the email-to-ticket inbound channel bridge.",
+        "spatie/laravel-model-states": "Required for the type-safe state-class workflow driver.",
+        "spatie/laravel-permission": "Optional integration for role/permission based authorization.",
+        "stancl/tenancy": "Optional bridge to inherit the current tenant from stancl/tenancy.",
+        "spatie/laravel-multitenancy": "Optional bridge to inherit the current tenant from spatie/laravel-multitenancy."
     },
     "autoload": {
         "psr-4": {
-            "VendorName\\Skeleton\\": "src/",
-            "VendorName\\Skeleton\\Database\\Factories\\": "database/factories/"
+            "Selli\\Ticketing\\": "src/",
+            "Selli\\Ticketing\\Database\\Factories\\": "database/factories/"
         }
     },
     "autoload-dev": {
         "psr-4": {
-            "VendorName\\Skeleton\\Tests\\": "tests/",
+            "Selli\\Ticketing\\Tests\\": "tests/",
             "Workbench\\App\\": "workbench/app/"
         }
     },
@@ -50,7 +63,7 @@
         "prepare": "@php vendor/bin/testbench package:discover --ansi",
         "analyse": "vendor/bin/phpstan analyse",
         "test": "vendor/bin/pest",
-        "test-coverage": "vendor/bin/pest --coverage",
+        "test-coverage": "vendor/bin/pest --coverage --min=90",
         "format": "vendor/bin/pint"
     },
     "config": {
@@ -63,10 +76,10 @@
     "extra": {
         "laravel": {
             "providers": [
-                "VendorName\\Skeleton\\SkeletonServiceProvider"
+                "Selli\\Ticketing\\TicketingServiceProvider"
             ],
             "aliases": {
-                "Skeleton": "VendorName\\Skeleton\\Facades\\Skeleton"
+                "Ticketing": "Selli\\Ticketing\\Facades\\Ticketing"
             }
         }
     },
