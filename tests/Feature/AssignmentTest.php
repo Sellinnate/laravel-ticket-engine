@@ -103,6 +103,19 @@ it('rejects assigning an agent from another tenant', function (): void {
     });
 })->throws(CrossTenantException::class);
 
+it('rejects a shared team when allow_shared is disabled', function (): void {
+    config()->set('ticketing.tenancy.allow_shared', false);
+    $context = app(TenantContext::class);
+
+    $sharedTeam = Team::factory()->create(['tenant_id' => null]);
+    TeamMember::factory()->member(makeUser())->create(['team_id' => $sharedTeam->getKey()]);
+
+    $context->forTenant(5, function () use ($sharedTeam): void {
+        $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser(['tenant_id' => 5]));
+        Ticketing::for($ticket)->assignToTeam($sharedTeam, 'manual');
+    });
+})->throws(CrossTenantException::class);
+
 it('stamps round-robin state when assigning to an agent already on the ticket team', function (): void {
     $team = Team::factory()->create();
     $agent = makeUser();

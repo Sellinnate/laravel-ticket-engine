@@ -40,20 +40,21 @@ class AssignTicket
             return $data->ticket;
         }
 
-        // Reject cross-tenant assignment from the public API up front.
-        if ($data->team !== null && ! $this->tenant->belongsToTicketTenant($data->team, $data->ticket)) {
-            throw CrossTenantException::forAssignment('team');
-        }
-
-        if ($data->assignee !== null && ! $this->tenant->belongsToTicketTenant($data->assignee, $data->ticket)) {
-            throw CrossTenantException::forAssignment('agent');
-        }
-
         $model = Ticketing::ticketModel();
 
         $result = DB::transaction(function () use ($data, $model): array {
             /** @var Ticket $ticket */
             $ticket = $model::query()->withoutTenancy()->lockForUpdate()->findOrFail($data->ticket->getKey());
+
+            // Validate tenancy against the locked, committed ticket — not the
+            // possibly-stale in-memory instance the caller passed.
+            if ($data->team !== null && ! $this->tenant->belongsToTicketTenant($data->team, $ticket)) {
+                throw CrossTenantException::forAssignment('team');
+            }
+
+            if ($data->assignee !== null && ! $this->tenant->belongsToTicketTenant($data->assignee, $ticket)) {
+                throw CrossTenantException::forAssignment('agent');
+            }
 
             $team = $data->team;
             $assignee = $data->assignee;

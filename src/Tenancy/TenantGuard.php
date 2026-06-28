@@ -19,6 +19,9 @@ class TenantGuard
     {
         $column = $ticket->getTenantColumn();
 
+        // A model whose table has no tenant column is not scoped by us. Detect
+        // this on the model's own attributes (we always load full rows) — a model
+        // that carries the column but with a null value is treated as shared.
         if (! array_key_exists($column, $model->getAttributes())) {
             return true;
         }
@@ -27,6 +30,13 @@ class TenantGuard
         $ticketTenant = $ticket->getAttribute($column);
         $allowShared = config('ticketing.tenancy.allow_shared', true) !== false;
 
-        return $modelTenant == $ticketTenant || ($modelTenant === null && $allowShared);
+        // A shared (null-tenant) model is allowed only when sharing is enabled.
+        if ($modelTenant === null) {
+            return $allowShared;
+        }
+
+        // Otherwise the tenants must match. Compare as strings to avoid loose
+        // null/0/numeric-string coercion between int and string keys.
+        return (string) $modelTenant === (string) $ticketTenant;
     }
 }
