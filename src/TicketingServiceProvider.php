@@ -11,13 +11,16 @@ use Selli\Ticketing\Collaboration\NullMentionResolver;
 use Selli\Ticketing\Commands\EscalateCommand;
 use Selli\Ticketing\Commands\RecalculateSlaCommand;
 use Selli\Ticketing\Contracts\MentionResolver;
+use Selli\Ticketing\Contracts\NotificationPreferences;
 use Selli\Ticketing\Contracts\TenantResolver;
 use Selli\Ticketing\Contracts\WorkflowDriver;
 use Selli\Ticketing\Listeners\AutomationSubscriber;
 use Selli\Ticketing\Listeners\CollaborationSubscriber;
 use Selli\Ticketing\Listeners\CsatSubscriber;
+use Selli\Ticketing\Listeners\NotificationSubscriber;
 use Selli\Ticketing\Listeners\RoutingSubscriber;
 use Selli\Ticketing\Listeners\SlaSubscriber;
+use Selli\Ticketing\Notifications\ConfigNotificationPreferences;
 use Selli\Ticketing\Routing\AssignmentManager;
 use Selli\Ticketing\Sla\SlaManager;
 use Selli\Ticketing\Support\Ticketing;
@@ -84,6 +87,13 @@ class TicketingServiceProvider extends PackageServiceProvider
 
             return $this->app->make($class);
         });
+
+        $this->app->bind(NotificationPreferences::class, function (): NotificationPreferences {
+            /** @var class-string<NotificationPreferences> $class */
+            $class = config('ticketing.notifications.preferences', ConfigNotificationPreferences::class);
+
+            return $this->app->make($class);
+        });
     }
 
     public function packageBooted(): void
@@ -116,6 +126,10 @@ class TicketingServiceProvider extends PackageServiceProvider
 
         if (config('ticketing.automation.enabled', true) !== false) {
             $this->subscribe($this->app->make(AutomationSubscriber::class));
+        }
+
+        if (config('ticketing.notifications.enabled', true) !== false) {
+            $this->subscribe($this->app->make(NotificationSubscriber::class));
         }
     }
 

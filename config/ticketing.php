@@ -22,6 +22,7 @@ use Selli\Ticketing\Models\TicketLink;
 use Selli\Ticketing\Models\TicketMessage;
 use Selli\Ticketing\Models\TicketParticipant;
 use Selli\Ticketing\Models\TicketType;
+use Selli\Ticketing\Notifications\ConfigNotificationPreferences;
 use Selli\Ticketing\Tenancy\DefaultTenantResolver;
 use Selli\Ticketing\Workflow\Guards\RequireResolutionNote;
 
@@ -384,6 +385,39 @@ return [
         // (the allow-list is then authoritative).
         'block_private' => true,
         'allowed_hosts' => [],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Notifications
+    |--------------------------------------------------------------------------
+    |
+    | Domain events become Laravel notifications to the relevant actors. Channel
+    | selection per recipient is delegated to the "preferences" implementation
+    | (bind your own per-user/per-tenant one); the default reads "events" /
+    | "default_channels" from here. Channels: mail, database (in-app bell),
+    | broadcast, slack (incoming-webhook). "throttle" digests noisy channels —
+    | at most one per ticket per window.
+    |
+    */
+    'notifications' => [
+        'enabled' => true,
+        'preferences' => ConfigNotificationPreferences::class,
+        'default_channels' => ['mail', 'database'],
+
+        // Per-event channel overrides, keyed by notification key, e.g.
+        // 'sla.breached' => ['mail', 'database', 'broadcast', 'slack'].
+        'events' => [],
+
+        'throttle' => [
+            'seconds' => 300, // 5-minute digest window (0 = no throttle)
+            'channels' => ['mail', 'slack'],
+        ],
+
+        'slack' => [
+            'webhook' => null,
+            'timeout' => 5,
+        ],
     ],
 
     /*
