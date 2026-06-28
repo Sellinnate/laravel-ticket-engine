@@ -6,6 +6,7 @@ namespace Selli\Ticketing\Actions;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
+use Selli\Ticketing\Enums\ParticipantRole;
 use Selli\Ticketing\Events\TicketOpened;
 use Selli\Ticketing\Events\TicketSplit;
 use Selli\Ticketing\Exceptions\InvalidConfigurationException;
@@ -55,9 +56,21 @@ class SplitTicket
             $ticketModel = Ticketing::ticketModel();
             $messageModel = Ticketing::ticketMessageModel();
             $linkModel = Ticketing::ticketLinkModel();
+            $participantModel = Ticketing::ticketParticipantModel();
 
             // Lock the source so concurrent split/merge/message moves serialise.
             $source = $ticketModel::query()->withoutTenancy()->lockForUpdate()->findOrFail($source->getKey());
+
+            // Refuse a no-op split (no given message actually belongs to the
+            // source), so we never create an empty ticket + fire its events.
+            $movable = $messageModel::query()->withoutTenancy()
+                ->where('ticket_id', $source->getKey())
+                ->whereIn((new $messageModel)->getKeyName(), $messageIds)
+                ->count();
+
+            if ($movable === 0) {
+                throw new \InvalidArgumentException('No messages from the source ticket were given to split.');
+            }
 
             $typeKey = $this->typeKey($source);
 
@@ -79,6 +92,25 @@ class SplitTicket
                 ->where('ticket_id', $source->getKey())
                 ->whereIn((new $messageModel)->getKeyName(), $messageIds)
                 ->update(['ticket_id' => $created->getKey()]);
+
+            // Carry the requester(s) over so SLA next-response handling and
+            // notifications work on the split ticket too.
+            $requesters = $participantModel::query()->withoutTenancy()
+                ->where('ticket_id', $source->getKey())
+                ->where('role', ParticipantRole::Requester->value)
+                ->get();
+
+            foreach ($requesters as $requester) {
+                $participantModel::query()->withoutTenancy()->firstOrCreate(
+                    [
+                        'ticket_id' => $created->getKey(),
+                        'participant_type' => $requester->participant_type,
+                        'participant_id' => $requester->participant_id,
+                        'role' => ParticipantRole::Requester->value,
+                    ],
+                    array_merge($created->tenantAttributes(), ['notify' => true]),
+                );
+            }
 
             $linkModel::query()->create(array_merge($source->tenantAttributes(), [
                 'ticket_id' => $created->getKey(),

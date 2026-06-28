@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Facades\Event;
+use Selli\Ticketing\Enums\ParticipantRole;
 use Selli\Ticketing\Events\TicketMerged;
 use Selli\Ticketing\Events\TicketOpened;
 use Selli\Ticketing\Events\TicketSplit;
@@ -66,4 +67,23 @@ it('starts the split ticket fresh at the initial state and fires TicketOpened', 
         ->and($created->resolved_at)->toBeNull();
 
     Event::assertDispatched(TicketOpened::class, fn (TicketOpened $e): bool => $e->ticket->is($created));
+});
+
+it('refuses to split with no matching messages', function (): void {
+    $source = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+
+    Ticketing::for($source)->split([999999]); // no such message on the source
+})->throws(InvalidArgumentException::class);
+
+it('carries the requester onto the split ticket', function (): void {
+    $requester = makeUser();
+    $source = Ticketing::open(type: 'support', title: 'x', requester: $requester);
+    $message = Ticketing::for($source)->postMessage(makeUser(), 'msg');
+
+    $created = Ticketing::for($source)->split([$message->getKey()]);
+
+    expect($created->participants()
+        ->where('role', ParticipantRole::Requester->value)
+        ->where('participant_id', (string) $requester->getKey())
+        ->exists())->toBeTrue();
 });

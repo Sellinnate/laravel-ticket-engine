@@ -31,8 +31,10 @@ class MergeTickets
     public function handle(Ticket $target, iterable $sources, ?Model $actor = null): Ticket
     {
         $sourceIds = [];
+        $merged = $target;
 
-        DB::transaction(function () use ($target, $sources, $actor, &$sourceIds): void {
+        DB::transaction(function () use (&$merged, $sources, $actor, &$sourceIds): void {
+            $target = $merged;
             $ticketModel = Ticketing::ticketModel();
             $messageModel = Ticketing::ticketMessageModel();
             $attachmentModel = Ticketing::ticketAttachmentModel();
@@ -40,6 +42,7 @@ class MergeTickets
 
             // Lock the target first to serialise concurrent merges.
             $target = $ticketModel::query()->withoutTenancy()->lockForUpdate()->findOrFail($target->getKey());
+            $merged = $target;
 
             foreach ($sources as $source) {
                 if ($source->getKey() === $target->getKey()) {
@@ -76,8 +79,8 @@ class MergeTickets
             }
         });
 
-        TicketMerged::dispatch($target, $sourceIds, $actor);
+        TicketMerged::dispatch($merged, $sourceIds, $actor);
 
-        return $target;
+        return $merged;
     }
 }
