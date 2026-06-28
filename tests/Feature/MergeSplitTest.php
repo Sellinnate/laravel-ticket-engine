@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Illuminate\Support\Facades\Event;
 use Selli\Ticketing\Events\TicketMerged;
+use Selli\Ticketing\Events\TicketOpened;
 use Selli\Ticketing\Events\TicketSplit;
 use Selli\Ticketing\Exceptions\CrossTenantException;
 use Selli\Ticketing\Facades\Ticketing;
@@ -50,4 +51,19 @@ it('splits messages out of a ticket into a new one', function (): void {
         ->and($created->links()->count())->toBe(1); // linked back to source
 
     Event::assertDispatched(TicketSplit::class);
+});
+
+it('starts the split ticket fresh at the initial state and fires TicketOpened', function (): void {
+    Event::fake([TicketOpened::class]);
+
+    $source = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+    $message = Ticketing::for($source)->postMessage(makeUser(), 'msg');
+    Ticketing::for($source)->transition('resolve'); // source becomes resolved
+
+    $created = Ticketing::for($source)->split([$message->getKey()]);
+
+    expect($created->status)->toBe('open') // initial state, not the source's 'resolved'
+        ->and($created->resolved_at)->toBeNull();
+
+    Event::assertDispatched(TicketOpened::class, fn (TicketOpened $e): bool => $e->ticket->is($created));
 });

@@ -7,6 +7,7 @@ use Selli\Ticketing\Collaboration\MentionParser;
 use Selli\Ticketing\Contracts\MentionResolver;
 use Selli\Ticketing\Enums\ParticipantRole;
 use Selli\Ticketing\Events\MessagePosted;
+use Selli\Ticketing\Exceptions\CrossTenantException;
 use Selli\Ticketing\Facades\Ticketing;
 use Selli\Ticketing\Listeners\CollaborationSubscriber;
 use Selli\Ticketing\Models\CannedResponse;
@@ -55,6 +56,26 @@ it('applies a macro (reply + transition + tags)', function (): void {
         ->and($ticket->messages()->count())->toBe(1)
         ->and($ticket->tags()->count())->toBe(1);
 });
+
+it('applies a macro with no reply key', function (): void {
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+    $macro = Macro::factory()->create(['actions' => ['tags' => ['triaged']]]); // no reply key
+
+    Ticketing::for($ticket)->applyMacro($macro);
+
+    expect($ticket->fresh()->tags()->count())->toBe(1)
+        ->and($ticket->fresh()->messages()->count())->toBe(0);
+});
+
+it('rejects a macro from another tenant', function (): void {
+    $context = app(TenantContext::class);
+    $macro = $context->forTenant(9, fn () => Macro::factory()->create(['tenant_id' => 9, 'actions' => ['tags' => ['x']]]));
+
+    $context->forTenant(5, function () use ($macro): void {
+        $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser(['tenant_id' => 5]));
+        Ticketing::for($ticket)->applyMacro($macro);
+    });
+})->throws(CrossTenantException::class);
 
 it('adds a mentioned actor as a collaborator', function (): void {
     $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
