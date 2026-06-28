@@ -206,13 +206,54 @@ it('rejects an empty or unknown assignment', function (): void {
     $this->postJson(API.'/tickets/'.$ticket->getKey().'/assignment', ['team_id' => 999999])->assertStatus(422);
 });
 
-it('refuses self-assignment by a requester', function (): void {
-    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+it('forbids a requester from assigning their own ticket (policy)', function (): void {
     $requester = TestRequester::query()->create(['name' => 'Req']);
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: $requester);
     $this->actingAs($requester);
 
+    // assign is agent-only — denied even for the ticket's own requester, before
+    // the controller's assign_to_me check is reached.
     $this->postJson(API.'/tickets/'.$ticket->getKey().'/assignment', ['assign_to_me' => true])
-        ->assertStatus(422)->assertJsonValidationErrors('assign_to_me');
+        ->assertForbidden();
+});
+
+it('scopes a requester listing to their own tickets but lists all for an agent', function (): void {
+    $requester = TestRequester::query()->create(['name' => 'Owner']);
+    $mine = Ticketing::open(type: 'support', title: 'Mine', requester: $requester);
+    Ticketing::open(type: 'support', title: 'Someone elses', requester: makeUser());
+
+    // The requester sees only their ticket — not the other's metadata.
+    $this->actingAs($requester);
+    $this->getJson(API.'/tickets')
+        ->assertOk()
+        ->assertJsonCount(1, 'data')
+        ->assertJsonPath('data.0.title', 'Mine');
+
+    // An agent sees both.
+    $this->actingAs(makeUser());
+    $this->getJson(API.'/tickets')->assertOk()->assertJsonCount(2, 'data');
+    expect($mine->getKey())->not->toBeNull();
+});
+
+it('forbids a stranger from viewing or acting on a ticket they are not on', function (): void {
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+    // A requester-only account that is NOT this ticket's requester/participant.
+    $stranger = TestRequester::query()->create(['name' => 'Nosy']);
+    $this->actingAs($stranger);
+
+    $this->getJson(API.'/tickets/'.$ticket->getKey())->assertForbidden();
+    $this->postJson(API.'/tickets/'.$ticket->getKey().'/transitions', ['transition' => 'resolve'])->assertForbidden();
+    $this->postJson(API.'/tickets/'.$ticket->getKey().'/messages', ['body' => 'hi'])->assertForbidden();
+});
+
+it('lets a ticket requester view and reply to their own ticket', function (): void {
+    $requester = TestRequester::query()->create(['name' => 'Owner']);
+    $ticket = Ticketing::open(type: 'support', title: 'Mine', requester: $requester);
+    $this->actingAs($requester);
+
+    $this->getJson(API.'/tickets/'.$ticket->getKey())->assertOk()->assertJsonPath('data.title', 'Mine');
+    $this->postJson(API.'/tickets/'.$ticket->getKey().'/messages', ['body' => 'any update?'])
+        ->assertCreated();
 });
 
 it('returns 422 (not 500) when CSAT is rejected by the domain', function (): void {

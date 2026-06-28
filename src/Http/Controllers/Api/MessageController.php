@@ -15,6 +15,7 @@ class MessageController extends Controller
     public function store(StoreMessageRequest $request, string $ticket): JsonResponse
     {
         $ticket = $this->resolveTicket($ticket);
+        $this->authorizeTicket($request->user(), 'comment', $ticket);
 
         $message = Ticketing::postMessage(
             ticket: $ticket,

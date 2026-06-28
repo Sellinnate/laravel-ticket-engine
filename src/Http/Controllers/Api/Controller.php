@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Selli\Ticketing\Http\Controllers\Api;
 
 use Closure;
+use Illuminate\Contracts\Auth\Authenticatable;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 use Selli\Ticketing\Exceptions\AttachmentRejectedException;
 use Selli\Ticketing\Exceptions\CsatException;
@@ -55,5 +57,23 @@ abstract class Controller
         $ticket = Ticketing::ticketModel()::query()->findOrFail($key);
 
         return $ticket;
+    }
+
+    /**
+     * Authorize an ability against the ticket via the package's TicketPolicy
+     * (or a host's own). Throws AuthorizationException → 403 when denied. A host
+     * that turns policy registration off effectively allows everything here.
+     */
+    protected function authorizeTicket(?Authenticatable $user, string $ability, Ticket $ticket): void
+    {
+        Gate::forUser($user)->authorize($ability, $ticket);
+    }
+
+    /**
+     * Authorize a ticket ability that has no specific model yet (viewAny/create).
+     */
+    protected function authorizeAny(?Authenticatable $user, string $ability): void
+    {
+        Gate::forUser($user)->authorize($ability, Ticketing::ticketModel());
     }
 }

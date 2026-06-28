@@ -17,6 +17,7 @@ class AssignmentController extends Controller
     public function store(StoreAssignmentRequest $request, string $ticket): TicketResource
     {
         $ticket = $this->resolveTicket($ticket);
+        $this->authorizeTicket($request->user(), 'assign', $ticket);
 
         $team = null;
 
