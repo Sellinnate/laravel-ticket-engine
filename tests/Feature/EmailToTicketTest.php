@@ -351,6 +351,26 @@ it('rolls back the ticket and the dedupe claim when ingestion throws', function 
     expect(Ticketing::receiveEmail(inbound(['message_id' => '<boom@example.test>'])))->not->toBeNull();
 });
 
+it('does not consume a rate-limit slot for a failed ingest', function (): void {
+    enableInbound();
+    config()->set('ticketing.mail.inbound.rate_limit.max_per_minute', 1);
+
+    app()->bind(InboundRequesterResolver::class, fn () => new class implements InboundRequesterResolver
+    {
+        public function resolve(InboundEmail $email): ?Model
+        {
+            throw new RuntimeException('boom');
+        }
+    });
+    expect(fn () => Ticketing::receiveEmail(inbound(['message_id' => '<fail@example.test>'])))
+        ->toThrow(RuntimeException::class);
+
+    // The failed attempt rolled back and consumed no slot, so a real message
+    // still ingests under the limit of 1.
+    app()->bind(InboundRequesterResolver::class, NullInboundRequesterResolver::class);
+    expect(Ticketing::receiveEmail(inbound(['message_id' => '<ok@example.test>'])))->not->toBeNull();
+});
+
 it('imports inbound attachments onto the message', function (): void {
     Storage::fake('local');
     enableInbound();

@@ -64,8 +64,10 @@ class ProcessInboundEmail
         }
 
         // A rate-limited NEW message is dropped here, before any claim, so a
-        // later retry (once the burst subsides) can still be ingested.
-        if ($this->rateLimited($email)) {
+        // later retry (once the burst subsides) can still be ingested. The slot
+        // is consumed only after a successful commit (see below), so a
+        // rolled-back/dropped email never counts against the sender.
+        if ($this->rateLimitExceeded($email)) {
             return null;
         }
 
@@ -98,6 +100,9 @@ class ProcessInboundEmail
             }
 
             DB::commit();
+
+            // Count the slot only now — a committed ingest, not a failed attempt.
+            $this->recordRateHit($email);
 
             return $message;
         } catch (\Throwable $exception) {
@@ -320,25 +325,36 @@ class ProcessInboundEmail
         }
     }
 
-    protected function rateLimited(InboundEmail $email): bool
+    /**
+     * Is the sender already at the limit? Read-only — the slot is consumed by
+     * recordRateHit() AFTER a successful commit, so a rolled-back/dropped email
+     * never burns a slot and can't block a legitimate retry.
+     */
+    protected function rateLimitExceeded(InboundEmail $email): bool
+    {
+        $max = $this->rateLimitMax();
+
+        return $max > 0 && RateLimiter::tooManyAttempts($this->rateLimitKey($email), $max);
+    }
+
+    protected function recordRateHit(InboundEmail $email): void
+    {
+        if ($this->rateLimitMax() > 0) {
+            RateLimiter::hit($this->rateLimitKey($email), 60);
+        }
+    }
+
+    protected function rateLimitMax(): int
     {
         /** @var array{max_per_minute?: int} $config */
         $config = config('ticketing.mail.inbound.rate_limit', []);
-        $max = (int) ($config['max_per_minute'] ?? 30);
 
-        if ($max <= 0) {
-            return false;
-        }
+        return (int) ($config['max_per_minute'] ?? 30);
+    }
 
-        $key = 'ticketing:inbound:'.sha1(strtolower(trim($email->from)));
-
-        if (RateLimiter::tooManyAttempts($key, $max)) {
-            return true;
-        }
-
-        RateLimiter::hit($key, 60);
-
-        return false;
+    protected function rateLimitKey(InboundEmail $email): string
+    {
+        return 'ticketing:inbound:'.sha1(strtolower(trim($email->from)));
     }
 
     protected function normaliseId(string $id): string
