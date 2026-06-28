@@ -19,9 +19,18 @@ class SlaPolicyResolver
     {
         $model = Ticketing::slaPolicyModel();
         $priority = $ticket->priority->value;
+        $tenantColumn = $ticket->getTenantColumn();
+        $tenantValue = $ticket->getAttribute($tenantColumn);
 
+        // Resolve against the ticket's own tenant (plus shared null-tenant
+        // policies) without relying on ambient scope, so queue/CLI flows with no
+        // resolved tenant still see tenant-specific policies.
         $candidates = $model::query()
+            ->withoutTenancy()
             ->where('is_active', true)
+            ->where(function ($query) use ($tenantColumn, $tenantValue): void {
+                $query->where($tenantColumn, $tenantValue)->orWhereNull($tenantColumn);
+            })
             ->where(function ($query) use ($ticket): void {
                 $query->whereNull('ticket_type_id')->orWhere('ticket_type_id', $ticket->ticket_type_id);
             })

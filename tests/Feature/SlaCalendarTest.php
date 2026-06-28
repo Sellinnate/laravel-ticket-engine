@@ -10,8 +10,10 @@ use Selli\Ticketing\Models\BusinessHours;
 use Selli\Ticketing\Models\Holiday;
 use Selli\Ticketing\Models\SlaClock;
 use Selli\Ticketing\Models\SlaPolicy;
+use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Models\TicketType;
 use Selli\Ticketing\Sla\CalendarResolver;
+use Selli\Ticketing\Sla\SlaPolicyResolver;
 use Selli\Ticketing\Tenancy\TenantContext;
 
 afterEach(fn () => Carbon::setTestNow());
@@ -101,6 +103,23 @@ it('applies tenant-specific holidays without ambient tenant context', function (
 
     // Monday 2026-06-29 10:00 would normally be open, but the tenant holiday closes it.
     expect($working->isOpenAt(CarbonImmutable::parse('2026-06-29 10:00:00', 'UTC')))->toBeFalse();
+});
+
+it('resolves tenant-specific policies without ambient tenant context', function (): void {
+    $context = app(TenantContext::class);
+
+    $ticket = $context->forTenant(3, function () {
+        SlaPolicy::factory()->create(['tenant_id' => 3, 'name' => 't3', 'resolution_minutes' => 480]);
+
+        return Ticketing::open(type: 'support', title: 'x', requester: makeUser(['tenant_id' => 3]));
+    });
+
+    // No ambient tenant context (queue/CLI).
+    $loaded = Ticket::query()->withoutTenancy()->find($ticket->getKey());
+    $policy = app(SlaPolicyResolver::class)->resolve($loaded);
+
+    expect($policy)->not->toBeNull()
+        ->and($policy->name)->toBe('t3');
 });
 
 it('starts no clocks when no policy matches', function (): void {
