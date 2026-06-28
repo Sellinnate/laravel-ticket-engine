@@ -17,6 +17,7 @@ use Selli\Ticketing\Models\SlaClock;
 use Selli\Ticketing\Models\SlaPolicy;
 use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Models\TicketMessage;
+use Selli\Ticketing\Models\TicketParticipant;
 use Selli\Ticketing\Support\Ticketing;
 use Selli\Ticketing\Tenancy\TenantContext;
 use Selli\Ticketing\Workflow\WorkflowManager;
@@ -50,8 +51,15 @@ class SlaManager
         $calendar = $this->calendars->forPolicy($policy);
         $now = now();
 
-        if ($policy->first_response_minutes !== null && $ticket->first_response_at === null) {
+        if ($policy->first_response_minutes !== null) {
             $this->writeClock($ticket, SlaTarget::FirstResponse, $now, $calendar->addMinutes($now, $policy->first_response_minutes), $policy->first_response_minutes, $policy->business_hours_id);
+
+            // A ticket opened already carrying a first response (e.g. a split of
+            // an answered thread) still gets a clock row, immediately completed,
+            // so sweeps and reporting see it like any other.
+            if ($ticket->first_response_at !== null) {
+                $this->completeFirstResponseClock($ticket);
+            }
         }
 
         if ($policy->resolution_minutes !== null) {
@@ -92,6 +100,227 @@ class SlaManager
         }
 
         return $message->author instanceof CanActOnTickets;
+    }
+
+    /**
+     * Reconcile first_response_at after messages are reparented (split/merge)
+     * from the ticket's currently-attached conversation (earliest qualifying
+     * public agent reply).
+     *
+     * Additive contexts (merge target, fresh split child) use the default
+     * non-destructive mode: set when unset or pull earlier, but never erase a
+     * stamp on a transient negative nor push it later. The split SOURCE — whose
+     * conversation actually shrank — passes $allowClear so it stops looking
+     * answered (and its clock restarts) when every qualifying reply moved away.
+     */
+    public function reconcileFirstResponse(Ticket $ticket, bool $allowClear = false): void
+    {
+        $earliest = $this->earliestAgentReplyAt($ticket);
+
+        // Never record a first response before the ticket itself existed: a
+        // split/merge can inherit an older reply, and a first_response_at that
+        // predates created_at would make "time to first response" go negative.
+        $stamp = null;
+
+        if ($earliest !== null) {
+            $stamp = $ticket->created_at !== null && $earliest->lessThan($ticket->created_at)
+                ? $ticket->created_at
+                : $earliest;
+        }
+
+        if (! $allowClear) {
+            // Additive: only adopt when unset or strictly earlier.
+            if ($stamp === null) {
+                if ($ticket->first_response_at !== null) {
+                    $this->completeFirstResponseClock($ticket);
+                }
+
+                return;
+            }
+
+            $current = $ticket->first_response_at;
+
+            if ($current === null || $stamp->lessThan($current)) {
+                $this->persistFirstResponse($ticket, $stamp);
+            }
+
+            $this->completeFirstResponseClock($ticket);
+
+            return;
+        }
+
+        // Authoritative clear is moot on a resolved/closed ticket (SLA stopped):
+        // leave its historical stamp and completed clock untouched.
+        if ($stamp === null && $this->isStoppedState($ticket)) {
+            return;
+        }
+
+        if (! $this->sameInstant($stamp, $ticket->first_response_at)) {
+            $this->persistFirstResponse($ticket, $stamp);
+        }
+
+        if ($stamp !== null) {
+            $this->completeFirstResponseClock($ticket);
+        } else {
+            // Every qualifying reply was moved away — restart the first-response
+            // timer so the now-unanswered ticket is measured again from open.
+            $this->reopenFirstResponseClock($ticket);
+        }
+    }
+
+    protected function persistFirstResponse(Ticket $ticket, ?Carbon $stamp): void
+    {
+        Ticketing::ticketModel()::query()->withoutTenancy()
+            ->whereKey($ticket->getKey())
+            ->update(['first_response_at' => $stamp]);
+
+        $ticket->first_response_at = $stamp;
+    }
+
+    protected function sameInstant(?Carbon $a, ?Carbon $b): bool
+    {
+        if ($a === null || $b === null) {
+            return $a === $b;
+        }
+
+        return $a->equalTo($b);
+    }
+
+    /**
+     * Whether the ticket is in a resolved/closed (SLA-stopping) state.
+     */
+    protected function isStoppedState(Ticket $ticket): bool
+    {
+        $workflow = $this->workflowKey($ticket);
+
+        return in_array(
+            $ticket->status,
+            $this->workflow->driver()->statesForSemantic($workflow, 'closed'),
+            true,
+        );
+    }
+
+    /**
+     * Restart a completed first-response clock (no qualifying reply remains),
+     * recomputing its deadline from the original start and clearing alert state.
+     */
+    protected function reopenFirstResponseClock(Ticket $ticket): void
+    {
+        $clock = $this->clock($ticket, SlaTarget::FirstResponse);
+
+        if ($clock === null || ! $clock->isCompleted()) {
+            return;
+        }
+
+        // Never resurrect a clock on a resolved/closed ticket: those states stop
+        // all SLA timers, so reopening with a historic due_at would let the
+        // sweeper breach a stopped ticket.
+        if ($this->isStoppedState($ticket)) {
+            return;
+        }
+
+        $policy = $this->policies->resolve($ticket);
+        $minutes = $policy !== null ? $this->minutesFor($policy, SlaTarget::FirstResponse) : null;
+
+        if ($policy === null || $minutes === null) {
+            // No first-response coverage anymore — leave the completed clock as
+            // is. Re-opening it with a historic due_at would let the sweeper
+            // breach a target the policy no longer covers.
+            return;
+        }
+
+        $calendar = $this->calendars->forPolicy($policy);
+
+        $clock->forceFill([
+            'completed_at' => null,
+            'breached_at' => null,
+            'threshold_notified' => false,
+            'paused_at' => null,
+            'remaining_minutes' => null,
+            'budget_minutes' => $minutes,
+            'business_hours_id' => $policy->business_hours_id,
+            'due_at' => $calendar->addMinutes($clock->started_at, $minutes),
+        ])->save();
+
+        // If the ticket is currently waiting on the customer, the reopened clock
+        // must be paused too — not left running through the wait window.
+        if (in_array($ticket->status, $this->pauseStates($ticket), true)) {
+            $this->pauseClocks($ticket);
+        }
+    }
+
+    /**
+     * Force the first-response clock (if one exists) to the ticket's
+     * first_response_at, clamped to never precede the clock's started_at, even
+     * if it was previously completed at a later time.
+     */
+    protected function completeFirstResponseClock(Ticket $ticket): void
+    {
+        if ($ticket->first_response_at === null) {
+            return;
+        }
+
+        $clock = $this->clock($ticket, SlaTarget::FirstResponse);
+
+        if ($clock === null) {
+            return;
+        }
+
+        $completedAt = $ticket->first_response_at;
+
+        if ($completedAt->lessThan($clock->started_at)) {
+            $completedAt = $clock->started_at;
+        }
+
+        $updates = ['completed_at' => $completedAt, 'paused_at' => null];
+
+        // A retroactively-applied earlier reply may now meet a deadline the clock
+        // had already breached — clear the stale breach so reporting/state agree.
+        if ($completedAt->lessThanOrEqualTo($clock->due_at)) {
+            $updates['breached_at'] = null;
+        }
+
+        $clock->forceFill($updates)->save();
+    }
+
+    /**
+     * The created_at of the earliest public reply by an agent who is not the
+     * ticket's requester (mirrors PostMessage's "first response" rule), or null.
+     */
+    protected function earliestAgentReplyAt(Ticket $ticket): ?Carbon
+    {
+        /** @var list<string> $requesterKeys */
+        $requesterKeys = $ticket->participants()
+            ->withoutTenancy()
+            ->where('role', ParticipantRole::Requester->value)
+            ->get(['participant_type', 'participant_id'])
+            ->map(fn (TicketParticipant $p): string => $p->participant_type.':'.$p->participant_id)
+            ->all();
+
+        $messageModel = Ticketing::ticketMessageModel();
+
+        /** @var Collection<int, TicketMessage> $messages */
+        $messages = $messageModel::query()->withoutTenancy()
+            ->where('ticket_id', $ticket->getKey())
+            ->where('visibility', MessageVisibility::Public->value)
+            ->whereNotNull('author_id')
+            ->orderBy('created_at')
+            ->orderBy((new $messageModel)->getKeyName())
+            ->get();
+
+        foreach ($messages as $message) {
+            if (in_array($message->author_type.':'.$message->author_id, $requesterKeys, true)) {
+                continue;
+            }
+
+            if (! $this->isAgentAuthor($message)) {
+                continue;
+            }
+
+            return $message->created_at;
+        }
+
+        return null;
     }
 
     /**
@@ -309,12 +538,15 @@ class SlaManager
                 continue;
             }
 
-            if ($target === SlaTarget::FirstResponse && $ticket->first_response_at !== null) {
-                continue;
-            }
-
             $now = now();
             $this->writeClock($ticket, $target, $now, $calendar->addMinutes($now, $minutes), $minutes, $policy->business_hours_id);
+
+            // A first-response target enabled AFTER the ticket was already
+            // answered still gets a completed row (clamped), so reporting/sweeps
+            // aren't left without a first-response clock.
+            if ($target === SlaTarget::FirstResponse && $ticket->first_response_at !== null) {
+                $this->completeFirstResponseClock($ticket);
+            }
         }
     }
 

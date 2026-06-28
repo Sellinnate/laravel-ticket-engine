@@ -9,7 +9,9 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
+use Illuminate\Database\Eloquent\Relations\MorphToMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
 use Selli\Ticketing\Concerns\BelongsToTenant;
@@ -42,6 +44,8 @@ use Selli\Ticketing\Support\Ticketing;
  * @property Carbon|null $closed_at
  * @property Carbon|null $due_at
  * @property int $reopened_count
+ * @property Carbon|null $created_at
+ * @property Carbon|null $updated_at
  */
 class Ticket extends Model
 {
@@ -132,6 +136,33 @@ class Ticket extends Model
     public function activities(): HasMany
     {
         return $this->hasMany(Ticketing::ticketActivityModel(), 'ticket_id');
+    }
+
+    /**
+     * @return MorphMany<TicketAttachment, $this>
+     */
+    public function attachments(): MorphMany
+    {
+        return $this->morphMany(Ticketing::ticketAttachmentModel(), 'attachable');
+    }
+
+    /**
+     * @return HasMany<TicketLink, $this>
+     */
+    public function links(): HasMany
+    {
+        return $this->hasMany(Ticketing::ticketLinkModel(), 'ticket_id');
+    }
+
+    /**
+     * @return MorphToMany<Tag, $this>
+     */
+    public function tags(): MorphToMany
+    {
+        $prefix = (string) config('ticketing.tables.prefix', '');
+        $table = $prefix.(string) config('ticketing.tables.taggables', 'taggables');
+
+        return $this->morphToMany(Ticketing::tagModel(), 'taggable', $table, 'taggable_id', 'tag_id')->withTimestamps();
     }
 
     /**

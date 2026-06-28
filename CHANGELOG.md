@@ -4,6 +4,19 @@ All notable changes to `selli/ticketing` will be documented in this file.
 
 ## Unreleased
 
+### Added — Collaboration
+
+- Attachments: `TicketAttachment` (poly on ticket/message) + `AddAttachment`
+  action with size/mime validation, checksum and a temporary download URL.
+- Tags: `Tag` + taggables pivot; `for($ticket)->tag()/untag()` (per-tenant).
+- Canned responses: `CannedResponse` with `{{placeholder}}` rendering.
+- Macros: `Macro` + `ApplyMacro` (reply + assignment + transition + tags in one
+  transaction).
+- Merge/split: `MergeTickets` and `SplitTicket` actions + `TicketMerged`/
+  `TicketSplit` events; `ticket_links` for related subjects.
+- Mentions: `MentionParser` + `MentionResolver` contract (host-bound), wired so
+  an `@mention` adds the actor as a collaborator (`ParticipantAdded`).
+
 ### Added — Routing & assignment
 
 - Models: `Team`, `TeamMember` (skills + round-robin state), `RoutingRule`.

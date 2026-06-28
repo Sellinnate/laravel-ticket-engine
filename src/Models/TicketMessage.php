@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Carbon;
 use Selli\Ticketing\Concerns\BelongsToTenant;
 use Selli\Ticketing\Database\Factories\TicketMessageFactory;
 use Selli\Ticketing\Enums\BodyFormat;
@@ -33,6 +34,8 @@ use Selli\Ticketing\Support\Ticketing;
  * @property BodyFormat $body_format
  * @property MessageSource $source
  * @property array<string, mixed>|null $meta
+ * @property Carbon|null $created_at
+ * @property Carbon|null $updated_at
  */
 class TicketMessage extends Model
 {

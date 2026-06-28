@@ -1,0 +1,227 @@
+<?php
+
+declare(strict_types=1);
+
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Selli\Ticketing\Collaboration\MentionParser;
+use Selli\Ticketing\Contracts\MentionResolver;
+use Selli\Ticketing\Enums\ParticipantRole;
+use Selli\Ticketing\Events\MessagePosted;
+use Selli\Ticketing\Exceptions\CrossTenantException;
+use Selli\Ticketing\Exceptions\InvalidConfigurationException;
+use Selli\Ticketing\Facades\Ticketing;
+use Selli\Ticketing\Listeners\CollaborationSubscriber;
+use Selli\Ticketing\Models\CannedResponse;
+use Selli\Ticketing\Models\Macro;
+use Selli\Ticketing\Models\Tag;
+use Selli\Ticketing\Models\Team;
+use Selli\Ticketing\Models\TicketMessage;
+use Selli\Ticketing\Models\TicketParticipant;
+use Selli\Ticketing\Tenancy\TenantContext;
+use Selli\Ticketing\Tenancy\TenantGuard;
+
+it('tags and untags a ticket idempotently', function (): void {
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+
+    Ticketing::for($ticket)->tag(['Urgent', 'VIP']);
+    Ticketing::for($ticket)->tag('Urgent'); // idempotent
+
+    expect($ticket->tags()->count())->toBe(2)
+        ->and(Tag::query()->count())->toBe(2);
+
+    Ticketing::for($ticket)->untag('VIP');
+    expect($ticket->fresh()->tags()->count())->toBe(1);
+});
+
+it('reuses the same tag row across tickets in one tenant', function (): void {
+    $a = Ticketing::open(type: 'support', title: 'a', requester: makeUser());
+    $b = Ticketing::open(type: 'support', title: 'b', requester: makeUser());
+
+    Ticketing::for($a)->tag('Urgent');
+    Ticketing::for($b)->tag('Urgent');
+
+    // firstOrCreate must reuse the existing (tenant, slug) row, not create a
+    // duplicate or trip the unique index.
+    expect(Tag::query()->where('slug', 'urgent')->count())->toBe(1)
+        ->and($a->tags()->count())->toBe(1)
+        ->and($b->tags()->count())->toBe(1)
+        ->and((string) $a->tags()->first()->getKey())->toBe((string) $b->tags()->first()->getKey());
+});
+
+it('renders a canned response with placeholders', function (): void {
+    $canned = CannedResponse::factory()->create(['body' => 'Hi {{requester.name}}, ticket {{ticket.reference}}.']);
+
+    $rendered = $canned->render(['requester' => ['name' => 'Ada'], 'ticket' => ['reference' => 'SUP-1']]);
+
+    expect($rendered)->toBe('Hi Ada, ticket SUP-1.');
+});
+
+it('applies a macro (reply + transition + tags)', function (): void {
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+    $agent = makeUser(['name' => 'Agent']);
+
+    $macro = Macro::factory()->create(['actions' => [
+        'reply' => ['body' => 'Resolved for you', 'visibility' => 'public'],
+        'transition' => 'resolve',
+        'tags' => ['handled'],
+    ]]);
+
+    Ticketing::for($ticket)->applyMacro($macro, $agent);
+
+    $ticket = $ticket->fresh();
+    expect($ticket->status)->toBe('resolved')
+        ->and($ticket->messages()->count())->toBe(1)
+        ->and($ticket->tags()->count())->toBe(1);
+});
+
+it('applies a macro with no reply key', function (): void {
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+    $macro = Macro::factory()->create(['actions' => ['tags' => ['triaged']]]); // no reply key
+
+    Ticketing::for($ticket)->applyMacro($macro);
+
+    expect($ticket->fresh()->tags()->count())->toBe(1)
+        ->and($ticket->fresh()->messages()->count())->toBe(0);
+});
+
+it('rejects a macro reply with an invalid visibility', function (): void {
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+    $macro = Macro::factory()->create(['actions' => ['reply' => ['body' => 'hi', 'visibility' => 'secret']]]);
+
+    Ticketing::for($ticket)->applyMacro($macro);
+})->throws(InvalidConfigurationException::class);
+
+it('rejects a macro from another tenant', function (): void {
+    $context = app(TenantContext::class);
+    $macro = $context->forTenant(9, fn () => Macro::factory()->create(['tenant_id' => 9, 'actions' => ['tags' => ['x']]]));
+
+    $context->forTenant(5, function () use ($macro): void {
+        $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser(['tenant_id' => 5]));
+        Ticketing::for($ticket)->applyMacro($macro);
+    });
+})->throws(CrossTenantException::class);
+
+it('adds a mentioned actor as a collaborator', function (): void {
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+    $mentioned = makeUser(['name' => 'Bob']);
+
+    $resolver = new class($mentioned) implements MentionResolver
+    {
+        public function __construct(private Model $user) {}
+
+        public function resolve(string $handle): ?Model
+        {
+            return $handle === 'bob' ? $this->user : null;
+        }
+    };
+
+    $subscriber = new CollaborationSubscriber(new MentionParser, $resolver, app(TenantGuard::class));
+    $message = TicketMessage::factory()->internal()->create(['ticket_id' => $ticket->getKey(), 'body' => 'cc @bob please review']);
+
+    $subscriber->onMessage(new MessagePosted($ticket, $message));
+
+    expect(TicketParticipant::query()
+        ->where('ticket_id', $ticket->getKey())
+        ->where('role', ParticipantRole::Collaborator->value)
+        ->where('participant_id', (string) $mentioned->getKey())
+        ->exists())->toBeTrue();
+});
+
+it('does not add a mentioned actor from another tenant', function (): void {
+    $context = app(TenantContext::class);
+    $ticket = $context->forTenant(5, fn () => Ticketing::open(type: 'support', title: 'x', requester: makeUser(['tenant_id' => 5])));
+    $otherTenantActor = $context->forTenant(9, fn () => makeUser(['name' => 'Eve', 'tenant_id' => 9]));
+
+    $resolver = new class($otherTenantActor) implements MentionResolver
+    {
+        public function __construct(private Model $user) {}
+
+        public function resolve(string $handle): ?Model
+        {
+            return $this->user;
+        }
+    };
+
+    $subscriber = new CollaborationSubscriber(new MentionParser, $resolver, app(TenantGuard::class));
+    $message = TicketMessage::factory()->internal()->create(['ticket_id' => $ticket->getKey(), 'tenant_id' => 5, 'body' => 'cc @eve']);
+
+    $subscriber->onMessage(new MessagePosted($ticket, $message));
+
+    expect(TicketParticipant::query()->withoutTenancy()
+        ->where('ticket_id', $ticket->getKey())
+        ->where('role', ParticipantRole::Collaborator->value)
+        ->exists())->toBeFalse();
+});
+
+it('parses mention handles from a body', function (): void {
+    expect((new MentionParser)->extract('hey @ada and @bob-1, not email@example.com'))
+        ->toBe(['ada', 'bob-1']);
+});
+
+it('fails a macro that references a missing team', function (): void {
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+    $macro = Macro::factory()->create(['actions' => ['assign_team_id' => 999999]]);
+
+    Ticketing::for($ticket)->applyMacro($macro);
+})->throws(InvalidConfigurationException::class);
+
+it('fails a macro that references an inactive team', function (): void {
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+    $team = Team::factory()->create(['is_active' => false]);
+    $macro = Macro::factory()->create(['actions' => ['assign_team_id' => $team->getKey()]]);
+
+    Ticketing::for($ticket)->applyMacro($macro);
+})->throws(InvalidConfigurationException::class);
+
+it('refuses to apply a macro to a ticket that was merged away', function (): void {
+    $target = Ticketing::open(type: 'support', title: 'target', requester: makeUser());
+    $source = Ticketing::open(type: 'support', title: 'source', requester: makeUser());
+    Ticketing::for($target)->mergeFrom([$source]);
+
+    // $source is now soft-deleted; a reply/tag-only macro must not persist on it.
+    $macro = Macro::factory()->create(['actions' => ['tags' => ['x']]]);
+
+    Ticketing::for($source)->applyMacro($macro);
+})->throws(ModelNotFoundException::class);
+
+it('refuses to apply an inactive macro', function (): void {
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+    $macro = Macro::factory()->create(['is_active' => false, 'actions' => ['tags' => ['x']]]);
+
+    Ticketing::for($ticket)->applyMacro($macro);
+})->throws(InvalidConfigurationException::class);
+
+it('refuses to apply a macro scoped to another ticket type', function (): void {
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+    // A type id that is not the ticket's type.
+    $macro = Macro::factory()->create([
+        'ticket_type_id' => (int) $ticket->ticket_type_id + 999,
+        'actions' => ['tags' => ['x']],
+    ]);
+
+    Ticketing::for($ticket)->applyMacro($macro);
+})->throws(InvalidConfigurationException::class);
+
+it('applies a macro scoped to the matching ticket type', function (): void {
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+    $macro = Macro::factory()->create([
+        'ticket_type_id' => $ticket->ticket_type_id,
+        'actions' => ['tags' => ['scoped']],
+    ]);
+
+    Ticketing::for($ticket)->applyMacro($macro);
+
+    expect($ticket->fresh()->tags()->count())->toBe(1);
+});
+
+it('attaches tags even when the ambient tenant context differs from the ticket', function (): void {
+    $context = app(TenantContext::class);
+    $ticket = $context->forTenant(7, fn () => Ticketing::open(type: 'support', title: 'x', requester: makeUser(['tenant_id' => 7])));
+
+    // Tag with NO ambient tenant resolved — the pivot must still attach under
+    // the ticket's own tenant.
+    Ticketing::for($ticket)->tag('Urgent');
+
+    expect($context->forTenant(7, fn () => $ticket->fresh()->tags()->count()))->toBe(1);
+});

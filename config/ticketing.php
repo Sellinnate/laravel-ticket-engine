@@ -2,15 +2,21 @@
 
 declare(strict_types=1);
 
+use Selli\Ticketing\Collaboration\NullMentionResolver;
 use Selli\Ticketing\Models\BusinessHours;
+use Selli\Ticketing\Models\CannedResponse;
 use Selli\Ticketing\Models\Holiday;
+use Selli\Ticketing\Models\Macro;
 use Selli\Ticketing\Models\RoutingRule;
 use Selli\Ticketing\Models\SlaClock;
 use Selli\Ticketing\Models\SlaPolicy;
+use Selli\Ticketing\Models\Tag;
 use Selli\Ticketing\Models\Team;
 use Selli\Ticketing\Models\TeamMember;
 use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Models\TicketActivity;
+use Selli\Ticketing\Models\TicketAttachment;
+use Selli\Ticketing\Models\TicketLink;
 use Selli\Ticketing\Models\TicketMessage;
 use Selli\Ticketing\Models\TicketParticipant;
 use Selli\Ticketing\Models\TicketType;
@@ -124,6 +130,11 @@ return [
         'team' => Team::class,
         'team_member' => TeamMember::class,
         'routing_rule' => RoutingRule::class,
+        'ticket_attachment' => TicketAttachment::class,
+        'canned_response' => CannedResponse::class,
+        'macro' => Macro::class,
+        'tag' => Tag::class,
+        'ticket_link' => TicketLink::class,
     ],
 
     /*
@@ -270,8 +281,36 @@ return [
     */
     'attachments' => [
         'disk' => 'local',
+
+        // The disks an attachment may be stored on. A request-supplied disk is
+        // rejected unless it appears here, so a caller that binds the disk from
+        // untrusted input cannot redirect a blob onto a public/served disk
+        // (e.g. an SVG/HTML upload that would then render inline → stored XSS).
+        // The default disk above is always allowed. Empty list = only it.
+        'allowed_disks' => ['local'],
+
         'max_size_kb' => 25600,
+
+        // Allowed MIME types (content-sniffed, not the client header). An empty
+        // list accepts any type — set an explicit allow-list in production.
         'allowed_mimes' => [],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Collaboration
+    |--------------------------------------------------------------------------
+    |
+    | @mentions in messages add the mentioned actor as a collaborator. Bind your
+    | own MentionResolver (resolves a handle to a host model) — the default
+    | resolves nobody.
+    |
+    */
+    'collaboration' => [
+        'mentions' => [
+            'enabled' => true,
+            'resolver' => NullMentionResolver::class,
+        ],
     ],
 
     /*
