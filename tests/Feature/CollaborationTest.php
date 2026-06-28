@@ -172,3 +172,44 @@ it('fails a macro that references an inactive team', function (): void {
 
     Ticketing::for($ticket)->applyMacro($macro);
 })->throws(InvalidConfigurationException::class);
+
+it('refuses to apply an inactive macro', function (): void {
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+    $macro = Macro::factory()->create(['is_active' => false, 'actions' => ['tags' => ['x']]]);
+
+    Ticketing::for($ticket)->applyMacro($macro);
+})->throws(InvalidConfigurationException::class);
+
+it('refuses to apply a macro scoped to another ticket type', function (): void {
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+    // A type id that is not the ticket's type.
+    $macro = Macro::factory()->create([
+        'ticket_type_id' => (int) $ticket->ticket_type_id + 999,
+        'actions' => ['tags' => ['x']],
+    ]);
+
+    Ticketing::for($ticket)->applyMacro($macro);
+})->throws(InvalidConfigurationException::class);
+
+it('applies a macro scoped to the matching ticket type', function (): void {
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+    $macro = Macro::factory()->create([
+        'ticket_type_id' => $ticket->ticket_type_id,
+        'actions' => ['tags' => ['scoped']],
+    ]);
+
+    Ticketing::for($ticket)->applyMacro($macro);
+
+    expect($ticket->fresh()->tags()->count())->toBe(1);
+});
+
+it('attaches tags even when the ambient tenant context differs from the ticket', function (): void {
+    $context = app(TenantContext::class);
+    $ticket = $context->forTenant(7, fn () => Ticketing::open(type: 'support', title: 'x', requester: makeUser(['tenant_id' => 7])));
+
+    // Tag with NO ambient tenant resolved — the pivot must still attach under
+    // the ticket's own tenant.
+    Ticketing::for($ticket)->tag('Urgent');
+
+    expect($context->forTenant(7, fn () => $ticket->fresh()->tags()->count()))->toBe(1);
+});

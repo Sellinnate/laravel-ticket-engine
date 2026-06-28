@@ -34,6 +34,19 @@ class ApplyMacro
             throw CrossTenantException::forAssignment('macro');
         }
 
+        if (! $macro->is_active) {
+            // A deactivated macro must not run any of its side effects.
+            throw new InvalidConfigurationException("Macro [{$macro->key}] is inactive.");
+        }
+
+        if ($macro->ticket_type_id !== null
+            && (string) $macro->ticket_type_id !== (string) $ticket->ticket_type_id) {
+            // A type-scoped macro must not apply to a ticket of another type.
+            throw new InvalidConfigurationException(
+                "Macro [{$macro->key}] does not apply to this ticket type."
+            );
+        }
+
         $actions = $macro->actions;
         $reply = is_array($actions['reply'] ?? null) ? $actions['reply'] : [];
 

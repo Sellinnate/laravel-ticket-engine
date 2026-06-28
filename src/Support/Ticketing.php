@@ -40,6 +40,7 @@ use Selli\Ticketing\Models\TicketLink;
 use Selli\Ticketing\Models\TicketMessage;
 use Selli\Ticketing\Models\TicketParticipant;
 use Selli\Ticketing\Models\TicketType;
+use Selli\Ticketing\Tenancy\TenantContext;
 
 /**
  * The primary entry point to the domain. Resolved as a singleton and exposed
@@ -193,7 +194,10 @@ class Ticketing
             $ids[] = $tag->getKey();
         }
 
-        $ticket->tags()->syncWithoutDetaching($ids);
+        // Attach under the ticket's own tenant context so the pivot sync is
+        // never affected by a missing/foreign ambient tenant (the tags() scope
+        // is already constrained by the parent ticket).
+        $this->inTicketTenant($ticket, fn () => $ticket->tags()->syncWithoutDetaching($ids));
 
         return $ticket;
     }
@@ -213,9 +217,27 @@ class Ticketing
             ->pluck((new (static::tagModel()))->getKeyName())
             ->all();
 
-        $ticket->tags()->detach($ids);
+        $this->inTicketTenant($ticket, fn () => $ticket->tags()->detach($ids));
 
         return $ticket;
+    }
+
+    /**
+     * Run a closure in the given ticket's tenant context, so relationship pivot
+     * operations resolve against the ticket's tenant regardless of the ambient
+     * context (queue/CLI/cross-tenant admin).
+     *
+     * @template TReturn
+     *
+     * @param  \Closure(): TReturn  $callback
+     * @return TReturn
+     */
+    protected function inTicketTenant(Ticket $ticket, \Closure $callback): mixed
+    {
+        return $this->container->make(TenantContext::class)->forTenant(
+            $ticket->getAttribute($ticket->getTenantColumn()),
+            $callback,
+        );
     }
 
     /**
