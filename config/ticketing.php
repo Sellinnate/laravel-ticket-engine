@@ -2,6 +2,10 @@
 
 declare(strict_types=1);
 
+use Selli\Ticketing\Models\BusinessHours;
+use Selli\Ticketing\Models\Holiday;
+use Selli\Ticketing\Models\SlaClock;
+use Selli\Ticketing\Models\SlaPolicy;
 use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Models\TicketActivity;
 use Selli\Ticketing\Models\TicketMessage;
@@ -110,6 +114,10 @@ return [
         'ticket_message' => TicketMessage::class,
         'ticket_participant' => TicketParticipant::class,
         'ticket_activity' => TicketActivity::class,
+        'sla_policy' => SlaPolicy::class,
+        'sla_clock' => SlaClock::class,
+        'business_hours' => BusinessHours::class,
+        'holiday' => Holiday::class,
     ],
 
     /*
@@ -187,6 +195,22 @@ return [
                 ],
             ],
         ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | SLA
+    |--------------------------------------------------------------------------
+    |
+    | The SLA engine starts/pauses/stops response & resolution clocks in reaction
+    | to domain events. Schedule `ticketing:escalate` (e.g. every minute) to emit
+    | SlaThresholdReached / SlaBreached. SLA policies, business hours and holidays
+    | live in the database (seed your own per tenant).
+    |
+    */
+    'sla' => [
+        'enabled' => true,
+        'default_threshold_percent' => 75,
     ],
 
     /*

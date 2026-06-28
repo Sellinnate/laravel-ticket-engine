@@ -14,6 +14,10 @@ use Selli\Ticketing\Data\PostMessageData;
 use Selli\Ticketing\Data\TransitionData;
 use Selli\Ticketing\Enums\MessageVisibility;
 use Selli\Ticketing\Enums\Priority;
+use Selli\Ticketing\Models\BusinessHours;
+use Selli\Ticketing\Models\Holiday;
+use Selli\Ticketing\Models\SlaClock;
+use Selli\Ticketing\Models\SlaPolicy;
 use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Models\TicketActivity;
 use Selli\Ticketing\Models\TicketMessage;
@@ -138,6 +142,26 @@ class Ticketing
         static::$models['ticket_activity'] = $model;
     }
 
+    public static function useSlaPolicyModel(string $model): void
+    {
+        static::$models['sla_policy'] = $model;
+    }
+
+    public static function useSlaClockModel(string $model): void
+    {
+        static::$models['sla_clock'] = $model;
+    }
+
+    public static function useBusinessHoursModel(string $model): void
+    {
+        static::$models['business_hours'] = $model;
+    }
+
+    public static function useHolidayModel(string $model): void
+    {
+        static::$models['holiday'] = $model;
+    }
+
     /**
      * Enable ULID primary keys across the package tables.
      */
@@ -197,6 +221,42 @@ class Ticketing
     {
         /** @var class-string<TicketActivity> */
         return static::$models['ticket_activity'] ?? config('ticketing.models.ticket_activity', TicketActivity::class);
+    }
+
+    /**
+     * @return class-string<SlaPolicy>
+     */
+    public static function slaPolicyModel(): string
+    {
+        /** @var class-string<SlaPolicy> */
+        return static::$models['sla_policy'] ?? config('ticketing.models.sla_policy', SlaPolicy::class);
+    }
+
+    /**
+     * @return class-string<SlaClock>
+     */
+    public static function slaClockModel(): string
+    {
+        /** @var class-string<SlaClock> */
+        return static::$models['sla_clock'] ?? config('ticketing.models.sla_clock', SlaClock::class);
+    }
+
+    /**
+     * @return class-string<BusinessHours>
+     */
+    public static function businessHoursModel(): string
+    {
+        /** @var class-string<BusinessHours> */
+        return static::$models['business_hours'] ?? config('ticketing.models.business_hours', BusinessHours::class);
+    }
+
+    /**
+     * @return class-string<Holiday>
+     */
+    public static function holidayModel(): string
+    {
+        /** @var class-string<Holiday> */
+        return static::$models['holiday'] ?? config('ticketing.models.holiday', Holiday::class);
     }
 
     /**

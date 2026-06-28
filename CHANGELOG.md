@@ -4,6 +4,24 @@ All notable changes to `selli/ticketing` will be documented in this file.
 
 ## Unreleased
 
+### Added — SLA, business hours & escalation
+
+- `BusinessHours` value object: deadline/elapsed math over working hours with
+  weekly schedules, timezones and holidays (24/7 supported).
+- Models: `SlaPolicy` (type+priority matching with catch-all fallback),
+  `BusinessHours` + `Holiday` calendars, `SlaClock` (per ticket/target runtime
+  timer with pause support).
+- `SlaManager`: starts first-response/resolution clocks on open, completes the
+  first-response clock on the first agent reply, pauses/resumes around customer-
+  wait states (recomputing the deadline), completes/restarts the resolution
+  clock on resolve/reopen, and sweeps for thresholds & breaches per tenant.
+- Resolvers: `SlaPolicyResolver` (specificity ranking), `CalendarResolver`
+  (model → working calendar + holidays).
+- Events `SlaThresholdReached`, `SlaBreached`; `SlaSubscriber` wires the engine
+  to the domain events.
+- Commands `ticketing:escalate` (scheduleable sweep) and
+  `ticketing:recalculate-sla`.
+
 ### Added — Workflow engine
 
 - `WorkflowDriver` contract + `WorkflowManager` (driver resolution, `extend()`
