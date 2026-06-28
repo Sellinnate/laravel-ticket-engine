@@ -13,16 +13,20 @@ use Selli\Ticketing\Http\Controllers\Api\TransitionController;
 /*
  * Versioned ticketing API. Mounted by the service provider under the configured
  * prefix/version + middleware when ticketing.api.enabled is true, or publish and
- * wire this file yourself. The {ticket} binding resolves the configured ticket
- * model and is tenant-scoped, so a cross-tenant id 404s.
+ * wire this file yourself. Controllers resolve {ticket} via the configured,
+ * tenant-scoped model, so a cross-tenant id 404s.
+ *
+ * Route names are namespaced under `ticketing.` so they can't collide with a
+ * host app's own `tickets.*` names — a collision would break route caching or
+ * make route() resolve to the wrong handler.
  */
 
-Route::get('tickets', [TicketController::class, 'index'])->name('tickets.index');
-Route::post('tickets', [TicketController::class, 'store'])->name('tickets.store');
-Route::get('tickets/{ticket}', [TicketController::class, 'show'])->name('tickets.show');
+Route::get('tickets', [TicketController::class, 'index'])->name('ticketing.tickets.index');
+Route::post('tickets', [TicketController::class, 'store'])->name('ticketing.tickets.store');
+Route::get('tickets/{ticket}', [TicketController::class, 'show'])->name('ticketing.tickets.show');
 
-Route::post('tickets/{ticket}/messages', [MessageController::class, 'store'])->name('tickets.messages.store');
-Route::post('tickets/{ticket}/transitions', [TransitionController::class, 'store'])->name('tickets.transitions.store');
-Route::post('tickets/{ticket}/assignment', [AssignmentController::class, 'store'])->name('tickets.assignment.store');
-Route::post('tickets/{ticket}/attachments', [AttachmentController::class, 'store'])->name('tickets.attachments.store');
-Route::post('tickets/{ticket}/csat', [CsatController::class, 'store'])->name('tickets.csat.store');
+Route::post('tickets/{ticket}/messages', [MessageController::class, 'store'])->name('ticketing.tickets.messages.store');
+Route::post('tickets/{ticket}/transitions', [TransitionController::class, 'store'])->name('ticketing.tickets.transitions.store');
+Route::post('tickets/{ticket}/assignment', [AssignmentController::class, 'store'])->name('ticketing.tickets.assignment.store');
+Route::post('tickets/{ticket}/attachments', [AttachmentController::class, 'store'])->name('ticketing.tickets.attachments.store');
+Route::post('tickets/{ticket}/csat', [CsatController::class, 'store'])->name('ticketing.tickets.csat.store');
