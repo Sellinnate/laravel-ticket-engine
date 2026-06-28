@@ -170,6 +170,23 @@ it('renders SLA notification content for breach and threshold', function (): voi
         ->and($threshold->body())->toContain('approaching');
 });
 
+it('drops slack before the throttle when no webhook is configured', function (): void {
+    Notification::fake();
+    config()->set('ticketing.notifications.default_channels', ['slack']);
+    config()->set('ticketing.notifications.slack.webhook', null);
+    config()->set('ticketing.notifications.throttle.seconds', 300);
+    config()->set('ticketing.notifications.throttle.channels', ['slack']);
+
+    $agent = makeUser();
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+    Ticketing::assign($ticket, assignee: $agent);
+
+    // Nothing delivered (slack dropped), and the digest slot was NOT consumed —
+    // so it's still free for a later, deliverable send.
+    Notification::assertNotSentTo($agent, TicketAssignedNotification::class);
+    expect(NotificationThrottle::filter($agent, 'ticket.assigned', ['slack'], $ticket->getKey()))->toBe(['slack']);
+});
+
 it('skips slack when no webhook is configured', function (): void {
     config()->set('ticketing.notifications.events.ticket.assigned', ['slack']);
     config()->set('ticketing.notifications.slack.webhook', null);

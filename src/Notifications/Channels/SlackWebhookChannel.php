@@ -17,7 +17,7 @@ class SlackWebhookChannel
 {
     public function send(object $notifiable, Notification $notification): void
     {
-        $url = $this->webhookUrl($notifiable, $notification);
+        $url = self::webhookUrl($notifiable, $notification);
 
         if ($url === null) {
             return;
@@ -38,7 +38,13 @@ class SlackWebhookChannel
         Http::timeout($timeout)->asJson()->post($url, ['text' => $text])->throw();
     }
 
-    protected function webhookUrl(object $notifiable, Notification $notification): ?string
+    /**
+     * Resolve the Slack/Teams webhook URL for a recipient (its
+     * routeNotificationFor('slack') or the configured default), or null if none
+     * is available — also used by the subscriber to avoid spending a digest slot
+     * on an undeliverable Slack send.
+     */
+    public static function webhookUrl(object $notifiable, ?Notification $notification = null): ?string
     {
         if (method_exists($notifiable, 'routeNotificationFor')) {
             $route = $notifiable->routeNotificationFor('slack', $notification);

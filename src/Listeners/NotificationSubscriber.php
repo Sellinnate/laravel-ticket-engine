@@ -15,6 +15,7 @@ use Selli\Ticketing\Events\ParticipantAdded;
 use Selli\Ticketing\Events\SlaBreached;
 use Selli\Ticketing\Events\SlaThresholdReached;
 use Selli\Ticketing\Events\TicketAssigned;
+use Selli\Ticketing\Notifications\Channels\SlackWebhookChannel;
 use Selli\Ticketing\Notifications\NotificationThrottle;
 use Selli\Ticketing\Notifications\ParticipantAddedNotification;
 use Selli\Ticketing\Notifications\RecipientResolver;
@@ -107,6 +108,14 @@ class NotificationSubscriber
             $notification = $make();
 
             $channels = $preferences->channels($recipient, $notification->key(), $notification->supportedChannels());
+
+            // Drop "slack" before the throttle when no webhook is resolvable, so
+            // an undeliverable Slack send doesn't consume the digest slot and
+            // suppress later (deliverable) notifications in the window.
+            if (in_array('slack', $channels, true) && SlackWebhookChannel::webhookUrl($recipient, $notification) === null) {
+                $channels = array_values(array_filter($channels, static fn (string $c): bool => $c !== 'slack'));
+            }
+
             $channels = NotificationThrottle::filter($recipient, $notification->key(), $channels, $notification->ticket->getKey());
 
             if ($channels === []) {
