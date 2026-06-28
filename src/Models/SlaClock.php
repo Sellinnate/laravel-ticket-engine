@@ -24,6 +24,8 @@ use Selli\Ticketing\Support\Ticketing;
  * @property int|string|null $tenant_id
  * @property int|string $ticket_id
  * @property SlaTarget $target
+ * @property int|null $budget_minutes
+ * @property int|string|null $business_hours_id
  * @property Carbon $started_at
  * @property Carbon $due_at
  * @property Carbon|null $paused_at
@@ -54,6 +56,7 @@ class SlaClock extends Model
     {
         return [
             'target' => SlaTarget::class,
+            'budget_minutes' => 'integer',
             'started_at' => 'datetime',
             'due_at' => 'datetime',
             'paused_at' => 'datetime',

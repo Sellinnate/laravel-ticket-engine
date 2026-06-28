@@ -19,6 +19,11 @@ return new class extends Migration
 
             $this->foreignId($table, 'ticket_id');
             $table->string('target'); // first_response | next_response | resolution
+            // The clock is self-describing: it carries the target budget and the
+            // calendar it was built against, so its math stays consistent even if
+            // the policy or calendar later changes.
+            $table->unsignedInteger('budget_minutes')->nullable();
+            $this->foreignId($table, 'business_hours_id');
             $table->timestamp('started_at');
             $table->timestamp('due_at');
             $table->timestamp('paused_at')->nullable();

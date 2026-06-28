@@ -13,13 +13,15 @@ use Selli\Ticketing\Sla\SlaManager;
  */
 class EscalateCommand extends Command
 {
-    protected $signature = 'ticketing:escalate {--threshold=75 : Warning threshold percent} {--chunk=200 : Rows processed per chunk}';
+    protected $signature = 'ticketing:escalate {--threshold= : Warning threshold percent (defaults to config)} {--chunk=200 : Rows processed per chunk}';
 
     protected $description = 'Sweep SLA clocks and emit threshold/breach events.';
 
     public function handle(SlaManager $sla): int
     {
-        $threshold = (int) $this->option('threshold');
+        $threshold = $this->option('threshold') !== null
+            ? (int) $this->option('threshold')
+            : (int) config('ticketing.sla.default_threshold_percent', 75);
         $chunk = (int) $this->option('chunk');
 
         $sla->sweep($threshold, $chunk);

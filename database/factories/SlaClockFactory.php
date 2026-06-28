@@ -24,6 +24,8 @@ class SlaClockFactory extends Factory
         return [
             'ticket_id' => Ticket::factory(),
             'target' => SlaTarget::Resolution,
+            'budget_minutes' => 480,
+            'business_hours_id' => null,
             'started_at' => now(),
             'due_at' => now()->addHours(8),
             'paused_at' => null,

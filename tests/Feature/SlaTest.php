@@ -209,6 +209,33 @@ it('picks the most specific policy', function (): void {
     expect($policy->name)->toBe('specific');
 });
 
+it('stops a clock whose target was removed from the policy on recalculate', function (): void {
+    $policy = SlaPolicy::factory()->create(['first_response_minutes' => 60, 'resolution_minutes' => 480]);
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+
+    expect(clockFor($ticket->getKey(), SlaTarget::FirstResponse)->isCompleted())->toBeFalse();
+
+    $policy->update(['first_response_minutes' => null]);
+    app(SlaManager::class)->recalculate($ticket->fresh());
+
+    expect(clockFor($ticket->getKey(), SlaTarget::FirstResponse)->isCompleted())->toBeTrue()
+        ->and(clockFor($ticket->getKey(), SlaTarget::Resolution)->isCompleted())->toBeFalse();
+});
+
+it('reads the threshold percent from config when the option is omitted', function (): void {
+    config()->set('ticketing.sla.default_threshold_percent', 50);
+    SlaPolicy::factory()->create(['first_response_minutes' => null, 'resolution_minutes' => 480]);
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+
+    Event::fake([SlaThresholdReached::class]);
+    Carbon::setTestNow(Carbon::parse('2026-06-29 14:00:00', 'UTC')); // 240/480 = 50%
+
+    $this->artisan('ticketing:escalate')->assertSuccessful();
+
+    // 50% would not trip the default 75% gate, proving the config value was used.
+    Event::assertDispatched(SlaThresholdReached::class);
+});
+
 it('runs the escalate command', function (): void {
     SlaPolicy::factory()->create(['first_response_minutes' => null, 'resolution_minutes' => 1]);
     Ticketing::open(type: 'support', title: 'x', requester: makeUser());

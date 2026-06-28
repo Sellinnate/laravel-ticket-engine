@@ -18,12 +18,20 @@ class CalendarResolver
 {
     public function forPolicy(?SlaPolicy $policy): BusinessHours
     {
-        if ($policy === null || $policy->business_hours_id === null) {
+        return $this->forBusinessHoursId($policy?->business_hours_id);
+    }
+
+    /**
+     * Build the working calendar for a stored business-hours id (null = 24/7).
+     */
+    public function forBusinessHoursId(int|string|null $id): BusinessHours
+    {
+        if ($id === null) {
             return BusinessHours::alwaysOpen($this->defaultTimezone());
         }
 
         $model = Ticketing::businessHoursModel();
-        $calendar = $model::query()->find($policy->business_hours_id);
+        $calendar = $model::query()->withoutTenancy()->find($id);
 
         return $this->forModel($calendar instanceof BusinessHoursModel ? $calendar : null);
     }

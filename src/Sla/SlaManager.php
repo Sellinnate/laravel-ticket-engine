@@ -47,11 +47,11 @@ class SlaManager
         $now = now();
 
         if ($policy->first_response_minutes !== null && $ticket->first_response_at === null) {
-            $this->writeClock($ticket, SlaTarget::FirstResponse, $now, $calendar->addMinutes($now, $policy->first_response_minutes));
+            $this->writeClock($ticket, SlaTarget::FirstResponse, $now, $calendar->addMinutes($now, $policy->first_response_minutes), $policy->first_response_minutes, $policy->business_hours_id);
         }
 
         if ($policy->resolution_minutes !== null) {
-            $this->writeClock($ticket, SlaTarget::Resolution, $now, $calendar->addMinutes($now, $policy->resolution_minutes));
+            $this->writeClock($ticket, SlaTarget::Resolution, $now, $calendar->addMinutes($now, $policy->resolution_minutes), $policy->resolution_minutes, $policy->business_hours_id);
         }
     }
 
@@ -114,7 +114,7 @@ class SlaManager
         $calendar = $this->calendars->forPolicy($policy);
         $now = now();
 
-        $this->writeClock($ticket, SlaTarget::Resolution, $now, $calendar->addMinutes($now, $policy->resolution_minutes));
+        $this->writeClock($ticket, SlaTarget::Resolution, $now, $calendar->addMinutes($now, $policy->resolution_minutes), $policy->resolution_minutes, $policy->business_hours_id);
     }
 
     /**
@@ -174,12 +174,18 @@ class SlaManager
             $minutes = $this->minutesFor($policy, $clock->target);
 
             if ($minutes === null) {
+                // The target was removed from the policy — stop the timer so it
+                // no longer sweeps against a target that no longer exists.
+                $clock->forceFill(['completed_at' => now(), 'paused_at' => null])->save();
+
                 continue;
             }
 
-            // Recompute the deadline and clear stale alert state so the next
-            // sweep re-evaluates against the new deadline.
+            // Recompute the deadline/budget/calendar and clear stale alert state
+            // so the next sweep re-evaluates against the new deadline.
             $clock->forceFill([
+                'budget_minutes' => $minutes,
+                'business_hours_id' => $policy->business_hours_id,
                 'due_at' => $calendar->addMinutes($clock->started_at, $minutes),
                 'breached_at' => null,
                 'threshold_notified' => false,
@@ -212,19 +218,17 @@ class SlaManager
 
     protected function fractionConsumed(SlaClock $clock, Carbon $now): float
     {
-        $ticket = $this->loadTicket($clock);
-        $policy = $ticket !== null ? $this->policies->resolve($ticket) : null;
-        $budget = $policy !== null ? $this->minutesFor($policy, $clock->target) : null;
+        $budget = $clock->budget_minutes;
 
         if ($budget === null || $budget <= 0) {
             return 0.0;
         }
 
-        // Consumed = budget − working-minutes-left-to-deadline. Because due_at is
-        // pushed out on resume, the remaining figure already excludes paused
-        // time, so the fraction reflects only the real share of budget used.
-        $calendar = $this->calendars->forPolicy($policy);
-        $remaining = $calendar->minutesBetween($now, $clock->due_at);
+        // Consumed = budget − working-minutes-left-to-deadline, using the clock's
+        // own calendar. Because due_at is pushed out on resume, the remaining
+        // figure already excludes paused time, so the fraction reflects only the
+        // real share of budget used.
+        $remaining = $this->calendarFor($clock)->minutesBetween($now, $clock->due_at);
         $consumed = max(0, $budget - $remaining);
 
         return min(1.0, $consumed / $budget);
@@ -232,20 +236,16 @@ class SlaManager
 
     protected function pauseClocks(Ticket $ticket): void
     {
-        $policy = $this->policies->resolve($ticket);
-        $calendar = $this->calendars->forPolicy($policy);
         $now = now();
 
         foreach ($this->runningClocks($ticket) as $clock) {
-            $remaining = $calendar->minutesBetween($now, $clock->due_at);
+            $remaining = $this->calendarFor($clock)->minutesBetween($now, $clock->due_at);
             $clock->forceFill(['paused_at' => $now, 'remaining_minutes' => $remaining])->save();
         }
     }
 
     protected function resumeClocks(Ticket $ticket): void
     {
-        $policy = $this->policies->resolve($ticket);
-        $calendar = $this->calendars->forPolicy($policy);
         $now = now();
         $model = Ticketing::slaClockModel();
 
@@ -258,11 +258,19 @@ class SlaManager
 
         foreach ($clocks as $clock) {
             $clock->forceFill([
-                'due_at' => $calendar->addMinutes($now, (int) $clock->remaining_minutes),
+                'due_at' => $this->calendarFor($clock)->addMinutes($now, (int) $clock->remaining_minutes),
                 'paused_at' => null,
                 'remaining_minutes' => null,
             ])->save();
         }
+    }
+
+    /**
+     * The working calendar a clock was built against (kept on the clock itself).
+     */
+    protected function calendarFor(SlaClock $clock): BusinessHours
+    {
+        return $this->calendars->forBusinessHoursId($clock->business_hours_id);
     }
 
     /**
@@ -290,7 +298,7 @@ class SlaManager
             ->first();
     }
 
-    protected function writeClock(Ticket $ticket, SlaTarget $target, CarbonInterface $startedAt, CarbonInterface $dueAt): void
+    protected function writeClock(Ticket $ticket, SlaTarget $target, CarbonInterface $startedAt, CarbonInterface $dueAt, int $budgetMinutes, int|string|null $businessHoursId): void
     {
         $model = Ticketing::slaClockModel();
 
@@ -300,6 +308,8 @@ class SlaManager
                 'target' => $target->value,
             ]),
             [
+                'budget_minutes' => $budgetMinutes,
+                'business_hours_id' => $businessHoursId,
                 'started_at' => $startedAt,
                 'due_at' => $dueAt,
                 'paused_at' => null,
