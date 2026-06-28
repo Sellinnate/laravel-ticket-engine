@@ -192,6 +192,33 @@ it('accepts a numeric-string priority value', function (): void {
     expect($ticket->fresh()->priority)->toBe(Priority::Urgent);
 });
 
+it('halts on a matched stop rule even when its action fails', function (): void {
+    AutomationRule::factory()->create([
+        'event' => 'ticket.opened', 'priority' => 1, 'stop_processing' => true,
+        'actions' => [['type' => 'apply_macro', 'macro_id' => 999999]], // throws (unknown macro)
+    ]);
+    AutomationRule::factory()->create([
+        'event' => 'ticket.opened', 'priority' => 2,
+        'actions' => [['type' => 'tag', 'tags' => ['should-not-run']]],
+    ]);
+
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+
+    expect($ticket->fresh()->tags()->pluck('slug')->all())->not->toContain('should-not-run');
+});
+
+it('still runs top-level rules when max_depth is 0', function (): void {
+    config()->set('ticketing.automation.max_depth', 0);
+    AutomationRule::factory()->create([
+        'event' => 'ticket.opened',
+        'actions' => [['type' => 'tag', 'tags' => ['ran']]],
+    ]);
+
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+
+    expect($ticket->fresh()->tags()->pluck('slug')->all())->toContain('ran');
+});
+
 it('isolates a failing rule so others still run', function (): void {
     AutomationRule::factory()->create([
         'event' => 'ticket.opened', 'priority' => 1,

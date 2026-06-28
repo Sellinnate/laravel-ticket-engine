@@ -32,7 +32,9 @@ class RuleEngine
      */
     public function run(string $eventKey, Ticket $ticket, ?Model $actor = null, array $context = []): void
     {
-        $maxDepth = (int) config('ticketing.automation.max_depth', 5);
+        // max_depth bounds re-entrant NESTING; clamp to >= 1 so the top-level
+        // invocation (depth 0) always runs even when configured to 0.
+        $maxDepth = max(1, (int) config('ticketing.automation.max_depth', 5));
 
         if ($this->depth >= $maxDepth) {
             // A rule action re-fired a trigger too many times — stop the cascade.
@@ -54,23 +56,27 @@ class RuleEngine
 
             try {
                 foreach ($rules as $rule) {
+                    $matched = false;
+
                     try {
                         $current = $ticket->fresh() ?? $ticket;
+                        $matched = $this->conditions->matches($current, $rule->conditions ?? [], $rule->match);
 
-                        if (! $this->conditions->matches($current, $rule->conditions ?? [], $rule->match)) {
-                            continue;
-                        }
-
-                        $this->actions->run($current, $rule->actions ?? [], $actor, $eventKey);
-
-                        if ($rule->stop_processing) {
-                            break;
+                        if ($matched) {
+                            $this->actions->run($current, $rule->actions ?? [], $actor, $eventKey);
                         }
                     } catch (\Throwable $exception) {
                         // Isolate a misconfigured or failing rule: report it and
                         // carry on, so one bad rule can't abort the rest (or the
                         // operation that emitted the event).
                         report($exception);
+                    }
+
+                    // A matched terminal rule halts the rest even if its own
+                    // actions threw — the stop guarantee is about matching, not
+                    // about every action succeeding.
+                    if ($matched && $rule->stop_processing) {
+                        break;
                     }
                 }
             } finally {
