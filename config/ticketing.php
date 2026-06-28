@@ -281,7 +281,18 @@ return [
     */
     'attachments' => [
         'disk' => 'local',
+
+        // The disks an attachment may be stored on. A request-supplied disk is
+        // rejected unless it appears here, so a caller that binds the disk from
+        // untrusted input cannot redirect a blob onto a public/served disk
+        // (e.g. an SVG/HTML upload that would then render inline → stored XSS).
+        // The default disk above is always allowed. Empty list = only it.
+        'allowed_disks' => ['local'],
+
         'max_size_kb' => 25600,
+
+        // Allowed MIME types (content-sniffed, not the client header). An empty
+        // list accepts any type — set an explicit allow-list in production.
         'allowed_mimes' => [],
     ],
 

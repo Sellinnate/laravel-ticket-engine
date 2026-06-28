@@ -39,18 +39,20 @@ class SplitTicket
         // writes use the correct tenant regardless of ambient context.
         $sourceTenant = $source->getAttribute($source->getTenantColumn());
 
+        // Run the writes AND the event dispatch under the source tenant, so the
+        // TicketOpened listeners (SLA bootstrap, routing) read the correct
+        // tenant's configuration regardless of the ambient context (queue/CLI).
         // split() returns the freshly reloaded source (locked inside the
         // transaction) so listeners never see the caller's stale in-memory
         // instance whose relations predate the moved messages.
-        [$created, $reloadedSource] = $this->tenant->forTenant(
-            $sourceTenant,
-            fn (): array => $this->split($source, $messageIds, $title, $actor),
-        );
+        return $this->tenant->forTenant($sourceTenant, function () use ($source, $messageIds, $title, $actor): Ticket {
+            [$created, $reloadedSource] = $this->split($source, $messageIds, $title, $actor);
 
-        TicketOpened::dispatch($created);
-        TicketSplit::dispatch($reloadedSource, $created, $actor);
+            TicketOpened::dispatch($created);
+            TicketSplit::dispatch($reloadedSource, $created, $actor);
 
-        return $created;
+            return $created;
+        });
     }
 
     /**

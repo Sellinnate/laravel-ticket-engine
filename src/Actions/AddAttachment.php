@@ -27,7 +27,7 @@ class AddAttachment
     {
         $this->validate($data);
 
-        $disk = $data->disk ?? (string) config('ticketing.attachments.disk', 'local');
+        $disk = $this->resolveDisk($data->disk);
         $file = $data->file;
         $ticket = $this->ticketOf($data->attachable);
 
@@ -99,6 +99,29 @@ class AddAttachment
         if ($allowed !== [] && ! in_array($mime, $allowed, true)) {
             throw AttachmentRejectedException::disallowedMime($mime);
         }
+    }
+
+    /**
+     * Resolve the storage disk, rejecting any request-supplied disk that is not
+     * explicitly allowed — so a caller binding the disk from untrusted input
+     * cannot redirect a blob onto a public/served disk.
+     */
+    protected function resolveDisk(?string $requested): string
+    {
+        $default = (string) config('ticketing.attachments.disk', 'local');
+
+        if ($requested === null || $requested === $default) {
+            return $default;
+        }
+
+        /** @var list<string> $allowed */
+        $allowed = (array) config('ticketing.attachments.allowed_disks', []);
+
+        if (! in_array($requested, $allowed, true)) {
+            throw AttachmentRejectedException::disallowedDisk($requested);
+        }
+
+        return $requested;
     }
 
     protected function ticketOf(object $attachable): Ticket

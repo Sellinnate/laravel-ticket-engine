@@ -32,6 +32,21 @@ it('tags and untags a ticket idempotently', function (): void {
     expect($ticket->fresh()->tags()->count())->toBe(1);
 });
 
+it('reuses the same tag row across tickets in one tenant', function (): void {
+    $a = Ticketing::open(type: 'support', title: 'a', requester: makeUser());
+    $b = Ticketing::open(type: 'support', title: 'b', requester: makeUser());
+
+    Ticketing::for($a)->tag('Urgent');
+    Ticketing::for($b)->tag('Urgent');
+
+    // firstOrCreate must reuse the existing (tenant, slug) row, not create a
+    // duplicate or trip the unique index.
+    expect(Tag::query()->where('slug', 'urgent')->count())->toBe(1)
+        ->and($a->tags()->count())->toBe(1)
+        ->and($b->tags()->count())->toBe(1)
+        ->and((string) $a->tags()->first()->getKey())->toBe((string) $b->tags()->first()->getKey());
+});
+
 it('renders a canned response with placeholders', function (): void {
     $canned = CannedResponse::factory()->create(['body' => 'Hi {{requester.name}}, ticket {{ticket.reference}}.']);
 

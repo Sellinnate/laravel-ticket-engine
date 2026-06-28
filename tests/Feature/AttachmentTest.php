@@ -41,6 +41,25 @@ it('rejects a disallowed mime type', function (): void {
     Ticketing::for($ticket)->attach(UploadedFile::fake()->create('note.txt', 1, 'text/plain'));
 })->throws(AttachmentRejectedException::class);
 
+it('rejects a request-supplied disk that is not allow-listed', function (): void {
+    Storage::fake('public');
+    config()->set('ticketing.attachments.allowed_disks', ['local']);
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+
+    Ticketing::for($ticket)->attach(UploadedFile::fake()->create('evil.svg', 1), disk: 'public');
+})->throws(AttachmentRejectedException::class);
+
+it('accepts a request-supplied disk that is allow-listed', function (): void {
+    Storage::fake('s3');
+    config()->set('ticketing.attachments.allowed_disks', ['local', 's3']);
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+
+    $attachment = Ticketing::for($ticket)->attach(UploadedFile::fake()->create('doc.txt', 1), disk: 's3');
+
+    expect($attachment->disk)->toBe('s3')
+        ->and(Storage::disk('s3')->exists($attachment->path))->toBeTrue();
+});
+
 it('exposes a download url for the attachment', function (): void {
     $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
     $attachment = Ticketing::for($ticket)->attach(UploadedFile::fake()->create('a.txt', 1));

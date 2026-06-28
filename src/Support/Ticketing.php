@@ -179,11 +179,16 @@ class Ticketing
             $slug = Str::slug($name);
             $tenantColumn = $ticket->getTenantColumn();
 
-            $tag = $tagModel::query()->withoutTenancy()
-                ->where('slug', $slug)
-                ->where($tenantColumn, $ticket->getAttribute($tenantColumn))
-                ->first()
-                ?? $tagModel::query()->create(array_merge($ticket->tenantAttributes(), ['name' => $name, 'slug' => $slug]));
+            // firstOrCreate is race-safe against the (tenant, slug) unique index:
+            // two concurrent taggings of the same new tag won't throw a unique
+            // violation that would roll back the surrounding transaction.
+            $tag = $tagModel::query()->withoutTenancy()->firstOrCreate(
+                [
+                    'slug' => $slug,
+                    $tenantColumn => $ticket->getAttribute($tenantColumn),
+                ],
+                array_merge($ticket->tenantAttributes(), ['name' => $name, 'slug' => $slug]),
+            );
 
             $ids[] = $tag->getKey();
         }
