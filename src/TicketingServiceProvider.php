@@ -4,18 +4,24 @@ declare(strict_types=1);
 
 namespace Selli\Ticketing;
 
+use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Auth\Factory;
+use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Route;
 use Selli\Ticketing\Automation\RuleEngine;
+use Selli\Ticketing\Broadcasting\Channels;
+use Selli\Ticketing\Broadcasting\DefaultChannelAuthorizer;
 use Selli\Ticketing\Collaboration\NullMentionResolver;
 use Selli\Ticketing\Commands\EscalateCommand;
 use Selli\Ticketing\Commands\RecalculateSlaCommand;
+use Selli\Ticketing\Contracts\ChannelAuthorizer;
 use Selli\Ticketing\Contracts\MentionResolver;
 use Selli\Ticketing\Contracts\NotificationPreferences;
 use Selli\Ticketing\Contracts\TenantResolver;
 use Selli\Ticketing\Contracts\WorkflowDriver;
 use Selli\Ticketing\Listeners\AutomationSubscriber;
+use Selli\Ticketing\Listeners\BroadcastSubscriber;
 use Selli\Ticketing\Listeners\CollaborationSubscriber;
 use Selli\Ticketing\Listeners\CsatSubscriber;
 use Selli\Ticketing\Listeners\NotificationSubscriber;
@@ -95,6 +101,11 @@ class TicketingServiceProvider extends PackageServiceProvider
 
             return $this->app->make($class);
         });
+
+        // Default, tenant-scoped broadcast channel authorization. bindIf so a
+        // host that already bound its own ChannelAuthorizer (e.g. delegating to
+        // its policies) keeps it — we never override the host's broadcast policy.
+        $this->app->bindIf(ChannelAuthorizer::class, DefaultChannelAuthorizer::class);
     }
 
     public function packageBooted(): void
@@ -142,6 +153,45 @@ class TicketingServiceProvider extends PackageServiceProvider
         if (config('ticketing.automation.enabled', true) !== false) {
             $this->subscribe($this->app->make(AutomationSubscriber::class));
         }
+
+        if (config('ticketing.broadcasting.enabled', false) === true) {
+            $this->subscribe($this->app->make(BroadcastSubscriber::class));
+            $this->registerBroadcastChannels();
+        }
+    }
+
+    /**
+     * Register the three private channels' authorization callbacks, each
+     * delegating to the bound ChannelAuthorizer. Skipped when the host opts to
+     * wire the channels itself (broadcasting.register_channels = false).
+     */
+    protected function registerBroadcastChannels(): void
+    {
+        if (config('ticketing.broadcasting.register_channels', true) !== true) {
+            return;
+        }
+
+        $patterns = Channels::patterns();
+
+        Broadcast::channel(
+            $patterns['tenantTickets'],
+            fn (Authenticatable $user, int|string $tenantId): bool => $this->app->make(ChannelAuthorizer::class)->forTenantTickets($user, $tenantId),
+        );
+
+        Broadcast::channel(
+            $patterns['agent'],
+            fn (Authenticatable $user, int|string $tenantId, string $agentType, int|string $agentId): bool => $this->app->make(ChannelAuthorizer::class)->forAgent($user, $tenantId, $agentType, $agentId),
+        );
+
+        Broadcast::channel(
+            $patterns['ticketAgents'],
+            fn (Authenticatable $user, int|string $ticketId): bool => $this->app->make(ChannelAuthorizer::class)->forTicketAgents($user, $ticketId),
+        );
+
+        Broadcast::channel(
+            $patterns['ticket'],
+            fn (Authenticatable $user, int|string $ticketId): bool => $this->app->make(ChannelAuthorizer::class)->forTicket($user, $ticketId),
+        );
     }
 
     /**

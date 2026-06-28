@@ -446,6 +446,38 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Broadcasting (realtime)
+    |--------------------------------------------------------------------------
+    |
+    | Live page updates (new message, status change, reassignment) over Laravel
+    | Echo/Reverb. Opt-in: nothing is broadcast until "enabled" is true and your
+    | app has a broadcaster configured. Events carry a MINIMAL payload (ids + the
+    | delta) on PRIVATE channels — the client reloads detail through the API. The
+    | three scoped channels are:
+    |
+    |   {prefix}.tenant.{tenantId}.tickets    — tenant-wide agent feed
+    |   {prefix}.tenant.{tenantId}.agent.{id} — an agent's personal feed
+    |   {prefix}.ticket.{ticketId}            — a single ticket's watchers
+    |
+    | "channel_prefix" namespaces them so they can't collide with your own
+    | channels. When "register_channels" is true the package registers the
+    | channel authorization callbacks (via the bound ChannelAuthorizer) for you;
+    | set it false to authorize the channels yourself in routes/channels.php.
+    |
+    */
+    'broadcasting' => [
+        'enabled' => false,
+        'channel_prefix' => 'ticketing',
+        'register_channels' => true,
+
+        // Queue connection/queue for the (queued) broadcast events. Falls back
+        // to the package "queue" settings below, then the app default.
+        'connection' => null,
+        'queue' => null,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Authorization
     |--------------------------------------------------------------------------
     |
