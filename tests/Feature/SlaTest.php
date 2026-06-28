@@ -271,6 +271,56 @@ it('reads the threshold percent from config when the option is omitted', functio
     Event::assertDispatched(SlaThresholdReached::class);
 });
 
+it('starts next-response on a customer reply and completes it on an agent reply', function (): void {
+    SlaPolicy::factory()->create(['first_response_minutes' => null, 'next_response_minutes' => 120, 'resolution_minutes' => null]);
+    $requester = makeUser();
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: $requester);
+
+    Ticketing::for($ticket)->postMessage($requester, 'Any update?'); // customer reply
+    $nr = clockFor($ticket->getKey(), SlaTarget::NextResponse);
+    expect($nr)->not->toBeNull()->and($nr->isCompleted())->toBeFalse();
+
+    Ticketing::for($ticket)->postMessage(makeUser(['name' => 'Agent']), 'Here you go'); // agent reply
+    expect(clockFor($ticket->getKey(), SlaTarget::NextResponse)->isCompleted())->toBeTrue();
+});
+
+it('resumes clocks when leaving a wait state even if the pause list changed', function (): void {
+    $policy = SlaPolicy::factory()->create(['first_response_minutes' => null, 'resolution_minutes' => 480, 'pause_in_states' => ['pending']]);
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+
+    Carbon::setTestNow(Carbon::parse('2026-06-29 11:00:00', 'UTC'));
+    Ticketing::for($ticket)->transition('wait');
+    expect(clockFor($ticket->getKey(), SlaTarget::Resolution)->isPaused())->toBeTrue();
+
+    $policy->update(['pause_in_states' => []]); // pause list changed after pausing
+
+    Carbon::setTestNow(Carbon::parse('2026-06-29 12:00:00', 'UTC'));
+    Ticketing::for($ticket)->transition('resume');
+
+    expect(clockFor($ticket->getKey(), SlaTarget::Resolution)->isRunning())->toBeTrue();
+});
+
+it('creates a clock for a newly enabled target on recalculate', function (): void {
+    $policy = SlaPolicy::factory()->create(['first_response_minutes' => null, 'resolution_minutes' => 480]);
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+    expect(clockFor($ticket->getKey(), SlaTarget::FirstResponse))->toBeNull();
+
+    $policy->update(['first_response_minutes' => 60]);
+    app(SlaManager::class)->recalculate($ticket->fresh());
+
+    expect(clockFor($ticket->getKey(), SlaTarget::FirstResponse))->not->toBeNull();
+});
+
+it('breaks policy specificity ties deterministically by key', function (): void {
+    SlaPolicy::factory()->create(['name' => 'a', 'resolution_minutes' => 100]);
+    SlaPolicy::factory()->create(['name' => 'b', 'resolution_minutes' => 200]);
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+
+    $policy = app(SlaPolicyResolver::class)->resolve($ticket->fresh());
+
+    expect($policy->name)->toBe('b'); // highest key wins among equal specificity
+});
+
 it('runs the escalate command', function (): void {
     SlaPolicy::factory()->create(['first_response_minutes' => null, 'resolution_minutes' => 1]);
     Ticketing::open(type: 'support', title: 'x', requester: makeUser());

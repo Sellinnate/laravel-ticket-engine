@@ -26,7 +26,7 @@ class SlaSubscriber
 
     public function onMessage(MessagePosted $event): void
     {
-        $this->sla->handleFirstResponse($event->ticket);
+        $this->sla->handleMessage($event->ticket, $event->message);
     }
 
     public function onTransition(StateTransitioned $event): void

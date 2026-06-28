@@ -30,8 +30,18 @@ class SlaPolicyResolver
             })
             ->get();
 
+        // Most specific wins; ties break deterministically on the policy key so
+        // the choice is stable regardless of database row order.
         return $candidates
-            ->sortByDesc(fn (SlaPolicy $policy): int => ($policy->ticket_type_id !== null ? 2 : 0) + ($policy->priority !== null ? 1 : 0))
+            ->sort(function (SlaPolicy $a, SlaPolicy $b): int {
+                return $this->specificity($b) <=> $this->specificity($a)
+                    ?: ($b->getKey() <=> $a->getKey());
+            })
             ->first();
+    }
+
+    protected function specificity(SlaPolicy $policy): int
+    {
+        return ($policy->ticket_type_id !== null ? 2 : 0) + ($policy->priority !== null ? 1 : 0);
     }
 }

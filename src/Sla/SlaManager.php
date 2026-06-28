@@ -7,12 +7,15 @@ namespace Selli\Ticketing\Sla;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Carbon;
+use Selli\Ticketing\Enums\MessageVisibility;
+use Selli\Ticketing\Enums\ParticipantRole;
 use Selli\Ticketing\Enums\SlaTarget;
 use Selli\Ticketing\Events\SlaBreached;
 use Selli\Ticketing\Events\SlaThresholdReached;
 use Selli\Ticketing\Models\SlaClock;
 use Selli\Ticketing\Models\SlaPolicy;
 use Selli\Ticketing\Models\Ticket;
+use Selli\Ticketing\Models\TicketMessage;
 use Selli\Ticketing\Support\Ticketing;
 use Selli\Ticketing\Tenancy\TenantContext;
 use Selli\Ticketing\Workflow\WorkflowManager;
@@ -56,6 +59,27 @@ class SlaManager
     }
 
     /**
+     * React to a public message: an agent reply completes the first-response and
+     * next-response clocks; a requester (customer) reply starts/restarts the
+     * next-response clock.
+     */
+    public function handleMessage(Ticket $ticket, TicketMessage $message): void
+    {
+        if ($message->visibility !== MessageVisibility::Public) {
+            return;
+        }
+
+        if ($this->isRequesterAuthor($ticket, $message)) {
+            $this->startNextResponse($ticket);
+
+            return;
+        }
+
+        $this->handleFirstResponse($ticket);
+        $this->completeClock($ticket, SlaTarget::NextResponse);
+    }
+
+    /**
      * Complete the first-response clock once an agent has replied publicly.
      */
     public function handleFirstResponse(Ticket $ticket): void
@@ -72,18 +96,60 @@ class SlaManager
     }
 
     /**
+     * Start (or restart) the next-response clock after a customer reply.
+     */
+    protected function startNextResponse(Ticket $ticket): void
+    {
+        $policy = $this->policies->resolve($ticket);
+
+        if ($policy === null || $policy->next_response_minutes === null) {
+            return;
+        }
+
+        $calendar = $this->calendars->forPolicy($policy);
+        $now = now();
+
+        $this->writeClock($ticket, SlaTarget::NextResponse, $now, $calendar->addMinutes($now, $policy->next_response_minutes), $policy->next_response_minutes, $policy->business_hours_id);
+    }
+
+    protected function completeClock(Ticket $ticket, SlaTarget $target): void
+    {
+        $clock = $this->clock($ticket, $target);
+
+        if ($clock !== null && ! $clock->isCompleted()) {
+            $clock->forceFill(['completed_at' => now(), 'paused_at' => null])->save();
+        }
+    }
+
+    protected function isRequesterAuthor(Ticket $ticket, TicketMessage $message): bool
+    {
+        if ($message->author_id === null) {
+            return false;
+        }
+
+        $model = Ticketing::ticketParticipantModel();
+
+        return $model::query()
+            ->withoutTenancy()
+            ->where('ticket_id', $ticket->getKey())
+            ->where('role', ParticipantRole::Requester->value)
+            ->where('participant_type', $message->author_type)
+            ->where('participant_id', $message->author_id)
+            ->exists();
+    }
+
+    /**
      * Pause or resume the clocks based on whether the new state is a pause state.
      */
     public function syncForTransition(Ticket $ticket, string $from, string $to): void
     {
-        $pauseStates = $this->pauseStates($ticket);
-
-        $wasPaused = in_array($from, $pauseStates, true);
-        $isPaused = in_array($to, $pauseStates, true);
-
-        if ($isPaused && ! $wasPaused) {
+        // Decide purely on the destination state: entering a pause state pauses
+        // running clocks; entering any non-pause state resumes paused ones. This
+        // is robust to the pause list changing after a clock was paused (resume
+        // no longer depends on the previous state still being a pause state).
+        if (in_array($to, $this->pauseStates($ticket), true)) {
             $this->pauseClocks($ticket);
-        } elseif ($wasPaused && ! $isPaused) {
+        } else {
             $this->resumeClocks($ticket);
         }
     }
@@ -198,6 +264,23 @@ class SlaManager
                 'breached_at' => null,
                 'threshold_notified' => false,
             ])->save();
+        }
+
+        // Start clocks for targets newly enabled on the policy that have no row
+        // yet. (Next-response is event-driven on customer replies, not here.)
+        foreach ([SlaTarget::FirstResponse, SlaTarget::Resolution] as $target) {
+            $minutes = $this->minutesFor($policy, $target);
+
+            if ($minutes === null || $this->clock($ticket, $target) !== null) {
+                continue;
+            }
+
+            if ($target === SlaTarget::FirstResponse && $ticket->first_response_at !== null) {
+                continue;
+            }
+
+            $now = now();
+            $this->writeClock($ticket, $target, $now, $calendar->addMinutes($now, $minutes), $minutes, $policy->business_hours_id);
         }
     }
 
