@@ -8,6 +8,7 @@ use Selli\Ticketing\Enums\BodyFormat;
 use Selli\Ticketing\Enums\MessageSource;
 use Selli\Ticketing\Facades\Ticketing;
 use Selli\Ticketing\Mail\InboundEmail;
+use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Models\TicketAttachment;
 use Selli\Ticketing\Notifications\ReplyPostedNotification;
 use Selli\Ticketing\Support\MailThreadToken;
@@ -194,14 +195,32 @@ it('prefers the In-Reply-To parent over a newer References match', function (): 
 it('ignores a duplicate delivery of the same Message-ID', function (): void {
     enableInbound();
 
-    $email = inbound(['message_id' => '<dupe@example.test>']);
-
-    $first = Ticketing::receiveEmail($email);
-    $second = Ticketing::receiveEmail($email);
+    // Two DISTINCT DTOs that carry the same Message-ID (a real re-delivery).
+    $first = Ticketing::receiveEmail(inbound(['message_id' => '<dupe@example.test>']));
+    $second = Ticketing::receiveEmail(inbound(['message_id' => '<dupe@example.test>']));
 
     expect($first)->not->toBeNull()
         ->and($second)->toBeNull()
         ->and($first->ticket->fresh()->messages()->count())->toBe(1);
+});
+
+it('does not let a stranger inject into a thread via a replayed Message-ID', function (): void {
+    enableInbound();
+
+    // The customer opens a ticket (their address is now on it).
+    $ticket = Ticketing::receiveEmail(inbound(['message_id' => '<orig@example.test>']))->ticket;
+
+    // An attacker who knows the (non-secret) Message-ID replays it as In-Reply-To
+    // from a different address. It must NOT land on the existing ticket.
+    $injected = Ticketing::receiveEmail(inbound([
+        'from' => 'attacker@evil.test',
+        'message_id' => '<evil@evil.test>',
+        'in_reply_to' => '<orig@example.test>',
+        'text' => 'malicious',
+    ]));
+
+    expect($injected->ticket->getKey())->not->toBe($ticket->getKey())
+        ->and($ticket->fresh()->messages()->count())->toBe(1);
 });
 
 it('rate limits a flooding sender (fail closed)', function (): void {
@@ -239,9 +258,11 @@ it('opens the ticket in the routed tenant', function (): void {
 
     $message = Ticketing::receiveEmail(inbound());
 
-    // The message row inherits the ticket's tenant; assert on it directly (the
-    // ticket relation would lazy-load under the post-call null tenant context).
-    expect((string) $message->getAttribute($message->getTenantColumn()))->toBe('7');
+    // Assert on the TICKET itself (bypassing the tenant scope), so a regression
+    // that persisted the tenant on the message but not the ticket is caught.
+    $ticket = Ticket::query()->withoutGlobalScopes()->findOrFail($message->ticket_id);
+
+    expect((string) $ticket->getAttribute($ticket->getTenantColumn()))->toBe('7');
 });
 
 it('tags the notification Reply-To with the thread address', function (): void {

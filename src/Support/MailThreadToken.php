@@ -19,12 +19,15 @@ use Selli\Ticketing\Exceptions\InvalidConfigurationException;
  */
 class MailThreadToken
 {
-    /** Length of the truncated signature (base64url chars ≈ 162 bits). */
-    private const SIGNATURE_LENGTH = 27;
+    /** Length of the truncated signature (base64url chars ≈ 120 bits). */
+    private const SIGNATURE_LENGTH = 20;
 
     public static function issue(int|string $ticketId): string
     {
-        $payload = self::base64UrlEncode((string) $ticketId);
+        // The id is used RAW (not base64url-encoded): auto-increment ids and
+        // ULIDs are already local-part-safe, and encoding a 26-char ULID would
+        // push support+t_<token>@… past the 64-char local-part limit.
+        $payload = (string) $ticketId;
 
         return $payload.'.'.self::sign($payload);
     }
@@ -34,22 +37,23 @@ class MailThreadToken
      */
     public static function verify(string $token): ?string
     {
-        $parts = explode('.', $token);
+        // Split off the fixed-length signature from the right; the id (which
+        // never contains a dot) is everything before it.
+        $dot = strrpos($token, '.');
 
-        if (count($parts) !== 2) {
+        if ($dot === false) {
             return null;
         }
 
-        [$payload, $signature] = $parts;
+        $payload = substr($token, 0, $dot);
+        $signature = substr($token, $dot + 1);
 
         // Constant-time comparison so a wrong signature leaks no timing data.
-        if (! hash_equals(self::sign($payload), $signature)) {
+        if ($payload === '' || ! hash_equals(self::sign($payload), $signature)) {
             return null;
         }
 
-        $id = self::base64UrlDecode($payload);
-
-        return $id === false || $id === '' ? null : $id;
+        return $payload;
     }
 
     /**
@@ -127,10 +131,5 @@ class MailThreadToken
     protected static function base64UrlEncode(string $value): string
     {
         return rtrim(strtr(base64_encode($value), '+/', '-_'), '=');
-    }
-
-    protected static function base64UrlDecode(string $value): string|false
-    {
-        return base64_decode(strtr($value, '-_', '+/'), true);
     }
 }

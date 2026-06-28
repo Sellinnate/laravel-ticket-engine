@@ -369,7 +369,10 @@ class Ticketing
     {
         $base = config('ticketing.mail.outbound.reply_to_base');
 
-        if (! is_string($base) || $base === '') {
+        // Require a real address (with an @): tagAddress() returns its input
+        // unchanged when there's no @, so a base like "support" or a stray space
+        // would otherwise yield a broken Reply-To instead of disabling the tag.
+        if (! is_string($base) || ! str_contains($base = trim($base), '@')) {
             return null;
         }
 

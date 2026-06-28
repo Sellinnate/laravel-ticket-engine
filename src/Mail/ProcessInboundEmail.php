@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Selli\Ticketing\Mail;
 
 use Illuminate\Contracts\Cache\LockTimeoutException;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\RateLimiter;
@@ -85,43 +86,88 @@ class ProcessInboundEmail
 
     protected function process(InboundEmail $email): ?TicketMessage
     {
-        $ticket = $this->thread($email) ?? $this->open($email);
+        // A token in the reply address authorizes threading on its own.
+        $ticket = $this->threadByToken($email);
 
-        if (! $ticket instanceof Ticket) {
-            return null;
-        }
+        // Header threading uses non-secret Message-IDs, so only accept it when the
+        // sender already appears on the ticket — otherwise anyone who knows or
+        // replays an archived Message-ID could inject a message into the thread.
+        // Failing the check, the email falls through to opening a new ticket.
+        if ($ticket === null) {
+            $candidate = $this->threadByHeader($email);
 
-        // Operate inside the ticket's own tenant — an inbound webhook has no
-        // ambient user/tenant context, so it must be set explicitly.
-        return $this->tenant->forTenant($ticket->getAttribute($ticket->getTenantColumn()), function () use ($ticket, $email): TicketMessage {
-            $message = $this->append($ticket, $email);
-            $this->importAttachments($message, $email);
-
-            return $message;
-        });
-    }
-
-    /**
-     * Find the ticket this email belongs to: reply-address token first, then the
-     * In-Reply-To / References headers. Loaded unscoped (an inbound webhook has
-     * no tenant yet); the append then runs in the ticket's tenant.
-     */
-    protected function thread(InboundEmail $email): ?Ticket
-    {
-        $ticketId = MailThreadToken::fromRecipients($email->recipients);
-
-        if ($ticketId !== null) {
-            $ticket = Ticketing::ticketModel()::withoutTenancy()->find($ticketId);
-
-            if ($ticket instanceof Ticket) {
-                return $ticket;
+            if ($candidate instanceof Ticket && $this->senderOnTicket($candidate, $email)) {
+                $ticket = $candidate;
             }
         }
 
-        // In-Reply-To names the DIRECT parent, so it's tried first; References is
-        // ordered oldest→newest, so its newest (closest ancestor) is tried next.
-        // Each id is resolved on its own — never a whereIn+latest() that could
-        // pick the most recent of several matches over the actual parent.
+        if ($ticket instanceof Ticket) {
+            // Operate inside the ticket's tenant — an inbound webhook has no
+            // ambient context — and resolve the requester there too.
+            return $this->tenant->forTenant(
+                $ticket->getAttribute($ticket->getTenantColumn()),
+                fn (): TicketMessage => $this->record($ticket, $email, $this->requesters->resolve($email)),
+            );
+        }
+
+        return $this->openAndRecord($email);
+    }
+
+    /**
+     * Open a fresh ticket for an email that threads to nothing, using the route
+     * for its recipient, and record the message. Returns null when the recipient
+     * is unroutable or the type is invalid (the email is dropped, not half-built).
+     */
+    protected function openAndRecord(InboundEmail $email): ?TicketMessage
+    {
+        $route = $this->router->route($email);
+
+        if (! $route instanceof MailRoute) {
+            return null;
+        }
+
+        $title = trim($email->subject) !== '' ? $email->subject : '(no subject)';
+
+        try {
+            return $this->tenant->forTenant($route->tenant, function () use ($route, $title, $email): TicketMessage {
+                // Resolve the requester INSIDE the tenant (a tenant-aware resolver
+                // needs the context) and reuse it as both the ticket requester and
+                // the message author, so a find-or-create resolver runs once.
+                $requester = $this->requesters->resolve($email);
+
+                $ticket = app(Ticketing::class)->open(type: $route->type, title: $title, requester: $requester);
+
+                return $this->record($ticket, $email, $requester);
+            });
+        } catch (TicketingException $exception) {
+            // An unknown type / domain rejection must not 500 a webhook.
+            report($exception);
+
+            return null;
+        }
+    }
+
+    protected function threadByToken(InboundEmail $email): ?Ticket
+    {
+        $ticketId = MailThreadToken::fromRecipients($email->recipients);
+
+        if ($ticketId === null) {
+            return null;
+        }
+
+        $ticket = Ticketing::ticketModel()::withoutTenancy()->find($ticketId);
+
+        return $ticket instanceof Ticket ? $ticket : null;
+    }
+
+    /**
+     * In-Reply-To names the DIRECT parent, so it's tried first; References is
+     * ordered oldest→newest, so its newest (closest ancestor) is tried next.
+     * Each id is resolved on its own — never a whereIn+latest() that could pick
+     * the most recent of several matches over the actual parent.
+     */
+    protected function threadByHeader(InboundEmail $email): ?Ticket
+    {
         $candidates = array_merge([$email->inReplyTo], array_reverse($email->references));
 
         $seen = [];
@@ -149,50 +195,44 @@ class ProcessInboundEmail
     }
 
     /**
-     * Open a fresh ticket for an email that threads to nothing, using the route
-     * for its recipient. Returns null when the recipient is unroutable or the
-     * configured type is invalid (the email is dropped, never half-created).
+     * Has this sender already appeared on the ticket (as the requester's opening
+     * message or a prior reply)? Gate for header threading only.
      */
-    protected function open(InboundEmail $email): ?Ticket
+    protected function senderOnTicket(Ticket $ticket, InboundEmail $email): bool
     {
-        $route = $this->router->route($email);
+        $from = strtolower(trim($email->from));
 
-        if (! $route instanceof MailRoute) {
-            return null;
+        if ($from === '') {
+            return false;
         }
 
-        $requester = $this->requesters->resolve($email);
-        $title = trim($email->subject) !== '' ? $email->subject : '(no subject)';
-
-        try {
-            return $this->tenant->forTenant(
-                $route->tenant,
-                fn (): Ticket => app(Ticketing::class)->open(
-                    type: (string) $route->type,
-                    title: $title,
-                    requester: $requester,
-                ),
-            );
-        } catch (TicketingException $exception) {
-            // An unknown type / domain rejection must not 500 a webhook.
-            report($exception);
-
-            return null;
-        }
+        return Ticketing::ticketMessageModel()::withoutTenancy()
+            ->where('ticket_id', $ticket->getKey())
+            ->where('meta->from', $from)
+            ->exists();
     }
 
-    protected function append(Ticket $ticket, InboundEmail $email): TicketMessage
+    protected function record(Ticket $ticket, InboundEmail $email, ?Model $author): TicketMessage
+    {
+        $message = $this->append($ticket, $email, $author);
+        $this->importAttachments($message, $email);
+
+        return $message;
+    }
+
+    protected function append(Ticket $ticket, InboundEmail $email, ?Model $author): TicketMessage
     {
         return $this->postMessage->handle(new PostMessageData(
             ticket: $ticket,
-            author: $this->requesters->resolve($email),
+            author: $author,
             body: $email->body(),
             visibility: MessageVisibility::Public,
             bodyFormat: $email->bodyFormat(),
             source: MessageSource::Email,
             meta: array_filter([
                 'message_id' => $email->messageId !== null ? $this->normaliseId($email->messageId) : null,
-                'from' => $email->from,
+                // Stored lower-cased so senderOnTicket() can match it.
+                'from' => strtolower(trim($email->from)),
                 'from_name' => $email->fromName,
                 'in_reply_to' => $email->inReplyTo !== null ? $this->normaliseId($email->inReplyTo) : null,
             ], fn ($value): bool => $value !== null && $value !== ''),

@@ -94,18 +94,22 @@ final readonly class InboundEmail
      */
     public function isAutoReply(): bool
     {
-        $autoSubmitted = strtolower($this->headers['auto-submitted'] ?? '');
+        // Tolerate canonical-case header keys from a direct constructor call, not
+        // only the lower-cased keys fromArray() produces.
+        $headers = array_change_key_case($this->headers, CASE_LOWER);
+
+        $autoSubmitted = strtolower((string) ($headers['auto-submitted'] ?? ''));
         if ($autoSubmitted !== '' && $autoSubmitted !== 'no') {
             return true;
         }
 
-        $precedence = strtolower($this->headers['precedence'] ?? '');
+        $precedence = strtolower((string) ($headers['precedence'] ?? ''));
         if (in_array($precedence, ['bulk', 'auto_reply', 'list', 'junk'], true)) {
             return true;
         }
 
         foreach (['x-auto-response-suppress', 'x-autoreply', 'x-autorespond', 'list-id', 'list-unsubscribe'] as $header) {
-            if (isset($this->headers[$header]) && trim($this->headers[$header]) !== '') {
+            if (isset($headers[$header]) && trim((string) $headers[$header]) !== '') {
                 return true;
             }
         }

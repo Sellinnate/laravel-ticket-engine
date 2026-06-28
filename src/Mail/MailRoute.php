@@ -11,7 +11,7 @@ namespace Selli\Ticketing\Mail;
 final readonly class MailRoute
 {
     public function __construct(
-        public ?string $type,
+        public string $type,
         public int|string|null $tenant = null,
     ) {}
 }

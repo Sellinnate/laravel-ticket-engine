@@ -56,8 +56,9 @@ class ConfigInboundMailRouter implements InboundMailRouter
     }
 
     /**
-     * Strip a +tag sub-address and lower-case: "Support+t_abc@Example.com" →
-     * "support@example.com".
+     * Strip ONLY the +t_<token> reply tag and lower-case:
+     * "Support+t_abc@Example.com" → "support@example.com". Any other plus-alias
+     * (e.g. "support+sales@…") is preserved so a host can route on it.
      */
     protected function baseAddress(string $address): string
     {
@@ -70,8 +71,8 @@ class ConfigInboundMailRouter implements InboundMailRouter
         $local = substr($address, 0, $at);
         $domain = substr($address, $at + 1);
 
-        if (($plus = strpos($local, '+')) !== false) {
-            $local = substr($local, 0, $plus);
+        if (preg_match('/^(.*)\+t_[^+@]+$/', $local, $matches) === 1) {
+            $local = $matches[1];
         }
 
         return strtolower(trim($local.'@'.$domain));
