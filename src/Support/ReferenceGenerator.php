@@ -4,13 +4,20 @@ declare(strict_types=1);
 
 namespace Selli\Ticketing\Support;
 
-use Selli\Ticketing\Models\Ticket;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\DB;
+use Selli\Ticketing\Models\TicketSequence;
 use Selli\Ticketing\Tenancy\TenantContext;
 
 /**
  * Generates human-friendly per-tenant ticket references such as
- * "INC-2026-00042" from the configured format. Collisions are resolved by the
- * caller (OpenTicket) which retries on a unique-constraint violation.
+ * "INC-2026-00042" from the configured format.
+ *
+ * Sequence values are allocated atomically from the `ticket_sequences` table
+ * under a row lock, so concurrent opens always receive distinct, monotonic
+ * numbers — independent of soft-deleted rows or an engine's NULL-uniqueness
+ * behaviour. This avoids the pitfalls of deriving the next number from a row
+ * count.
  */
 class ReferenceGenerator
 {
@@ -32,17 +39,49 @@ class ReferenceGenerator
     }
 
     /**
-     * Next sequence number for the current tenant + type + year.
+     * Atomically allocate the next sequence value for the current tenant +
+     * type + year.
      */
     public function nextSequence(string $typeKey, int $year): int
     {
-        $model = Ticketing::ticketModel();
-        $prefix = strtoupper($typeKey).'-'.$year.'-';
+        $scope = strtoupper($typeKey).'-'.$year;
+        $tenant = $this->tenant->current();
+        $column = $this->tenant->column();
 
-        $count = $model::query()
-            ->where('reference', 'like', $prefix.'%')
-            ->count();
+        return DB::transaction(function () use ($scope, $tenant, $column): int {
+            $row = $this->lockedRow($scope, $tenant, $column);
 
-        return $count + 1;
+            if ($row === null) {
+                // Create the counter row race-safely, then re-acquire the lock.
+                TicketSequence::query()->withoutTenancy()->createOrFirst(
+                    [$column => $tenant, 'scope' => $scope],
+                    ['next_value' => 0],
+                );
+
+                $row = $this->lockedRow($scope, $tenant, $column);
+            }
+
+            $next = (int) $row->next_value + 1;
+            $row->forceFill(['next_value' => $next])->save();
+
+            return $next;
+        });
+    }
+
+    /**
+     * Fetch the sequence row for an explicit tenant under a write lock.
+     */
+    protected function lockedRow(string $scope, int|string|null $tenant, string $column): ?TicketSequence
+    {
+        return TicketSequence::query()
+            ->withoutTenancy()
+            ->where('scope', $scope)
+            ->when(
+                $tenant === null,
+                fn (Builder $query): Builder => $query->whereNull($column),
+                fn (Builder $query): Builder => $query->where($column, $tenant),
+            )
+            ->lockForUpdate()
+            ->first();
     }
 }

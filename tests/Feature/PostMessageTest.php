@@ -31,6 +31,16 @@ it('stamps first_response_at on the first public agent reply', function (): void
     expect($ticket->fresh()->first_response_at)->not->toBeNull();
 });
 
+it('does not stamp first response when the requester replies to their own ticket', function (): void {
+    // A dual-contract user (both requester and agent) opens and then replies.
+    $user = makeUser();
+    $ticket = Ticketing::open(type: 'support', title: 'Help', requester: $user);
+
+    Ticketing::for($ticket)->postMessage($user, 'Any update?', MessageVisibility::Public);
+
+    expect($ticket->fresh()->first_response_at)->toBeNull();
+});
+
 it('does not stamp first_response_at for internal notes', function (): void {
     $ticket = Ticketing::open(type: 'support', title: 'Help', requester: makeUser());
     $agent = makeUser(['name' => 'Agent']);

@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Selli\Ticketing\Actions;
 
-use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Selli\Ticketing\Data\OpenTicketData;
 use Selli\Ticketing\Enums\ParticipantRole;
@@ -17,7 +16,6 @@ use Selli\Ticketing\Support\ReferenceGenerator;
 use Selli\Ticketing\Support\Ticketing;
 use Selli\Ticketing\Support\TicketTypeRegistry;
 use Selli\Ticketing\Tenancy\TenantContext;
-use Throwable;
 
 /**
  * Creates a ticket: resolves its type & initial workflow state, generates a
@@ -51,7 +49,7 @@ class OpenTicket
         $initialState = $this->initialState($type->workflow);
 
         $ticket = DB::transaction(function () use ($data, $type, $initialState): Ticket {
-            $ticket = $this->persistWithUniqueReference($data, $type, $initialState);
+            $ticket = $this->persistTicket($data, $type, $initialState);
 
             if ($data->requester !== null) {
                 $this->attachRequester($ticket, $data);
@@ -72,7 +70,7 @@ class OpenTicket
         return $ticket;
     }
 
-    protected function persistWithUniqueReference(
+    protected function persistTicket(
         OpenTicketData $data,
         TicketType $type,
         string $initialState,
@@ -97,6 +95,9 @@ class OpenTicket
             'priority' => $data->priority ?? $type->default_priority,
             'category' => $data->category,
             'status' => $initialState,
+            // References are allocated atomically (see ReferenceGenerator), so a
+            // single insert is collision-free under concurrency.
+            'reference' => $this->references->generate($type->key),
         ]);
 
         if ($data->subject !== null) {
@@ -104,27 +105,10 @@ class OpenTicket
             $payload['subject_id'] = $data->subject->getKey();
         }
 
-        // Retry on the (tenant_id, reference) unique constraint under concurrency.
-        $lastException = null;
+        /** @var Ticket $ticket */
+        $ticket = $model::query()->create($payload);
 
-        for ($attempt = 1; $attempt <= 5; $attempt++) {
-            $payload['reference'] = $this->references->generate($type->key);
-
-            try {
-                /** @var Ticket $ticket */
-                $ticket = $model::query()->create($payload);
-
-                return $ticket;
-            } catch (QueryException $e) {
-                if (! $this->isUniqueViolation($e)) {
-                    throw $e;
-                }
-
-                $lastException = $e;
-            }
-        }
-
-        throw $lastException;
+        return $ticket;
     }
 
     protected function attachRequester(Ticket $ticket, OpenTicketData $data): void
@@ -152,14 +136,5 @@ class OpenTicket
         }
 
         return $initial;
-    }
-
-    protected function isUniqueViolation(Throwable $e): bool
-    {
-        $message = strtolower($e->getMessage());
-
-        return str_contains($message, 'unique')
-            || str_contains($message, 'duplicate')
-            || str_contains($message, 'constraint failed');
     }
 }

@@ -32,6 +32,27 @@ it('scopes reads to the current tenant', function (): void {
         ->and(Ticket::query()->withoutTenancy()->count())->toBe(2);
 });
 
+it('allocates reference sequences independently per tenant', function (): void {
+    $context = app(TenantContext::class);
+
+    $t1 = $context->forTenant(1, fn () => Ticketing::open(type: 'support', title: 'A', requester: makeUser(['tenant_id' => 1])));
+    $t2 = $context->forTenant(2, fn () => Ticketing::open(type: 'support', title: 'B', requester: makeUser(['tenant_id' => 2])));
+
+    $year = date('Y');
+
+    expect($t1->reference)->toBe("SUPPORT-{$year}-00001")
+        ->and($t2->reference)->toBe("SUPPORT-{$year}-00001");
+});
+
+it('keeps references unique even after a ticket is soft-deleted', function (): void {
+    $first = Ticketing::open(type: 'support', title: 'One', requester: makeUser());
+    $first->delete();
+
+    $second = Ticketing::open(type: 'support', title: 'Two', requester: makeUser());
+
+    expect($second->reference)->not->toBe($first->reference);
+});
+
 it('never leaks another tenant when no tenant is resolved', function (): void {
     app(TenantContext::class)->forTenant(1, fn () => Ticketing::open(type: 'support', title: 'Secret', requester: makeUser(['tenant_id' => 1])));
 

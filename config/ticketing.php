@@ -65,6 +65,7 @@ return [
     'tables' => [
         'prefix' => '',
         'tickets' => 'tickets',
+        'ticket_sequences' => 'ticket_sequences',
         'ticket_messages' => 'ticket_messages',
         'ticket_participants' => 'ticket_participants',
         'ticket_activities' => 'ticket_activities',

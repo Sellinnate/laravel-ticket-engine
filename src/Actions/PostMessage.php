@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\DB;
 use Selli\Ticketing\Contracts\CanActOnTickets;
 use Selli\Ticketing\Data\PostMessageData;
 use Selli\Ticketing\Enums\MessageVisibility;
+use Selli\Ticketing\Enums\ParticipantRole;
 use Selli\Ticketing\Events\MessagePosted;
 use Selli\Ticketing\Models\TicketMessage;
 use Selli\Ticketing\Support\AuditLogger;
@@ -65,6 +66,10 @@ class PostMessage
 
     /**
      * Stamp first_response_at the first time an agent replies publicly.
+     *
+     * The author must be an agent and must not be the ticket's requester — a
+     * model that implements both contracts (the documented dual case) does not
+     * trigger a "first response" by replying to its own request.
      */
     protected function stampFirstResponse(PostMessageData $data): void
     {
@@ -80,6 +85,26 @@ class PostMessage
             return;
         }
 
+        if ($this->isRequester($data)) {
+            return;
+        }
+
         $data->ticket->forceFill(['first_response_at' => now()])->save();
+    }
+
+    /**
+     * Whether the message author is registered as the ticket's requester.
+     */
+    protected function isRequester(PostMessageData $data): bool
+    {
+        if ($data->author === null) {
+            return false;
+        }
+
+        return $data->ticket->participants()
+            ->where('role', ParticipantRole::Requester->value)
+            ->where('participant_type', $data->author->getMorphClass())
+            ->where('participant_id', $data->author->getKey())
+            ->exists();
     }
 }
