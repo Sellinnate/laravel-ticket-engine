@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Selli\Ticketing\Collaboration\NullMentionResolver;
+use Selli\Ticketing\Models\AutomationRule;
 use Selli\Ticketing\Models\BusinessHours;
 use Selli\Ticketing\Models\CannedResponse;
 use Selli\Ticketing\Models\Holiday;
@@ -105,6 +106,7 @@ return [
         'canned_responses' => 'canned_responses',
         'macros' => 'macros',
         'satisfaction_ratings' => 'satisfaction_ratings',
+        'automation_rules' => 'automation_rules',
         'tags' => 'tags',
         'taggables' => 'taggables',
     ],
@@ -137,6 +139,7 @@ return [
         'tag' => Tag::class,
         'ticket_link' => TicketLink::class,
         'satisfaction_rating' => SatisfactionRating::class,
+        'automation_rule' => AutomationRule::class,
     ],
 
     /*
@@ -342,6 +345,39 @@ return [
             'secret' => null,
             'ttl' => 1209600, // 14 days
         ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Automation (rule engine)
+    |--------------------------------------------------------------------------
+    |
+    | Data-driven rules run on domain events: a trigger (event) + conditions
+    | (predicates on the ticket) + actions (transition, assign, tag, reply,
+    | priority, apply_macro, webhook). Rules are per-tenant and ordered by
+    | priority. "max_depth" bounds re-entrant cascades (a rule action that
+    | re-fires a trigger).
+    |
+    */
+    'automation' => [
+        'enabled' => true,
+        'max_depth' => 5,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Outbound webhooks
+    |--------------------------------------------------------------------------
+    |
+    | The "webhook" automation action POSTs a signed payload to an external URL
+    | off the request (queued, retried). "secret" is the default HMAC key (a rule
+    | may override it); receivers verify the X-Ticketing-Signature header.
+    |
+    */
+    'webhooks' => [
+        'secret' => null,
+        'timeout' => 5,
+        'tries' => 3,
     ],
 
     /*

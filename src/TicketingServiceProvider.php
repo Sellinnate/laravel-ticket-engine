@@ -12,6 +12,7 @@ use Selli\Ticketing\Commands\RecalculateSlaCommand;
 use Selli\Ticketing\Contracts\MentionResolver;
 use Selli\Ticketing\Contracts\TenantResolver;
 use Selli\Ticketing\Contracts\WorkflowDriver;
+use Selli\Ticketing\Listeners\AutomationSubscriber;
 use Selli\Ticketing\Listeners\CollaborationSubscriber;
 use Selli\Ticketing\Listeners\CsatSubscriber;
 use Selli\Ticketing\Listeners\RoutingSubscriber;
@@ -106,6 +107,10 @@ class TicketingServiceProvider extends PackageServiceProvider
 
         if (config('ticketing.csat.enabled', true) !== false) {
             $this->subscribe($this->app->make(CsatSubscriber::class));
+        }
+
+        if (config('ticketing.automation.enabled', true) !== false) {
+            $this->subscribe($this->app->make(AutomationSubscriber::class));
         }
     }
 
