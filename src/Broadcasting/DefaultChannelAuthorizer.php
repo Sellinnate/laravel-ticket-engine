@@ -26,10 +26,15 @@ class DefaultChannelAuthorizer implements ChannelAuthorizer
         return $user instanceof CanActOnTickets && $this->tenantMatches($user, $tenantId);
     }
 
-    public function forAgent(Authenticatable $user, int|string $tenantId, int|string $agentId): bool
+    public function forAgent(Authenticatable $user, int|string $tenantId, string $agentType, int|string $agentId): bool
     {
+        // The agent feed names the assignee's morph TYPE as well as its id, so a
+        // User#1 can't reach an Admin#1 feed. Match the connecting user's own
+        // (tokenised) morph type and id.
         return $user instanceof CanActOnTickets
+            && $user instanceof Model
             && $this->tenantMatches($user, $tenantId)
+            && Channels::token($user->getMorphClass()) === $agentType
             && (string) $user->getAuthIdentifier() === (string) $agentId;
     }
 
@@ -71,10 +76,23 @@ class DefaultChannelAuthorizer implements ChannelAuthorizer
 
     protected function belongsToTicketTenant(Authenticatable $user, Ticket $ticket): bool
     {
-        $tenantId = $ticket->getAttribute($ticket->getTenantColumn());
+        $context = app(TenantContext::class);
 
         // When tenancy is off there is no tenant to match on — agents pass.
-        return $tenantId === null || $this->tenantMatches($user, $tenantId);
+        if (! $context->enabled()) {
+            return true;
+        }
+
+        $tenantId = $ticket->getAttribute($ticket->getTenantColumn());
+
+        // A shared (null-tenant) ticket is reachable only when sharing is enabled
+        // — with allow_shared off it's hidden from scoped reads, so an agent who
+        // merely knows the id must not subscribe to its channel either.
+        if ($tenantId === null) {
+            return $context->allowsShared();
+        }
+
+        return $this->tenantMatches($user, $tenantId);
     }
 
     protected function isSubject(Authenticatable $user, Ticket $ticket): bool

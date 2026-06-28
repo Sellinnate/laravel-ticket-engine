@@ -24,10 +24,26 @@ class Channels
         return self::prefix().'tenant.'.$tenantId.'.tickets';
     }
 
-    /** An individual agent's personal feed (their assigned tickets). */
-    public static function agent(int|string $tenantId, int|string $agentId): string
+    /**
+     * An individual agent's personal feed (their assigned tickets). The agent's
+     * morph TYPE is part of the name, because assignee() is polymorphic: without
+     * it a User#1 and an Admin#1 would share one channel and leak each other's
+     * events.
+     */
+    public static function agent(int|string $tenantId, string $agentType, int|string $agentId): string
     {
-        return self::prefix().'tenant.'.$tenantId.'.agent.'.$agentId;
+        return self::prefix().'tenant.'.$tenantId.'.agent.'.self::token($agentType).'.'.$agentId;
+    }
+
+    /**
+     * Collapse a value (typically a morph class) to the channel-name charset.
+     * A morph FQCN has backslashes, which are invalid in a channel name; hosts
+     * using a morph map get a clean alias instead. Stable on both the emit and
+     * the authorization side, so the two always agree.
+     */
+    public static function token(string $value): string
+    {
+        return preg_replace('/[^A-Za-z0-9_-]+/', '-', $value) ?? $value;
     }
 
     /** A single ticket's watchers (participants + agents). */
@@ -46,7 +62,7 @@ class Channels
     {
         return [
             'tenantTickets' => self::prefix().'tenant.{tenantId}.tickets',
-            'agent' => self::prefix().'tenant.{tenantId}.agent.{agentId}',
+            'agent' => self::prefix().'tenant.{tenantId}.agent.{agentType}.{agentId}',
             'ticket' => self::prefix().'ticket.{ticketId}',
         ];
     }

@@ -23,7 +23,8 @@ function broadcastChannelNames(TicketBroadcasted $event): array
 it('builds prefixed, scoped channel names', function (): void {
     expect(Channels::ticket(7))->toBe('ticketing.ticket.7')
         ->and(Channels::tenantTickets(5))->toBe('ticketing.tenant.5.tickets')
-        ->and(Channels::agent(5, 9))->toBe('ticketing.tenant.5.agent.9');
+        ->and(Channels::agent(5, 'App\\Models\\User', 9))->toBe('ticketing.tenant.5.agent.App-Models-User.9')
+        ->and(Channels::agent(5, 'agent', 9))->toBe('ticketing.tenant.5.agent.agent.9');
 });
 
 it('broadcasts on the ticket, tenant and assignee channels for an all-audience event', function (): void {
@@ -39,7 +40,7 @@ it('broadcasts on the ticket, tenant and assignee channels for an all-audience e
 
     expect($names)->toContain('private-'.Channels::ticket((string) $ticket->getKey()))
         ->toContain('private-'.Channels::tenantTickets(5))
-        ->toContain('private-'.Channels::agent(5, $agent->getKey()));
+        ->toContain('private-'.Channels::agent(5, $agent->getMorphClass(), $agent->getKey()));
 });
 
 it('keeps an agents-only event off the per-ticket channel', function (): void {
@@ -91,14 +92,17 @@ it('authorizes the tenant feed only for agents of that tenant', function (): voi
     expect($authorizer->forTenantTickets($requester, 5))->toBeFalse();
 });
 
-it('authorizes an agent personal channel only for that same agent in that tenant', function (): void {
+it('authorizes an agent personal channel only for that same agent (type + id) in that tenant', function (): void {
     $authorizer = app(DefaultChannelAuthorizer::class);
     $a = makeUser(['tenant_id' => 5]);
     $b = makeUser(['tenant_id' => 5]);
+    $type = Channels::token($a->getMorphClass());
 
-    expect($authorizer->forAgent($a, 5, $a->getKey()))->toBeTrue()
-        ->and($authorizer->forAgent($a, 5, $b->getKey()))->toBeFalse()
-        ->and($authorizer->forAgent($a, 9, $a->getKey()))->toBeFalse();
+    expect($authorizer->forAgent($a, 5, $type, $a->getKey()))->toBeTrue()
+        ->and($authorizer->forAgent($a, 5, $type, $b->getKey()))->toBeFalse()
+        ->and($authorizer->forAgent($a, 9, $type, $a->getKey()))->toBeFalse()
+        // A different morph type with the same id can't reach this agent's feed.
+        ->and($authorizer->forAgent($a, 5, 'Some-Other-Model', $a->getKey()))->toBeFalse();
 });
 
 it('authorizes a ticket channel for its tenant agents and denies cross-tenant', function (): void {
@@ -113,6 +117,25 @@ it('authorizes a ticket channel for its tenant agents and denies cross-tenant', 
     $agent9 = makeUser(['tenant_id' => 9]);
     $this->actingAs($agent9);
     expect($authorizer->forTicket($agent9, $ticket->getKey()))->toBeFalse();
+});
+
+it('gates an agent on a shared (null-tenant) ticket by allow_shared', function (): void {
+    // No tenant context → a shared, null-tenant ticket.
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+    expect($ticket->getAttribute($ticket->getTenantColumn()))->toBeNull();
+
+    $agent = makeUser(['tenant_id' => 5]);
+    $this->actingAs($agent);
+
+    // allow_shared on (default): the shared ticket is visible, so an agent passes.
+    expect(app(DefaultChannelAuthorizer::class)->forTicket($agent, $ticket->getKey()))->toBeTrue();
+
+    // allow_shared off: shared rows are hidden from scoped reads, so the agent is
+    // denied the channel too — knowing the id isn't enough.
+    app()->instance(TenantContext::class, new TenantContext(
+        resolver: app(TenantResolver::class), enabled: true, column: 'tenant_id', allowShared: false,
+    ));
+    expect(app(DefaultChannelAuthorizer::class)->forTicket($agent, $ticket->getKey()))->toBeFalse();
 });
 
 it('denies a ticket channel for an unknown ticket id', function (): void {
@@ -140,6 +163,10 @@ it('lets a null-tenant requester watch their own tenant-scoped ticket', function
     $requester = TestRequester::query()->create(['name' => 'R']);
     $ticket = $context->forTenant(5, fn () => Ticketing::open(type: 'support', title: 'x', requester: $requester));
 
+    // Guard the premise: the ticket really is tenant-scoped (not shared), so the
+    // test would catch a regression where open() stops propagating the tenant.
+    expect((string) $ticket->getAttribute($ticket->getTenantColumn()))->toBe('5');
+
     $this->actingAs($requester);
     expect(app(DefaultChannelAuthorizer::class)->forTicket($requester, $ticket->getKey()))->toBeTrue();
 });
@@ -156,10 +183,11 @@ it('authorizes tenant and agent feeds by role alone in single-tenant mode', func
     ));
 
     $authorizer = app(DefaultChannelAuthorizer::class);
+    $type = Channels::token($agent->getMorphClass());
 
     expect($authorizer->forTenantTickets($agent, 1))->toBeTrue()
-        ->and($authorizer->forAgent($agent, 1, $agent->getKey()))->toBeTrue()
-        ->and($authorizer->forAgent($agent, 1, $agent->getKey() + 1))->toBeFalse();
+        ->and($authorizer->forAgent($agent, 1, $type, $agent->getKey()))->toBeTrue()
+        ->and($authorizer->forAgent($agent, 1, $type, $agent->getKey() + 1))->toBeFalse();
 });
 
 it('authorizes a ticket channel for its requester/subject and explicit participants', function (): void {

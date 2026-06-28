@@ -46,6 +46,7 @@ class TicketBroadcasted implements ShouldBroadcast
     public function __construct(
         public int|string $ticketId,
         public int|string|null $tenantId,
+        public ?string $assigneeType,
         public int|string|null $assigneeId,
         public string $reference,
         public string $status,
@@ -70,6 +71,7 @@ class TicketBroadcasted implements ShouldBroadcast
         return new self(
             ticketId: $ticket->getKey(),
             tenantId: $ticket->getAttribute($ticket->getTenantColumn()),
+            assigneeType: $ticket->assignee_type,
             assigneeId: $ticket->assignee_id,
             reference: (string) $ticket->reference,
             status: (string) $ticket->status,
@@ -95,8 +97,8 @@ class TicketBroadcasted implements ShouldBroadcast
         if ($this->tenantId !== null) {
             $channels[] = new PrivateChannel(Channels::tenantTickets($this->tenantId));
 
-            if ($this->assigneeId !== null) {
-                $channels[] = new PrivateChannel(Channels::agent($this->tenantId, $this->assigneeId));
+            if ($this->assigneeId !== null && $this->assigneeType !== null) {
+                $channels[] = new PrivateChannel(Channels::agent($this->tenantId, $this->assigneeType, $this->assigneeId));
             }
         }
 
@@ -113,11 +115,13 @@ class TicketBroadcasted implements ShouldBroadcast
      */
     public function broadcastWith(): array
     {
-        return array_merge([
+        // Canonical fields win: a caller-supplied payload can ADD keys but never
+        // overwrite the event's own ids/status/action contract.
+        return array_merge($this->payload, [
             'ticket_id' => $this->ticketId,
             'reference' => $this->reference,
             'status' => $this->status,
             'action' => $this->action,
-        ], $this->payload);
+        ]);
     }
 }

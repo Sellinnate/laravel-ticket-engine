@@ -93,8 +93,10 @@ it('registers the three private channels with authorization that delegates to th
     $agent = makeUser(['tenant_id' => 5]);
     $this->actingAs($agent);
 
+    $type = Channels::token($agent->getMorphClass());
+
     expect(($channels[$patterns['ticket']])($agent, $ticket->getKey()))->toBeTrue()
         ->and(($channels[$patterns['tenantTickets']])($agent, 5))->toBeTrue()
         ->and(($channels[$patterns['tenantTickets']])($agent, 9))->toBeFalse()
-        ->and(($channels[$patterns['agent']])($agent, 5, $agent->getKey()))->toBeTrue();
+        ->and(($channels[$patterns['agent']])($agent, 5, $type, $agent->getKey()))->toBeTrue();
 });

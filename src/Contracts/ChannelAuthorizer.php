@@ -19,8 +19,8 @@ interface ChannelAuthorizer
     /** The tenant-wide agent feed — agents of that tenant only. */
     public function forTenantTickets(Authenticatable $user, int|string $tenantId): bool;
 
-    /** An agent's personal feed — that same agent only. */
-    public function forAgent(Authenticatable $user, int|string $tenantId, int|string $agentId): bool;
+    /** An agent's personal feed — that same agent (morph type + id) only. */
+    public function forAgent(Authenticatable $user, int|string $tenantId, string $agentType, int|string $agentId): bool;
 
     /** A single ticket — its agents, requester/subject or participants. */
     public function forTicket(Authenticatable $user, int|string $ticketId): bool;
