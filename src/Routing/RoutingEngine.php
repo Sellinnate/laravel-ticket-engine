@@ -1,0 +1,200 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Selli\Ticketing\Routing;
+
+use Illuminate\Contracts\Container\Container;
+use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\Relation;
+use Selli\Ticketing\Actions\AssignTicket;
+use Selli\Ticketing\Data\AssignTicketData;
+use Selli\Ticketing\Exceptions\InvalidConfigurationException;
+use Selli\Ticketing\Models\RoutingRule;
+use Selli\Ticketing\Models\Team;
+use Selli\Ticketing\Models\Ticket;
+use Selli\Ticketing\Support\Ticketing;
+use Selli\Ticketing\Tenancy\TenantGuard;
+
+/**
+ * Evaluates the ordered, data-driven routing rules for a ticket and routes the
+ * first match (that yields a valid target) to its team/assignee/strategy.
+ * Conditions are versionable data, not `if` statements in code.
+ */
+class RoutingEngine
+{
+    public function __construct(
+        protected Container $container,
+        protected TenantGuard $tenant,
+    ) {}
+
+    public function route(Ticket $ticket, ?Model $actor = null): ?Ticket
+    {
+        foreach ($this->orderedRules($ticket) as $rule) {
+            if (! $this->matches($ticket, $rule->conditions ?? [])) {
+                continue;
+            }
+
+            $team = $rule->team_id !== null ? $this->team($rule->team_id, $ticket) : null;
+            $assignee = $this->ruleAssignee($rule, $ticket);
+
+            // A rule matched but yielded no valid (tenant-safe) target — fall
+            // through to the next rule instead of leaving the ticket unrouted.
+            if ($team === null && $assignee === null) {
+                continue;
+            }
+
+            return $this->container->make(AssignTicket::class)->handle(new AssignTicketData(
+                ticket: $ticket,
+                assignee: $assignee,
+                team: $team,
+                strategy: $rule->strategy,
+                actor: $actor,
+            ));
+        }
+
+        return null;
+    }
+
+    /**
+     * @return Collection<int, RoutingRule>
+     */
+    protected function orderedRules(Ticket $ticket): Collection
+    {
+        $model = Ticketing::routingRuleModel();
+        $tenantColumn = $ticket->getTenantColumn();
+        $tenantValue = $ticket->getAttribute($tenantColumn);
+        $allowShared = config('ticketing.tenancy.allow_shared', true) !== false;
+
+        /** @var Collection<int, RoutingRule> $rules */
+        $rules = $model::query()
+            ->withoutTenancy()
+            ->where('is_active', true)
+            ->where(function ($query) use ($tenantColumn, $tenantValue, $allowShared): void {
+                $query->where($tenantColumn, $tenantValue);
+
+                if ($allowShared) {
+                    $query->orWhereNull($tenantColumn);
+                }
+            })
+            ->get()
+            // Order by position, then prefer tenant-owned rules over shared ones
+            // at the same position, then key — so a shared rule never wins a tie
+            // against an equally-positioned tenant rule.
+            ->sort(function (RoutingRule $a, RoutingRule $b) use ($tenantColumn): int {
+                return [$a->position, $a->getAttribute($tenantColumn) !== null ? 0 : 1, $a->getKey()]
+                    <=> [$b->position, $b->getAttribute($tenantColumn) !== null ? 0 : 1, $b->getKey()];
+            })
+            ->values();
+
+        return $rules;
+    }
+
+    /**
+     * @param  list<array{field: string, operator?: string, value?: mixed}>  $conditions
+     */
+    protected function matches(Ticket $ticket, array $conditions): bool
+    {
+        foreach ($conditions as $condition) {
+            $actual = $this->resolveField($ticket, $condition['field']);
+
+            if (! $this->compare($actual, $condition['operator'] ?? '=', $condition['value'] ?? null)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    protected function resolveField(Ticket $ticket, string $field): mixed
+    {
+        if (str_starts_with($field, 'custom_fields.')) {
+            return $ticket->customField(substr($field, strlen('custom_fields.')));
+        }
+
+        return match ($field) {
+            'type' => $this->typeKey($ticket),
+            'category' => $ticket->category,
+            'priority' => $ticket->priority->value,
+            'subject_type' => $ticket->subject_type,
+            'status' => $ticket->status,
+            // Fail closed: an unknown field is a misconfigured rule, not a
+            // silent non-match that could change routing on a typo.
+            default => throw new InvalidConfigurationException("Unknown routing rule field [{$field}]."),
+        };
+    }
+
+    protected function compare(mixed $actual, string $operator, mixed $expected): bool
+    {
+        return match ($operator) {
+            '=', '==' => $actual == $expected,
+            '!=', '<>' => $actual != $expected,
+            'in' => is_array($expected) && in_array($actual, $expected, false),
+            'not_in' => is_array($expected) && ! in_array($actual, $expected, false),
+            '>' => $actual > $expected,
+            '>=' => $actual >= $expected,
+            '<' => $actual < $expected,
+            '<=' => $actual <= $expected,
+            'contains' => $this->contains($actual, $expected),
+            default => false,
+        };
+    }
+
+    protected function contains(mixed $actual, mixed $expected): bool
+    {
+        if (is_array($actual)) {
+            return in_array($expected, $actual, false);
+        }
+
+        return is_string($actual) && is_scalar($expected) && str_contains($actual, (string) $expected);
+    }
+
+    protected function typeKey(Ticket $ticket): ?string
+    {
+        $model = Ticketing::ticketTypeModel();
+        $type = $model::query()->withoutTenancy()->whereKey($ticket->ticket_type_id)->first();
+
+        return $type?->key;
+    }
+
+    protected function team(int|string $id, Ticket $ticket): ?Team
+    {
+        $model = Ticketing::teamModel();
+
+        $team = $model::query()->withoutTenancy()->find($id);
+
+        if (! $team instanceof Team) {
+            return null;
+        }
+
+        // Skip deactivated teams, and never route to another tenant's team.
+        if (! $team->is_active) {
+            return null;
+        }
+
+        return $this->tenant->belongsToTicketTenant($team, $ticket) ? $team : null;
+    }
+
+    protected function ruleAssignee(RoutingRule $rule, Ticket $ticket): ?Model
+    {
+        if ($rule->assignee_type === null || $rule->assignee_id === null) {
+            return null;
+        }
+
+        /** @var class-string<Model>|null $class */
+        $class = Relation::getMorphedModel($rule->assignee_type) ?? $rule->assignee_type;
+
+        if (! is_string($class) || ! class_exists($class)) {
+            return null;
+        }
+
+        $assignee = $class::query()->find($rule->assignee_id);
+
+        if (! $assignee instanceof Model || ! $this->tenant->belongsToTicketTenant($assignee, $ticket)) {
+            return null;
+        }
+
+        return $assignee;
+    }
+}

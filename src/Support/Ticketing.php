@@ -6,9 +6,11 @@ namespace Selli\Ticketing\Support;
 
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Database\Eloquent\Model;
+use Selli\Ticketing\Actions\AssignTicket;
 use Selli\Ticketing\Actions\OpenTicket;
 use Selli\Ticketing\Actions\PostMessage;
 use Selli\Ticketing\Actions\TransitionTicket;
+use Selli\Ticketing\Data\AssignTicketData;
 use Selli\Ticketing\Data\OpenTicketData;
 use Selli\Ticketing\Data\PostMessageData;
 use Selli\Ticketing\Data\TransitionData;
@@ -16,8 +18,11 @@ use Selli\Ticketing\Enums\MessageVisibility;
 use Selli\Ticketing\Enums\Priority;
 use Selli\Ticketing\Models\BusinessHours;
 use Selli\Ticketing\Models\Holiday;
+use Selli\Ticketing\Models\RoutingRule;
 use Selli\Ticketing\Models\SlaClock;
 use Selli\Ticketing\Models\SlaPolicy;
+use Selli\Ticketing\Models\Team;
+use Selli\Ticketing\Models\TeamMember;
 use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Models\TicketActivity;
 use Selli\Ticketing\Models\TicketMessage;
@@ -115,6 +120,25 @@ class Ticketing
         ));
     }
 
+    /**
+     * Assign a ticket to an agent and/or a team (with an optional strategy).
+     */
+    public function assign(
+        Ticket $ticket,
+        ?Model $assignee = null,
+        ?Team $team = null,
+        ?string $strategy = null,
+        ?Model $actor = null,
+    ): Ticket {
+        return $this->container->make(AssignTicket::class)->handle(new AssignTicketData(
+            ticket: $ticket,
+            assignee: $assignee,
+            team: $team,
+            strategy: $strategy,
+            actor: $actor,
+        ));
+    }
+
     // --- Model binding -----------------------------------------------------
 
     public static function useTicketModel(string $model): void
@@ -160,6 +184,21 @@ class Ticketing
     public static function useHolidayModel(string $model): void
     {
         static::$models['holiday'] = $model;
+    }
+
+    public static function useTeamModel(string $model): void
+    {
+        static::$models['team'] = $model;
+    }
+
+    public static function useTeamMemberModel(string $model): void
+    {
+        static::$models['team_member'] = $model;
+    }
+
+    public static function useRoutingRuleModel(string $model): void
+    {
+        static::$models['routing_rule'] = $model;
     }
 
     /**
@@ -257,6 +296,33 @@ class Ticketing
     {
         /** @var class-string<Holiday> */
         return static::$models['holiday'] ?? config('ticketing.models.holiday', Holiday::class);
+    }
+
+    /**
+     * @return class-string<Team>
+     */
+    public static function teamModel(): string
+    {
+        /** @var class-string<Team> */
+        return static::$models['team'] ?? config('ticketing.models.team', Team::class);
+    }
+
+    /**
+     * @return class-string<TeamMember>
+     */
+    public static function teamMemberModel(): string
+    {
+        /** @var class-string<TeamMember> */
+        return static::$models['team_member'] ?? config('ticketing.models.team_member', TeamMember::class);
+    }
+
+    /**
+     * @return class-string<RoutingRule>
+     */
+    public static function routingRuleModel(): string
+    {
+        /** @var class-string<RoutingRule> */
+        return static::$models['routing_rule'] ?? config('ticketing.models.routing_rule', RoutingRule::class);
     }
 
     /**

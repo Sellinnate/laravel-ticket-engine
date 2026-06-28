@@ -10,7 +10,9 @@ use Selli\Ticketing\Commands\EscalateCommand;
 use Selli\Ticketing\Commands\RecalculateSlaCommand;
 use Selli\Ticketing\Contracts\TenantResolver;
 use Selli\Ticketing\Contracts\WorkflowDriver;
+use Selli\Ticketing\Listeners\RoutingSubscriber;
 use Selli\Ticketing\Listeners\SlaSubscriber;
+use Selli\Ticketing\Routing\AssignmentManager;
 use Selli\Ticketing\Sla\SlaManager;
 use Selli\Ticketing\Support\Ticketing;
 use Selli\Ticketing\Tenancy\DefaultTenantResolver;
@@ -63,6 +65,8 @@ class TicketingServiceProvider extends PackageServiceProvider
         $this->app->bind(WorkflowDriver::class, fn (): WorkflowDriver => $this->app->make(WorkflowManager::class)->driver());
 
         $this->app->singleton(SlaManager::class);
+
+        $this->app->singleton(AssignmentManager::class, fn (): AssignmentManager => new AssignmentManager($this->app));
     }
 
     public function packageBooted(): void
@@ -78,11 +82,34 @@ class TicketingServiceProvider extends PackageServiceProvider
         }
 
         if (config('ticketing.sla.enabled', true) !== false) {
-            $subscriber = $this->app->make(SlaSubscriber::class);
+            $this->subscribe($this->app->make(SlaSubscriber::class));
+        }
 
-            foreach ($subscriber->subscribe() as $event => $method) {
-                Event::listen($event, [$subscriber, $method]);
-            }
+        if (config('ticketing.routing.enabled', true) !== false) {
+            $this->subscribe($this->app->make(RoutingSubscriber::class));
+        }
+    }
+
+    /**
+     * Register an event subscriber's listeners on the dispatcher.
+     *
+     * The handlers are wrapped so a failure in a side-effect (SLA, routing) is
+     * reported but never propagates back to the action that emitted the event —
+     * a misconfigured rule must not fail (or half-complete) a ticket open.
+     */
+    protected function subscribe(object $subscriber): void
+    {
+        /** @var array<class-string, string> $map */
+        $map = $subscriber->subscribe();
+
+        foreach ($map as $event => $method) {
+            Event::listen($event, function (object $payload) use ($subscriber, $method): void {
+                try {
+                    $subscriber->{$method}($payload);
+                } catch (\Throwable $exception) {
+                    report($exception);
+                }
+            });
         }
     }
 }
