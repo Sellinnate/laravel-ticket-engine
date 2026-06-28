@@ -141,3 +141,10 @@ it('parses mention handles from a body', function (): void {
     expect((new MentionParser)->extract('hey @ada and @bob-1, not email@example.com'))
         ->toBe(['ada', 'bob-1']);
 });
+
+it('fails a macro that references a missing team', function (): void {
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+    $macro = Macro::factory()->create(['actions' => ['assign_team_id' => 999999]]);
+
+    Ticketing::for($ticket)->applyMacro($macro);
+})->throws(InvalidConfigurationException::class);

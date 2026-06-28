@@ -115,14 +115,35 @@ class MergeTickets
         $tenantColumn = $target->getTenantColumn();
         $tenantValue = $target->getAttribute($tenantColumn);
 
-        Ticketing::ticketMessageModel()::query()->withoutTenancy()
+        $messageModel = Ticketing::ticketMessageModel();
+        $messageMorph = (new $messageModel)->getMorphClass();
+        $messageKey = (new $messageModel)->getKeyName();
+
+        /** @var list<int|string> $messageIds */
+        $messageIds = $messageModel::query()->withoutTenancy()
+            ->where('ticket_id', $source->getKey())
+            ->pluck($messageKey)
+            ->all();
+
+        $messageModel::query()->withoutTenancy()
             ->where('ticket_id', $source->getKey())
             ->update(['ticket_id' => $target->getKey(), $tenantColumn => $tenantValue]);
 
-        Ticketing::ticketAttachmentModel()::query()->withoutTenancy()
+        $attachmentModel = Ticketing::ticketAttachmentModel();
+
+        // Attachments on the source ticket → re-parent to the target.
+        $attachmentModel::query()->withoutTenancy()
             ->where('attachable_type', $target->getMorphClass())
             ->where('attachable_id', $source->getKey())
             ->update(['attachable_id' => $target->getKey(), $tenantColumn => $tenantValue]);
+
+        // Attachments on the moved messages → keep their message, realign tenant.
+        if ($messageIds !== []) {
+            $attachmentModel::query()->withoutTenancy()
+                ->where('attachable_type', $messageMorph)
+                ->whereIn('attachable_id', $messageIds)
+                ->update([$tenantColumn => $tenantValue]);
+        }
     }
 
     protected function copyRequesters(Ticket $source, Ticket $target): void

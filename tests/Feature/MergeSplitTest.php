@@ -2,7 +2,9 @@
 
 declare(strict_types=1);
 
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Storage;
 use Selli\Ticketing\Enums\ParticipantRole;
 use Selli\Ticketing\Events\TicketMerged;
 use Selli\Ticketing\Events\TicketOpened;
@@ -10,6 +12,7 @@ use Selli\Ticketing\Events\TicketSplit;
 use Selli\Ticketing\Exceptions\CrossTenantException;
 use Selli\Ticketing\Facades\Ticketing;
 use Selli\Ticketing\Models\Ticket;
+use Selli\Ticketing\Models\TicketAttachment;
 use Selli\Ticketing\Models\TicketMessage;
 use Selli\Ticketing\Tenancy\TenantContext;
 
@@ -124,4 +127,19 @@ it('realigns moved content to the target tenant on merge', function (): void {
     Ticketing::for($target)->mergeFrom([$source]);
 
     expect(TicketMessage::query()->withoutTenancy()->find($message->getKey())->tenant_id)->toBe(5);
+});
+
+it('realigns moved message attachments to the target tenant', function (): void {
+    $context = app(TenantContext::class);
+    Storage::fake('local');
+
+    $source = Ticketing::open(type: 'support', title: 'S', requester: makeUser(), attributes: ['tenant_id' => null]);
+    $message = Ticketing::for($source)->postMessage(makeUser(), 'shared');
+
+    $att = Ticketing::addAttachment($message, UploadedFile::fake()->create('a.txt', 1));
+
+    $target = $context->forTenant(5, fn () => Ticketing::open(type: 'support', title: 'T', requester: makeUser(['tenant_id' => 5])));
+    Ticketing::for($target)->mergeFrom([$source]);
+
+    expect((string) TicketAttachment::query()->withoutTenancy()->find($att->getKey())->tenant_id)->toBe('5');
 });

@@ -55,9 +55,15 @@ class ApplyMacro
             if (! empty($actions['assign_team_id'])) {
                 $team = Ticketing::teamModel()::query()->withoutTenancy()->find($actions['assign_team_id']);
 
-                if ($team instanceof Team) {
-                    $this->manager->assign($ticket, team: $team, strategy: $actions['strategy'] ?? null, actor: $actor);
+                if (! $team instanceof Team) {
+                    // Fail closed: a macro that references a missing team must not
+                    // silently proceed as if assignment succeeded.
+                    throw new InvalidConfigurationException(
+                        "Macro references unknown team [{$actions['assign_team_id']}]."
+                    );
                 }
+
+                $this->manager->assign($ticket, team: $team, strategy: $actions['strategy'] ?? null, actor: $actor);
             }
 
             if (! empty($actions['transition'])) {
