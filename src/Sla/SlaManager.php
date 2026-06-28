@@ -166,9 +166,9 @@ class SlaManager
         $minutes = $policy !== null ? $this->minutesFor($policy, SlaTarget::FirstResponse) : null;
 
         if ($policy === null || $minutes === null) {
-            // No first-response coverage anymore — just drop the completion.
-            $clock->forceFill(['completed_at' => null])->save();
-
+            // No first-response coverage anymore — leave the completed clock as
+            // is. Re-opening it with a historic due_at would let the sweeper
+            // breach a target the policy no longer covers.
             return;
         }
 
@@ -208,7 +208,15 @@ class SlaManager
             $completedAt = $clock->started_at;
         }
 
-        $clock->forceFill(['completed_at' => $completedAt])->save();
+        $updates = ['completed_at' => $completedAt, 'paused_at' => null];
+
+        // A retroactively-applied earlier reply may now meet a deadline the clock
+        // had already breached — clear the stale breach so reporting/state agree.
+        if ($completedAt->lessThanOrEqualTo($clock->due_at)) {
+            $updates['breached_at'] = null;
+        }
+
+        $clock->forceFill($updates)->save();
     }
 
     /**

@@ -105,6 +105,27 @@ it('creates a completed first-response clock when the target is enabled after th
         ->and($clock->isCompleted())->toBeTrue();
 });
 
+it('clears a stale breach when a merged-in earlier reply meets the deadline', function (): void {
+    SlaPolicy::factory()->create(['first_response_minutes' => 60]); // target FR due 11:00
+    $target = Ticketing::open(type: 'support', title: 'T', requester: makeUser());
+
+    Carbon::setTestNow(Carbon::parse('2026-06-29 10:15:00', 'UTC'));
+    $source = Ticketing::open(type: 'support', title: 'S', requester: makeUser());
+    Ticketing::for($source)->postMessage(makeUser(['name' => 'Agent']), 'early'); // 10:15, within 11:00
+
+    // Breach the target's first-response clock (no reply on the target yet).
+    Carbon::setTestNow(Carbon::parse('2026-06-29 12:00:00', 'UTC'));
+    app(SlaManager::class)->sweep();
+    expect(clockFor($target->getKey(), SlaTarget::FirstResponse)->breached_at)->not->toBeNull();
+
+    Ticketing::for($target)->mergeFrom([$source]);
+
+    $clock = clockFor($target->getKey(), SlaTarget::FirstResponse);
+
+    expect($clock->breached_at)->toBeNull() // the 10:15 reply met the 11:00 deadline
+        ->and($clock->isCompleted())->toBeTrue();
+});
+
 it('reopens the source first-response clock when its only agent reply is split away', function (): void {
     SlaPolicy::factory()->create(['first_response_minutes' => 60]);
     $source = Ticketing::open(type: 'support', title: 'src', requester: makeUser());
