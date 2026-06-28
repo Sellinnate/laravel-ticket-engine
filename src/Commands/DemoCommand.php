@@ -5,9 +5,12 @@ declare(strict_types=1);
 namespace Selli\Ticketing\Commands;
 
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\DB;
 use Selli\Ticketing\Enums\MessageVisibility;
+use Selli\Ticketing\Exceptions\InvalidConfigurationException;
 use Selli\Ticketing\Exceptions\TicketingException;
 use Selli\Ticketing\Facades\Ticketing;
+use Selli\Ticketing\Models\Ticket;
 
 /**
  * Seeds one working example ticket — a reply and an internal note — so a
@@ -22,12 +25,17 @@ class DemoCommand extends Command
 
     public function handle(): int
     {
-        $type = $this->resolveType();
-
         try {
-            $ticket = Ticketing::open(type: $type, title: 'Welcome to your ticketing engine');
-            Ticketing::for($ticket)->postMessage(null, 'This ticket was created by `php artisan ticketing:demo`. Reply to it, transition it, assign it — the engine handles the rest.');
-            Ticketing::for($ticket)->postMessage(null, 'Internal note: only agents (CanActOnTickets) see this.', MessageVisibility::Internal);
+            $type = $this->resolveType();
+
+            // One transaction, so a failure mid-seed leaves no half-built demo.
+            $ticket = DB::transaction(function () use ($type): Ticket {
+                $ticket = Ticketing::open(type: $type, title: 'Welcome to your ticketing engine');
+                Ticketing::for($ticket)->postMessage(null, 'This ticket was created by `php artisan ticketing:demo`. Reply to it, transition it, assign it — the engine handles the rest.');
+                Ticketing::for($ticket)->postMessage(null, 'Internal note: only agents (CanActOnTickets) see this.', MessageVisibility::Internal);
+
+                return $ticket;
+            });
         } catch (TicketingException $exception) {
             $this->error($exception->getMessage());
 
@@ -51,7 +59,14 @@ class DemoCommand extends Command
 
         /** @var array<string, mixed> $types */
         $types = (array) config('ticketing.types', []);
+        $type = array_key_first($types);
 
-        return (string) (array_key_first($types) ?? 'support');
+        if (! is_string($type) || $type === '') {
+            // Fail on the real problem (no types configured) instead of a
+            // misleading "unknown type" later on a guessed default.
+            throw new InvalidConfigurationException('No ticket types are configured — set ticketing.types or pass --type.');
+        }
+
+        return $type;
     }
 }

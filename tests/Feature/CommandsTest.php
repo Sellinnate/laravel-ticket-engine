@@ -32,6 +32,14 @@ it('fails gracefully on an unknown demo type', function (): void {
         ->assertFailed();
 });
 
+it('fails explicitly when no ticket types are configured', function (): void {
+    config()->set('ticketing.types', []);
+
+    $this->artisan('ticketing:demo')
+        ->expectsOutputToContain('No ticket types are configured')
+        ->assertFailed();
+});
+
 it('registers the install command', function (): void {
     expect(array_key_exists('ticketing:install', $this->app[Kernel::class]->all()))->toBeTrue();
 });
