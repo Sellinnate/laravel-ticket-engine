@@ -65,6 +65,16 @@ class DeliverWebhook implements ShouldQueue
             ->withBody($body, 'application/json');
 
         if ($pinnedIp !== null) {
+            // The pin relies on curl's CURLOPT_RESOLVE; without ext-curl Guzzle
+            // falls back to the stream handler and would silently re-resolve DNS
+            // at connect time (rebinding). Fail closed rather than send unpinned.
+            if (! extension_loaded('curl')) {
+                throw new InvalidConfigurationException(
+                    'The webhook SSRF guard requires the curl extension to pin the validated address; '
+                    .'install ext-curl or use webhooks.allowed_hosts.'
+                );
+            }
+
             // Pin curl's resolution to the exact IP we validated, so the host
             // can't re-resolve to a private address at connect time (DNS
             // rebinding). The Host header / SNI stays the original hostname.
@@ -146,15 +156,40 @@ class DeliverWebhook implements ShouldQueue
             throw new InvalidConfigurationException("Webhook host [{$host}] could not be resolved to verify it is public.");
         }
 
-        // Block if ANY resolved address (v4 or v6) is private/reserved.
+        // Block if ANY resolved address (v4 or v6) is private/reserved. An
+        // IPv4-mapped IPv6 (::ffff:127.0.0.1) is unwrapped to its embedded IPv4
+        // first, since older PHP filter_var doesn't flag the mapped range.
         foreach ($ips as $ip) {
-            if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false) {
+            $check = $this->canonicalIp($ip);
+
+            if (filter_var($check, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false) {
                 throw new InvalidConfigurationException("Webhook host [{$host}] resolves to a private or reserved address.");
             }
         }
 
         // Pin the first validated public IP for the actual request.
         return $ips[0];
+    }
+
+    /**
+     * Unwrap an IPv4-mapped IPv6 address (::ffff:a.b.c.d) to its embedded IPv4 so
+     * the private/reserved check can't be evaded through the mapped range.
+     */
+    protected function canonicalIp(string $ip): string
+    {
+        $packed = @inet_pton($ip);
+
+        if ($packed !== false && strlen($packed) === 16
+            && substr($packed, 0, 10) === str_repeat("\0", 10)
+            && substr($packed, 10, 2) === "\xff\xff") {
+            $v4 = inet_ntop(substr($packed, 12, 4));
+
+            if ($v4 !== false) {
+                return $v4;
+            }
+        }
+
+        return $ip;
     }
 
     /**

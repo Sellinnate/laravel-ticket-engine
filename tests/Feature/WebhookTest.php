@@ -75,6 +75,11 @@ it('blocks a webhook to an IPv6 loopback address (SSRF)', function (): void {
     (new DeliverWebhook('http://[::1]/hook', ['a' => 1]))->handle();
 })->throws(InvalidConfigurationException::class);
 
+it('blocks an IPv4-mapped IPv6 loopback (SSRF)', function (): void {
+    config()->set('ticketing.webhooks.allowed_hosts', []);
+    (new DeliverWebhook('http://[::ffff:127.0.0.1]/hook', ['a' => 1]))->handle();
+})->throws(InvalidConfigurationException::class);
+
 it('allows a private address when explicitly allow-listed', function (): void {
     config()->set('ticketing.webhooks.allowed_hosts', ['127.0.0.1']);
     Http::fake(['*' => Http::response('', 200)]);
