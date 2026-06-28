@@ -32,7 +32,7 @@ class PendingTicket
         string $type,
         string $title,
         mixed $requester = null,
-        Priority $priority = Priority::Normal,
+        ?Priority $priority = null,
         ?string $category = null,
         array $attributes = [],
     ): Ticket {

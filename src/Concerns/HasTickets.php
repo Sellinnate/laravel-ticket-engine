@@ -39,7 +39,7 @@ trait HasTickets
         string $type,
         string $title,
         mixed $requester = null,
-        Priority $priority = Priority::Normal,
+        ?Priority $priority = null,
         array $attributes = [],
     ): Ticket {
         return app(Ticketing::class)->for($this)->open(

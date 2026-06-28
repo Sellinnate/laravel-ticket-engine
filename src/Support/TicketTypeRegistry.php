@@ -40,9 +40,11 @@ class TicketTypeRegistry
         $definition = $defaults[$key];
         $model = Ticketing::ticketTypeModel();
 
+        // createOrFirst is race-safe against the (tenant_id, key) unique index:
+        // a concurrent first-use of the same type returns the existing row
+        // instead of throwing a duplicate-key error.
         /** @var TicketType $type */
-        $type = $model::query()->create([
-            'key' => $key,
+        $type = $model::query()->createOrFirst(['key' => $key], [
             'name' => $definition['name'] ?? ucfirst($key),
             'workflow' => $definition['workflow'] ?? 'default',
             'default_priority' => Priority::tryFrom($definition['default_priority'] ?? Priority::Normal->value) ?? Priority::Normal,

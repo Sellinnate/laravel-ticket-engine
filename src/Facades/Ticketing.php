@@ -9,7 +9,7 @@ use Selli\Ticketing\Enums\MessageVisibility;
 use Selli\Ticketing\Enums\Priority;
 
 /**
- * @method static \Selli\Ticketing\Models\Ticket open(string $type, string $title, mixed $requester = null, Priority $priority = Priority::Normal, mixed $subject = null, ?string $category = null, array<string, mixed> $attributes = [])
+ * @method static \Selli\Ticketing\Models\Ticket open(string $type, string $title, mixed $requester = null, ?Priority $priority = null, mixed $subject = null, ?string $category = null, array<string, mixed> $attributes = [])
  * @method static \Selli\Ticketing\Support\PendingTicket for(mixed $target)
  * @method static \Selli\Ticketing\Models\TicketMessage postMessage(\Selli\Ticketing\Models\Ticket $ticket, mixed $author, string $body, MessageVisibility $visibility = MessageVisibility::Public, array<string, mixed> $meta = [])
  *

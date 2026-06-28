@@ -13,6 +13,7 @@ use Selli\Ticketing\Facades\Ticketing;
 use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Models\TicketActivity;
 use Selli\Ticketing\Models\TicketType;
+use Selli\Ticketing\Tenancy\TenantContext;
 
 it('opens a free-standing ticket via the facade', function (): void {
     $requester = makeUser();
@@ -39,6 +40,24 @@ it('provisions the ticket type from config on first use', function (): void {
 
     expect(TicketType::query()->where('key', 'incident')->exists())->toBeTrue()
         ->and($ticket->status)->toBe('new'); // incident workflow initial state
+});
+
+it('applies the ticket type default priority when none is given', function (): void {
+    // The incident type is configured with default_priority 30 (High).
+    $ticket = Ticketing::open(type: 'incident', title: 'Outage', requester: makeUser());
+
+    expect($ticket->priority)->toBe(Priority::High);
+});
+
+it('does not let extra attributes smuggle in a tenant', function (): void {
+    $ticket = app(TenantContext::class)->forTenant(3, fn () => Ticketing::open(
+        type: 'support',
+        title: 'Scoped',
+        requester: makeUser(['tenant_id' => 3]),
+        attributes: ['tenant_id' => 999],
+    ));
+
+    expect($ticket->tenant_id)->toBe(3);
 });
 
 it('registers the requester as a participant', function (): void {

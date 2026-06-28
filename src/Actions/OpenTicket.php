@@ -11,6 +11,7 @@ use Selli\Ticketing\Enums\ParticipantRole;
 use Selli\Ticketing\Events\TicketOpened;
 use Selli\Ticketing\Exceptions\InvalidConfigurationException;
 use Selli\Ticketing\Models\Ticket;
+use Selli\Ticketing\Models\TicketType;
 use Selli\Ticketing\Support\AuditLogger;
 use Selli\Ticketing\Support\ReferenceGenerator;
 use Selli\Ticketing\Support\Ticketing;
@@ -50,7 +51,7 @@ class OpenTicket
         $initialState = $this->initialState($type->workflow);
 
         $ticket = DB::transaction(function () use ($data, $type, $initialState): Ticket {
-            $ticket = $this->persistWithUniqueReference($data, $type->getKey(), $type->key, $initialState);
+            $ticket = $this->persistWithUniqueReference($data, $type, $initialState);
 
             if ($data->requester !== null) {
                 $this->attachRequester($ticket, $data);
@@ -73,19 +74,27 @@ class OpenTicket
 
     protected function persistWithUniqueReference(
         OpenTicketData $data,
-        int|string $typeId,
-        string $typeKey,
+        TicketType $type,
         string $initialState,
     ): Ticket {
         $model = Ticketing::ticketModel();
 
         $base = $data->attributes;
-        unset($base['reference'], $base['status'], $base['ticket_type_id']);
+        // Callers may not set engine-managed columns nor smuggle a tenant in
+        // through extra attributes (which would bypass tenant scoping).
+        unset(
+            $base['reference'],
+            $base['status'],
+            $base['ticket_type_id'],
+            $base[$this->tenant->column()],
+        );
 
         $payload = array_merge($base, [
-            'ticket_type_id' => $typeId,
+            'ticket_type_id' => $type->getKey(),
             'title' => $data->title,
-            'priority' => $data->priority,
+            // Fall back to the type's configured default priority when the
+            // caller did not specify one.
+            'priority' => $data->priority ?? $type->default_priority,
             'category' => $data->category,
             'status' => $initialState,
         ]);
@@ -99,7 +108,7 @@ class OpenTicket
         $lastException = null;
 
         for ($attempt = 1; $attempt <= 5; $attempt++) {
-            $payload['reference'] = $this->references->generate($typeKey);
+            $payload['reference'] = $this->references->generate($type->key);
 
             try {
                 /** @var Ticket $ticket */

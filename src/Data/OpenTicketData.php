@@ -21,7 +21,7 @@ final readonly class OpenTicketData
         public string $type,
         public string $title,
         public ?Model $requester = null,
-        public Priority $priority = Priority::Normal,
+        public ?Priority $priority = null,
         public ?Model $subject = null,
         public ?string $category = null,
         public array $attributes = [],

@@ -39,6 +39,23 @@ it('never leaks another tenant when no tenant is resolved', function (): void {
     expect(Ticket::query()->count())->toBe(0);
 });
 
+it('preserves an explicit null tenant (shared) even while a tenant is active', function (): void {
+    app(TenantContext::class)->forTenant(8, function (): void {
+        TicketType::query()->create([
+            'key' => 'shared-type',
+            'name' => 'Shared Type',
+            'workflow' => 'default',
+            'default_priority' => Priority::Normal,
+            'is_active' => true,
+            'tenant_id' => null, // explicit shared
+        ]);
+    });
+
+    $shared = TicketType::query()->withoutTenancy()->where('key', 'shared-type')->first();
+
+    expect($shared->tenant_id)->toBeNull();
+});
+
 it('shares null-tenant rows across tenants when enabled', function (): void {
     // Create a null-tenant (shared) ticket directly.
     Ticket::query()->create([

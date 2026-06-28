@@ -33,7 +33,10 @@ trait BelongsToTenant
             /** @var Model&TenantScoped $model */
             $column = $model->getTenantColumn();
 
-            if ($model->getAttribute($column) === null) {
+            // Only auto-assign when the column was not provided at all. An
+            // explicit null is a deliberate "shared" record and must be kept,
+            // even while a tenant is resolved (honours allow_shared).
+            if (! array_key_exists($column, $model->getAttributes())) {
                 $model->setAttribute($column, $context->current());
             }
         });
