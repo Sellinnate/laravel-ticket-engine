@@ -9,6 +9,7 @@ use Selli\Ticketing\Events\CsatRequested;
 use Selli\Ticketing\Events\CsatSubmitted;
 use Selli\Ticketing\Exceptions\CrossTenantException;
 use Selli\Ticketing\Exceptions\CsatException;
+use Selli\Ticketing\Exceptions\InvalidConfigurationException;
 use Selli\Ticketing\Facades\Ticketing;
 use Selli\Ticketing\Models\SatisfactionRating;
 use Selli\Ticketing\Support\CsatToken;
@@ -148,9 +149,33 @@ it('exposes scale semantics for aggregation', function (): void {
         ->and(CsatScale::Thumbs->isPositive(1))->toBeTrue()
         ->and(CsatScale::Thumbs->isPositive(0))->toBeFalse()
         ->and(CsatScale::Nps->accepts(10))->toBeTrue()
-        ->and(CsatScale::Nps->isPositive(6))->toBeTrue()
-        ->and(CsatScale::Nps->isPositive(5))->toBeFalse();
+        ->and(CsatScale::Nps->isPositive(9))->toBeTrue()   // promoter
+        ->and(CsatScale::Nps->isPositive(8))->toBeFalse()  // passive, not positive
+        ->and(CsatScale::Nps->isPositive(6))->toBeFalse(); // detractor
 });
+
+it('fails closed on a non-positive token ttl', function (): void {
+    config()->set('ticketing.csat.token.ttl', 0);
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+
+    Ticketing::csatToken($ticket);
+})->throws(InvalidConfigurationException::class);
+
+it('fails closed when no token secret is available', function (): void {
+    config()->set('ticketing.csat.token.secret', null);
+    config()->set('app.key', '');
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+
+    Ticketing::csatToken($ticket, ttl: 60);
+})->throws(InvalidConfigurationException::class);
+
+it('treats a token for a deleted ticket as invalid', function (): void {
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+    $token = Ticketing::csatToken($ticket);
+    $ticket->forceDelete();
+
+    Ticketing::submitCsatByToken($token, 5);
+})->throws(CsatException::class);
 
 it('scopes submitted ratings within a period', function (): void {
     Carbon::setTestNow(Carbon::parse('2026-06-29 10:00:00', 'UTC'));

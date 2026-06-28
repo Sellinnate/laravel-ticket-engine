@@ -35,13 +35,19 @@ class RequestCsat
         $scale = Csat::scale();
 
         $rating = DB::transaction(function () use ($ticket, $scale, $actor): SatisfactionRating {
+            // Serialise concurrent CSAT operations for this ticket on the ticket
+            // row, so two requests can't both miss the rating and race to create
+            // it (which the one-per-ticket constraint would reject).
+            Ticketing::ticketModel()::query()->withoutTenancy()
+                ->lockForUpdate()
+                ->find($ticket->getKey());
+
             $model = Ticketing::satisfactionRatingModel();
             $tenantColumn = $ticket->getTenantColumn();
 
             $existing = $model::query()->withoutTenancy()
                 ->where('ticket_id', $ticket->getKey())
                 ->where($tenantColumn, $ticket->getAttribute($tenantColumn))
-                ->lockForUpdate()
                 ->first();
 
             $attributes = array_merge($ticket->tenantAttributes(), [

@@ -26,8 +26,11 @@ return new class extends Migration
             $table->timestamp('submitted_at')->nullable();
             $table->timestamps();
 
-            // One rating row per ticket (re-requested in place on reopen).
-            $this->uniqueScoped($table, ['ticket_id'], 'csat_ticket_unq');
+            // One rating row per ticket. ticket_id is globally unique, so the
+            // constraint is on it alone — NOT tenant-scoped, which would leave a
+            // hole for shared (null-tenant) rows where (null, ticket_id) pairs
+            // never collide.
+            $table->unique('ticket_id', 'csat_ticket_unq');
             $table->index('submitted_at');
         });
     }

@@ -301,8 +301,13 @@ class Ticketing
             throw CsatException::invalidToken();
         }
 
-        /** @var Ticket $ticket */
-        $ticket = static::ticketModel()::query()->withoutTenancy()->findOrFail($ticketId);
+        $ticket = static::ticketModel()::query()->withoutTenancy()->find($ticketId);
+
+        if (! $ticket instanceof Ticket) {
+            // An orphaned link (ticket deleted) is just an invalid token, not a
+            // 404 — keep the fail-closed contract consistent.
+            throw CsatException::invalidToken();
+        }
 
         return $this->submitCsat($ticket, $rating, $comment, $submittedBy);
     }

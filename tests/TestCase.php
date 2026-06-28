@@ -36,6 +36,9 @@ class TestCase extends Orchestra
 
     public function defineEnvironment($app): void
     {
+        // A real Laravel app always has an application key; set one so signed
+        // CSAT tokens have a secret (the package fails closed without it).
+        config()->set('app.key', 'base64:'.base64_encode(str_repeat('a', 32)));
         config()->set('database.default', 'testing');
         config()->set('database.connections.testing', [
             'driver' => 'sqlite',

@@ -34,6 +34,12 @@ class Csat
     {
         $ttl = (int) config('ticketing.csat.token.ttl', 1209600); // 14 days
 
-        return $ttl > 0 ? $ttl : 1209600;
+        if ($ttl <= 0) {
+            // Fail closed: a misconfigured (zero/negative) TTL must not silently
+            // fall back to a long-lived window.
+            throw new InvalidConfigurationException('ticketing.csat.token.ttl must be a positive number of seconds.');
+        }
+
+        return $ttl;
     }
 }

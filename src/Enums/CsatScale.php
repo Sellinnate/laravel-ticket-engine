@@ -53,11 +53,15 @@ enum CsatScale: string
     }
 
     /**
-     * Whether the rating counts as "satisfied" for thumbs-style reporting: the
-     * top half of the scale (>= 4 of 5, up, >= 6 of 10 a la NPS promoters/passive).
+     * Whether the rating counts as a "satisfied"/promoter response: thumbs up,
+     * >= 4 of 5, or — following the NPS convention — only 9-10 (promoters), so a
+     * passive 7-8 is not miscounted as positive.
      */
     public function isPositive(int $rating): bool
     {
-        return $this->fraction($rating) >= 0.6;
+        return match ($this) {
+            self::Nps => $rating >= 9,
+            default => $this->fraction($rating) >= 0.6,
+        };
     }
 }

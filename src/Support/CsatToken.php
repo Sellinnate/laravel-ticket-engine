@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Selli\Ticketing\Support;
 
 use Illuminate\Support\Carbon;
+use Selli\Ticketing\Exceptions\InvalidConfigurationException;
 
 /**
  * Stateless, signed CSAT tokens. A token binds a ticket id to an expiry with an
@@ -95,7 +96,15 @@ class CsatToken
     {
         $secret = config('ticketing.csat.token.secret') ?? config('app.key');
 
-        return is_string($secret) && $secret !== '' ? $secret : 'ticketing-csat';
+        if (! is_string($secret) || $secret === '') {
+            // Fail closed: never sign with a guessable fallback, or anyone could
+            // forge CSAT links for arbitrary tickets.
+            throw new InvalidConfigurationException(
+                'A CSAT token secret is required: set ticketing.csat.token.secret or the application key.'
+            );
+        }
+
+        return $secret;
     }
 
     protected static function base64UrlEncode(string $value): string
