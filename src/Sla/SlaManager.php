@@ -212,20 +212,22 @@ class SlaManager
 
     protected function fractionConsumed(SlaClock $clock, Carbon $now): float
     {
-        $policy = null;
         $ticket = $this->loadTicket($clock);
+        $policy = $ticket !== null ? $this->policies->resolve($ticket) : null;
+        $budget = $policy !== null ? $this->minutesFor($policy, $clock->target) : null;
 
-        if ($ticket !== null) {
-            $policy = $this->policies->resolve($ticket);
+        if ($budget === null || $budget <= 0) {
+            return 0.0;
         }
 
+        // Consumed = budget − working-minutes-left-to-deadline. Because due_at is
+        // pushed out on resume, the remaining figure already excludes paused
+        // time, so the fraction reflects only the real share of budget used.
         $calendar = $this->calendars->forPolicy($policy);
-
-        $consumed = $calendar->minutesBetween($clock->started_at, $now);
         $remaining = $calendar->minutesBetween($now, $clock->due_at);
-        $budget = $consumed + $remaining;
+        $consumed = max(0, $budget - $remaining);
 
-        return $budget > 0 ? $consumed / $budget : 1.0;
+        return min(1.0, $consumed / $budget);
     }
 
     protected function pauseClocks(Ticket $ticket): void

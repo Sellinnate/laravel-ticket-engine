@@ -157,6 +157,27 @@ it('leaves paused clocks untouched on recalculate', function (): void {
         ->and($clock->due_at->equalTo($pausedDue))->toBeTrue(); // unchanged
 });
 
+it('excludes paused time from the threshold calculation', function (): void {
+    SlaPolicy::factory()->create(['first_response_minutes' => null, 'resolution_minutes' => 480]);
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser()); // 10:00, due 18:00
+
+    // Pause 11:00 → resume 13:20 (140m paused) → due shifts to 20:20.
+    Carbon::setTestNow(Carbon::parse('2026-06-29 11:00:00', 'UTC'));
+    Ticketing::for($ticket)->transition('wait');
+    Carbon::setTestNow(Carbon::parse('2026-06-29 13:20:00', 'UTC'));
+    Ticketing::for($ticket)->transition('resume');
+
+    Event::fake([SlaThresholdReached::class]);
+
+    // At 18:00, naive elapsed-since-start would be 480/620 ≈ 77% (would fire),
+    // but real consumption excluding the pause is 340/480 ≈ 71% (must not fire).
+    Carbon::setTestNow(Carbon::parse('2026-06-29 18:00:00', 'UTC'));
+    app(SlaManager::class)->sweep(75);
+
+    Event::assertNotDispatched(SlaThresholdReached::class);
+    expect(clockFor($ticket->getKey(), SlaTarget::Resolution)->threshold_notified)->toBeFalse();
+});
+
 it('restarts the resolution clock on reopen', function (): void {
     SlaPolicy::factory()->create(['resolution_minutes' => 480]);
     $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
