@@ -10,6 +10,7 @@ use Selli\Ticketing\Enums\ParticipantRole;
 use Selli\Ticketing\Events\TicketMerged;
 use Selli\Ticketing\Exceptions\CrossTenantException;
 use Selli\Ticketing\Models\Ticket;
+use Selli\Ticketing\Sla\SlaManager;
 use Selli\Ticketing\Support\AuditLogger;
 use Selli\Ticketing\Support\Ticketing;
 use Selli\Ticketing\Tenancy\TenantGuard;
@@ -24,6 +25,7 @@ class MergeTickets
     public function __construct(
         protected AuditLogger $audit,
         protected TenantGuard $tenant,
+        protected SlaManager $sla,
     ) {}
 
     /**
@@ -75,6 +77,12 @@ class MergeTickets
 
                 $source->delete();
                 $mergedIds[] = $source->getKey();
+            }
+
+            // A merged-in thread may carry an earlier agent reply; reflect it on
+            // the target's first-response SLA instead of leaving it unanswered.
+            if ($mergedIds !== []) {
+                $this->sla->reconcileFirstResponse($target);
             }
 
             return [$target, $mergedIds];

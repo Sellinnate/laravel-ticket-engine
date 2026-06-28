@@ -17,6 +17,7 @@ use Selli\Ticketing\Models\SlaClock;
 use Selli\Ticketing\Models\SlaPolicy;
 use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Models\TicketMessage;
+use Selli\Ticketing\Models\TicketParticipant;
 use Selli\Ticketing\Support\Ticketing;
 use Selli\Ticketing\Tenancy\TenantContext;
 use Selli\Ticketing\Workflow\WorkflowManager;
@@ -92,6 +93,64 @@ class SlaManager
         }
 
         return $message->author instanceof CanActOnTickets;
+    }
+
+    /**
+     * After messages are reparented between tickets (split/merge), stamp the
+     * destination's first_response_at from the earliest qualifying public agent
+     * reply already in its conversation — so its first-response SLA reflects the
+     * transferred history instead of restarting as if no agent had answered.
+     */
+    public function reconcileFirstResponse(Ticket $ticket): void
+    {
+        if ($ticket->first_response_at !== null) {
+            // Already stamped; just make sure the clock is closed out.
+            $this->handleFirstResponse($ticket);
+
+            return;
+        }
+
+        /** @var list<string> $requesterKeys */
+        $requesterKeys = $ticket->participants()
+            ->withoutTenancy()
+            ->where('role', ParticipantRole::Requester->value)
+            ->get(['participant_type', 'participant_id'])
+            ->map(fn (TicketParticipant $p): string => $p->participant_type.':'.$p->participant_id)
+            ->all();
+
+        $messageModel = Ticketing::ticketMessageModel();
+
+        /** @var Collection<int, TicketMessage> $messages */
+        $messages = $messageModel::query()->withoutTenancy()
+            ->where('ticket_id', $ticket->getKey())
+            ->where('visibility', MessageVisibility::Public->value)
+            ->whereNotNull('author_id')
+            ->orderBy('created_at')
+            ->orderBy((new $messageModel)->getKeyName())
+            ->get();
+
+        foreach ($messages as $message) {
+            // Mirror PostMessage's "first response" rule: a public reply from an
+            // agent who is not the ticket's requester.
+            if (in_array($message->author_type.':'.$message->author_id, $requesterKeys, true)) {
+                continue;
+            }
+
+            if (! $this->isAgentAuthor($message)) {
+                continue;
+            }
+
+            $stamp = $message->created_at;
+
+            Ticketing::ticketModel()::query()->withoutTenancy()
+                ->whereKey($ticket->getKey())
+                ->update(['first_response_at' => $stamp]);
+
+            $ticket->first_response_at = $stamp;
+            $this->handleFirstResponse($ticket);
+
+            return;
+        }
     }
 
     /**

@@ -32,6 +32,27 @@ it('merges source tickets into a target', function (): void {
     Event::assertDispatched(TicketMerged::class);
 });
 
+it('reflects a merged-in agent reply on the target first response', function (): void {
+    $target = Ticketing::open(type: 'support', title: 'T', requester: makeUser());
+    $source = Ticketing::open(type: 'support', title: 'S', requester: makeUser());
+    Ticketing::for($source)->postMessage(makeUser(['name' => 'Agent']), 'On it'); // public agent reply
+
+    expect($target->fresh()->first_response_at)->toBeNull();
+
+    Ticketing::for($target)->mergeFrom([$source]);
+
+    expect($target->fresh()->first_response_at)->not->toBeNull();
+});
+
+it('carries first_response_at onto a split ticket whose moved thread has an agent reply', function (): void {
+    $source = Ticketing::open(type: 'support', title: 'Help', requester: makeUser());
+    $reply = Ticketing::for($source)->postMessage(makeUser(['name' => 'Agent']), 'On it');
+
+    $created = Ticketing::for($source)->split([$reply->getKey()]);
+
+    expect($created->fresh()->first_response_at)->not->toBeNull();
+});
+
 it('does not self-merge and delete the target when a source key is the target with a different type', function (): void {
     $target = Ticketing::open(type: 'support', title: 'Target', requester: makeUser());
     $source = Ticketing::open(type: 'support', title: 'Dup', requester: makeUser());

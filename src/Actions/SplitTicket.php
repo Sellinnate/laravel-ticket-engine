@@ -12,6 +12,7 @@ use Selli\Ticketing\Events\TicketSplit;
 use Selli\Ticketing\Exceptions\InvalidConfigurationException;
 use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Models\TicketType;
+use Selli\Ticketing\Sla\SlaManager;
 use Selli\Ticketing\Support\AuditLogger;
 use Selli\Ticketing\Support\ReferenceGenerator;
 use Selli\Ticketing\Support\Ticketing;
@@ -28,6 +29,7 @@ class SplitTicket
         protected AuditLogger $audit,
         protected ReferenceGenerator $references,
         protected TenantContext $tenant,
+        protected SlaManager $sla,
     ) {}
 
     /**
@@ -47,6 +49,12 @@ class SplitTicket
         // instance whose relations predate the moved messages.
         return $this->tenant->forTenant($sourceTenant, function () use ($source, $messageIds, $title, $actor): Ticket {
             [$created, $reloadedSource] = $this->split($source, $messageIds, $title, $actor);
+
+            // If the moved thread already contains a qualifying agent reply, the
+            // split ticket's first response has effectively happened — stamp it
+            // BEFORE TicketOpened so the SLA bootstrap doesn't open a fresh
+            // first-response clock for an already-answered conversation.
+            $this->sla->reconcileFirstResponse($created);
 
             TicketOpened::dispatch($created);
             TicketSplit::dispatch($reloadedSource, $created, $actor);
