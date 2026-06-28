@@ -7,10 +7,13 @@ use Selli\Ticketing\Events\StateTransitioned;
 use Selli\Ticketing\Events\TicketClosed;
 use Selli\Ticketing\Events\TicketReopened;
 use Selli\Ticketing\Events\TicketResolved;
+use Selli\Ticketing\Exceptions\InvalidConfigurationException;
 use Selli\Ticketing\Exceptions\TransitionNotAllowedException;
 use Selli\Ticketing\Exceptions\UnknownTransitionException;
 use Selli\Ticketing\Facades\Ticketing;
+use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Models\TicketActivity;
+use Selli\Ticketing\Tenancy\TenantContext;
 
 it('moves a ticket through its workflow states', function (): void {
     $ticket = Ticketing::open(type: 'incident', title: 'Outage', requester: makeUser());
@@ -95,6 +98,50 @@ it('rejects an unknown transition', function (): void {
 
     Ticketing::for($ticket)->transition('teleport');
 })->throws(UnknownTransitionException::class);
+
+it('persists a transition even without ambient tenant context', function (): void {
+    $context = app(TenantContext::class);
+    $ticket = $context->forTenant(6, fn () => Ticketing::open(type: 'support', title: 'x', requester: makeUser(['tenant_id' => 6])));
+
+    Ticketing::for($ticket)->transition('resolve', note: 'done');
+
+    $persisted = Ticket::query()->withoutTenancy()->find($ticket->getKey());
+
+    expect($persisted->status)->toBe('resolved')
+        ->and($persisted->resolved_at)->not->toBeNull();
+});
+
+it('does not treat a closed-to-paused transition as a reopen', function (): void {
+    config()->set('ticketing.workflow.workflows.custom', [
+        'initial' => 'open',
+        'states' => ['open', 'done', 'parked'],
+        'transitions' => [
+            'finish' => ['from' => ['open'], 'to' => 'done'],
+            'park' => ['from' => ['done'], 'to' => 'parked'],
+        ],
+        'terminal' => [],
+        'semantics' => ['open' => ['open'], 'closed' => ['done'], 'paused' => ['parked']],
+    ]);
+    config()->set('ticketing.types.custom', ['name' => 'Custom', 'workflow' => 'custom', 'default_priority' => 20]);
+
+    $ticket = Ticketing::open(type: 'custom', title: 'x', requester: makeUser());
+    Ticketing::for($ticket)->transition('finish'); // open -> done (resolved)
+    Ticketing::for($ticket)->transition('park');   // done -> parked (closed -> paused)
+
+    $ticket = $ticket->fresh();
+
+    expect($ticket->status)->toBe('parked')
+        ->and($ticket->reopened_count)->toBe(0)
+        ->and($ticket->resolved_at)->not->toBeNull(); // not cleared
+});
+
+it('throws if a configured guard does not implement the contract at runtime', function (): void {
+    config()->set('ticketing.workflow.workflows.default.transitions.resolve.guard', stdClass::class);
+
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+
+    Ticketing::for($ticket)->transition('resolve');
+})->throws(InvalidConfigurationException::class);
 
 it('records an audit entry for each transition', function (): void {
     $ticket = Ticketing::open(type: 'support', title: 'Help', requester: makeUser());

@@ -12,6 +12,7 @@ use Selli\Ticketing\Events\StateTransitioned;
 use Selli\Ticketing\Events\TicketClosed;
 use Selli\Ticketing\Events\TicketReopened;
 use Selli\Ticketing\Events\TicketResolved;
+use Selli\Ticketing\Exceptions\InvalidConfigurationException;
 use Selli\Ticketing\Exceptions\TransitionNotAllowedException;
 use Selli\Ticketing\Exceptions\UnknownTransitionException;
 use Selli\Ticketing\Models\Ticket;
@@ -66,8 +67,12 @@ class TransitionTicket
 
         $wasClosed = $driver->matchesSemantic($workflow, $from, 'closed');
         $isClosed = $driver->matchesSemantic($workflow, $to, 'closed');
+        $isOpen = $driver->matchesSemantic($workflow, $to, 'open');
         $isTerminal = $driver->isTerminal($workflow, $to);
-        $reopening = $wasClosed && ! $isClosed;
+
+        // A reopen is specifically leaving a resolved/closed state back into an
+        // open one — not, say, closed -> paused.
+        $reopening = $wasClosed && $isOpen;
 
         $justResolved = false;
         $justClosed = false;
@@ -131,7 +136,12 @@ class TransitionTicket
             $guard = $this->container->make($guardClass);
 
             if (! $guard instanceof TransitionGuard) {
-                continue;
+                // A misconfigured guard must never silently allow the transition.
+                throw new InvalidConfigurationException(sprintf(
+                    'Transition guard [%s] must implement %s.',
+                    is_object($guard) ? $guard::class : (string) $guardClass,
+                    TransitionGuard::class,
+                ));
             }
 
             if (! $guard->allows($context)) {

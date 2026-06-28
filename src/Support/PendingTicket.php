@@ -75,14 +75,14 @@ class PendingTicket
      */
     public function transition(
         string $transition,
-        mixed $actor = null,
+        ?Model $actor = null,
         ?string $note = null,
         array $params = [],
     ): Ticket {
         return $this->manager->transition(
             ticket: $this->ticket(),
             transition: $transition,
-            actor: $actor instanceof Model ? $actor : null,
+            actor: $actor,
             note: $note,
             params: $params,
         );

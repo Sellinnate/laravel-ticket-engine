@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Selli\Ticketing\Workflow;
 
+use Selli\Ticketing\Contracts\TransitionGuard;
 use Selli\Ticketing\Exceptions\InvalidConfigurationException;
 
 /**
@@ -88,8 +89,18 @@ class ConfigValidator
             throw new InvalidConfigurationException("Transition [{$workflow}.{$name}] 'to' state [{$transition['to']}] is not declared.");
         }
 
-        if (isset($transition['guard']) && ! class_exists((string) $transition['guard'])) {
-            throw new InvalidConfigurationException("Transition [{$workflow}.{$name}] guard [{$transition['guard']}] class does not exist.");
+        foreach ((array) ($transition['guard'] ?? []) as $guard) {
+            $guard = (string) $guard;
+
+            if (! class_exists($guard)) {
+                throw new InvalidConfigurationException("Transition [{$workflow}.{$name}] guard [{$guard}] class does not exist.");
+            }
+
+            if (! is_a($guard, TransitionGuard::class, true)) {
+                throw new InvalidConfigurationException(
+                    "Transition [{$workflow}.{$name}] guard [{$guard}] must implement ".TransitionGuard::class.'.'
+                );
+            }
         }
     }
 

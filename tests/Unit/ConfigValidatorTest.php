@@ -63,6 +63,18 @@ it('rejects a transition with an undeclared from state', function (): void {
     app(ConfigValidator::class)->validate();
 })->throws(InvalidConfigurationException::class);
 
+it('rejects a guard that does not implement the contract', function (): void {
+    config()->set('ticketing.workflow.workflows.broken', [
+        'initial' => 'open',
+        'states' => ['open', 'closed'],
+        'transitions' => [
+            'close' => ['from' => ['open'], 'to' => 'closed', 'guard' => stdClass::class],
+        ],
+    ]);
+
+    app(ConfigValidator::class)->validate();
+})->throws(InvalidConfigurationException::class);
+
 it('rejects a guard class that does not exist', function (): void {
     config()->set('ticketing.workflow.workflows.broken', [
         'initial' => 'open',

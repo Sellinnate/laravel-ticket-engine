@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Selli\Ticketing\Events;
 
+use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Events\Dispatchable;
 use Selli\Ticketing\Models\Ticket;
@@ -13,7 +14,7 @@ use Selli\Ticketing\Models\Ticket;
  * becomes resolved" (stop the SLA clock, notify the requester, request CSAT) is
  * a listener on this event, not logic nested in the transition.
  */
-class StateTransitioned
+class StateTransitioned implements ShouldDispatchAfterCommit
 {
     use Dispatchable;
 
