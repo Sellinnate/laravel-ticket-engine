@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Notification;
 use Selli\Ticketing\Enums\MessageVisibility;
 use Selli\Ticketing\Enums\ParticipantRole;
 use Selli\Ticketing\Events\ParticipantAdded;
+use Selli\Ticketing\Exceptions\InvalidConfigurationException;
 use Selli\Ticketing\Facades\Ticketing;
 use Selli\Ticketing\Models\SlaClock;
 use Selli\Ticketing\Models\SlaPolicy;
@@ -187,6 +188,16 @@ it('drops slack before the throttle when no webhook is configured', function ():
     expect(NotificationThrottle::filter($agent, 'ticket.assigned', ['slack'], $ticket->getKey()))->toBe(['slack']);
 });
 
+it('refuses a slack webhook that resolves to a private address (SSRF)', function (): void {
+    config()->set('ticketing.notifications.events', ['ticket.assigned' => ['slack']]);
+    config()->set('ticketing.notifications.slack.webhook', 'http://127.0.0.1/hook');
+    config()->set('ticketing.webhooks.allowed_hosts', []);
+    config()->set('ticketing.notifications.throttle.seconds', 0);
+
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+    makeUser()->notifyNow(new TicketAssignedNotification($ticket));
+})->throws(InvalidConfigurationException::class);
+
 it('skips slack when no webhook is configured', function (): void {
     config()->set('ticketing.notifications.events', ['ticket.assigned' => ['slack']]);
     config()->set('ticketing.notifications.slack.webhook', null);
@@ -202,6 +213,7 @@ it('skips slack when no webhook is configured', function (): void {
 it('delivers slack via the webhook channel', function (): void {
     config()->set('ticketing.notifications.events', ['ticket.assigned' => ['slack']]);
     config()->set('ticketing.notifications.slack.webhook', 'https://hooks.slack.test/abc');
+    config()->set('ticketing.webhooks.allowed_hosts', ['hooks.slack.test']); // bypass the SSRF DNS check
     config()->set('ticketing.notifications.throttle.seconds', 0);
     Http::fake(['*' => Http::response('', 200)]);
 

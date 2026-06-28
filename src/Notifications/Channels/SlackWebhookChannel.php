@@ -6,6 +6,7 @@ namespace Selli\Ticketing\Notifications\Channels;
 
 use Illuminate\Notifications\Notification;
 use Illuminate\Support\Facades\Http;
+use Selli\Ticketing\Support\WebhookGuard;
 
 /**
  * A dependency-free Slack/Teams channel: POSTs a `{ "text": ... }` payload to an
@@ -31,11 +32,17 @@ class SlackWebhookChannel
             return;
         }
 
+        // Run the URL through the same SSRF guard as outbound webhooks, since a
+        // host may wire a per-user Slack route (potentially user-supplied).
+        $pinnedIp = WebhookGuard::assertAllowed($url);
+
         $timeout = max(1, (int) config('ticketing.notifications.slack.timeout', 5));
+
+        $request = Http::timeout($timeout)->asJson()->withoutRedirecting();
 
         // Surface a 4xx/5xx so a failed delivery retries rather than being
         // silently swallowed.
-        Http::timeout($timeout)->asJson()->post($url, ['text' => $text])->throw();
+        WebhookGuard::applyPin($request, $url, $pinnedIp)->post($url, ['text' => $text])->throw();
     }
 
     /**

@@ -11,7 +11,7 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Http;
 use Selli\Ticketing\Events\WebhookFailed;
-use Selli\Ticketing\Exceptions\InvalidConfigurationException;
+use Selli\Ticketing\Support\WebhookGuard;
 use Selli\Ticketing\Support\WebhookSigner;
 use Throwable;
 
@@ -44,7 +44,7 @@ class DeliverWebhook implements ShouldQueue
 
     public function handle(): void
     {
-        $pinnedIp = $this->assertUrlAllowed($this->url);
+        $pinnedIp = WebhookGuard::assertAllowed($this->url);
 
         $body = json_encode($this->payload, JSON_THROW_ON_ERROR);
         $headers = ['Content-Type' => 'application/json'];
@@ -64,42 +64,9 @@ class DeliverWebhook implements ShouldQueue
             ->withHeaders($headers)
             ->withBody($body, 'application/json');
 
-        if ($pinnedIp !== null) {
-            // The pin relies on curl's CURLOPT_RESOLVE; without ext-curl Guzzle
-            // falls back to the stream handler and would silently re-resolve DNS
-            // at connect time (rebinding). Fail closed rather than send unpinned.
-            if (! extension_loaded('curl')) {
-                throw new InvalidConfigurationException(
-                    'The webhook SSRF guard requires the curl extension to pin the validated address; '
-                    .'install ext-curl or use webhooks.allowed_hosts.'
-                );
-            }
-
-            // Pin curl's resolution to the exact IP we validated, so the host
-            // can't re-resolve to a private address at connect time (DNS
-            // rebinding). The Host header / SNI stays the original hostname.
-            $request = $request->withOptions([
-                'curl' => [CURLOPT_RESOLVE => $this->curlResolveEntries($this->url, $pinnedIp)],
-            ]);
-        }
-
-        $request->post($this->url)->throw(); // non-2xx -> RequestException -> retry
-    }
-
-    /**
-     * @return list<string>
-     */
-    protected function curlResolveEntries(string $url, string $ip): array
-    {
-        $host = trim((string) parse_url($url, PHP_URL_HOST), '[]');
-        $scheme = strtolower((string) parse_url($url, PHP_URL_SCHEME));
-        $port = parse_url($url, PHP_URL_PORT);
-
-        if (! is_int($port)) {
-            $port = $scheme === 'https' ? 443 : 80;
-        }
-
-        return ["{$host}:{$port}:{$ip}"];
+        WebhookGuard::applyPin($request, $this->url, $pinnedIp)
+            ->post($this->url)
+            ->throw(); // non-2xx -> RequestException -> retry
     }
 
     /**
@@ -108,121 +75,6 @@ class DeliverWebhook implements ShouldQueue
     public function backoff(): array
     {
         return [10, 30, 60];
-    }
-
-    /**
-     * Guard the destination: HTTP(S) only, and — unless an explicit host
-     * allow-list is configured — block requests that resolve to private,
-     * loopback or link-local/metadata addresses (SSRF). Returns the validated IP
-     * to pin (closing the connect-time DNS-rebinding gap), or null when no
-     * pinning is needed (allow-list / private blocking disabled).
-     */
-    protected function assertUrlAllowed(string $url): ?string
-    {
-        $scheme = strtolower((string) parse_url($url, PHP_URL_SCHEME));
-
-        if (! in_array($scheme, ['http', 'https'], true)) {
-            throw new InvalidConfigurationException("Webhook url must be http(s): [{$url}].");
-        }
-
-        // Strip the brackets from an IPv6 literal host ([::1]).
-        $host = trim((string) parse_url($url, PHP_URL_HOST), '[]');
-
-        if ($host === '') {
-            throw new InvalidConfigurationException("Webhook url has no host: [{$url}].");
-        }
-
-        /** @var list<string> $allowed */
-        $allowed = (array) config('ticketing.webhooks.allowed_hosts', []);
-
-        if ($allowed !== []) {
-            // An explicit allow-list is authoritative; nothing else is reachable.
-            if (! in_array($host, $allowed, true)) {
-                throw new InvalidConfigurationException("Webhook host [{$host}] is not allow-listed.");
-            }
-
-            return null;
-        }
-
-        if (config('ticketing.webhooks.block_private', true) === false) {
-            return null;
-        }
-
-        $ips = $this->resolveIps($host);
-
-        if ($ips === []) {
-            // Fail closed: if we can't resolve the host to verify it's public,
-            // don't hand it to the HTTP client (which may resolve it differently).
-            throw new InvalidConfigurationException("Webhook host [{$host}] could not be resolved to verify it is public.");
-        }
-
-        // Block if ANY resolved address (v4 or v6) is private/reserved. An
-        // IPv4-mapped IPv6 (::ffff:127.0.0.1) is unwrapped to its embedded IPv4
-        // first, since older PHP filter_var doesn't flag the mapped range.
-        foreach ($ips as $ip) {
-            $check = $this->canonicalIp($ip);
-
-            if (filter_var($check, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false) {
-                throw new InvalidConfigurationException("Webhook host [{$host}] resolves to a private or reserved address.");
-            }
-        }
-
-        // Pin the first validated public IP for the actual request.
-        return $ips[0];
-    }
-
-    /**
-     * Unwrap an IPv4-mapped IPv6 address (::ffff:a.b.c.d) to its embedded IPv4 so
-     * the private/reserved check can't be evaded through the mapped range.
-     */
-    protected function canonicalIp(string $ip): string
-    {
-        $packed = @inet_pton($ip);
-
-        if ($packed !== false && strlen($packed) === 16
-            && substr($packed, 0, 10) === str_repeat("\0", 10)
-            && substr($packed, 10, 2) === "\xff\xff") {
-            $v4 = inet_ntop(substr($packed, 12, 4));
-
-            if ($v4 !== false) {
-                return $v4;
-            }
-        }
-
-        return $ip;
-    }
-
-    /**
-     * Resolve a host to its IP addresses (a literal IP is returned as-is). Covers
-     * both A and AAAA records so an IPv6-only private target is caught too. An
-     * unresolvable host yields no IPs and is left for the HTTP client to fail.
-     *
-     * @return list<string>
-     */
-    protected function resolveIps(string $host): array
-    {
-        if (filter_var($host, FILTER_VALIDATE_IP)) {
-            return [$host];
-        }
-
-        $ips = [];
-
-        /** @var list<array<string, mixed>>|false $records */
-        $records = @dns_get_record($host, DNS_A | DNS_AAAA);
-
-        if (is_array($records)) {
-            foreach ($records as $record) {
-                if (isset($record['ip']) && is_string($record['ip'])) {
-                    $ips[] = $record['ip'];      // A
-                }
-
-                if (isset($record['ipv6']) && is_string($record['ipv6'])) {
-                    $ips[] = $record['ipv6'];    // AAAA
-                }
-            }
-        }
-
-        return $ips;
     }
 
     public function failed(Throwable $exception): void
