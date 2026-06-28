@@ -63,6 +63,14 @@ class ApplyMacro
                     );
                 }
 
+                if (! $team->is_active) {
+                    // Routing skips deactivated teams; a macro must not be able to
+                    // assign a ticket to a team that open routing would never use.
+                    throw new InvalidConfigurationException(
+                        "Macro references inactive team [{$actions['assign_team_id']}]."
+                    );
+                }
+
                 $this->manager->assign($ticket, team: $team, strategy: $actions['strategy'] ?? null, actor: $actor);
             }
 

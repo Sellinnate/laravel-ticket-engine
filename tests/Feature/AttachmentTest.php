@@ -66,3 +66,21 @@ it('exposes a download url for the attachment', function (): void {
 
     expect($attachment->temporaryUrl())->toBeString();
 });
+
+it('resolves the current ticket for a message moved by a split', function (): void {
+    Event::fake([AttachmentAdded::class]);
+
+    $source = Ticketing::open(type: 'support', title: 'src', requester: makeUser());
+    $message = Ticketing::for($source)->postMessage(makeUser(), 'move me');
+
+    // Split the message onto a new ticket; $message is now a STALE instance
+    // whose in-memory ticket_id still points at the source.
+    $created = Ticketing::for($source)->split([$message->getKey()]);
+
+    Ticketing::addAttachment($message, UploadedFile::fake()->create('a.txt', 1));
+
+    // The event/audit must target the message's CURRENT ticket, not the stale one.
+    Event::assertDispatched(AttachmentAdded::class, function (AttachmentAdded $event) use ($created): bool {
+        return (string) $event->ticket->getKey() === (string) $created->getKey();
+    });
+});

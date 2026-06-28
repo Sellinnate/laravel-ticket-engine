@@ -14,6 +14,7 @@ use Selli\Ticketing\Listeners\CollaborationSubscriber;
 use Selli\Ticketing\Models\CannedResponse;
 use Selli\Ticketing\Models\Macro;
 use Selli\Ticketing\Models\Tag;
+use Selli\Ticketing\Models\Team;
 use Selli\Ticketing\Models\TicketMessage;
 use Selli\Ticketing\Models\TicketParticipant;
 use Selli\Ticketing\Tenancy\TenantContext;
@@ -160,6 +161,14 @@ it('parses mention handles from a body', function (): void {
 it('fails a macro that references a missing team', function (): void {
     $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
     $macro = Macro::factory()->create(['actions' => ['assign_team_id' => 999999]]);
+
+    Ticketing::for($ticket)->applyMacro($macro);
+})->throws(InvalidConfigurationException::class);
+
+it('fails a macro that references an inactive team', function (): void {
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+    $team = Team::factory()->create(['is_active' => false]);
+    $macro = Macro::factory()->create(['actions' => ['assign_team_id' => $team->getKey()]]);
 
     Ticketing::for($ticket)->applyMacro($macro);
 })->throws(InvalidConfigurationException::class);

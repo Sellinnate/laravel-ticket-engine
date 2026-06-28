@@ -131,9 +131,17 @@ class AddAttachment
         }
 
         if ($attachable instanceof TicketMessage) {
+            // Re-read the message so a caller's stale in-memory copy can't point
+            // us at the wrong ticket: if the message was moved (e.g. a split)
+            // after the instance was loaded, ticket_id may be out of date and
+            // the audit entry / AttachmentAdded event would target the old one.
+            $messageModel = Ticketing::ticketMessageModel();
+            /** @var TicketMessage $message */
+            $message = $messageModel::query()->withoutTenancy()->findOrFail($attachable->getKey());
+
             $model = Ticketing::ticketModel();
             /** @var Ticket $ticket */
-            $ticket = $model::query()->withoutTenancy()->findOrFail($attachable->ticket_id);
+            $ticket = $model::query()->withoutTenancy()->findOrFail($message->ticket_id);
 
             return $ticket;
         }
