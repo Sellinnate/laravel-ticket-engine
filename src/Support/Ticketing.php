@@ -14,7 +14,9 @@ use Selli\Ticketing\Actions\AssignTicket;
 use Selli\Ticketing\Actions\MergeTickets;
 use Selli\Ticketing\Actions\OpenTicket;
 use Selli\Ticketing\Actions\PostMessage;
+use Selli\Ticketing\Actions\RequestCsat;
 use Selli\Ticketing\Actions\SplitTicket;
+use Selli\Ticketing\Actions\SubmitCsat;
 use Selli\Ticketing\Actions\TransitionTicket;
 use Selli\Ticketing\Data\AddAttachmentData;
 use Selli\Ticketing\Data\AssignTicketData;
@@ -23,11 +25,13 @@ use Selli\Ticketing\Data\PostMessageData;
 use Selli\Ticketing\Data\TransitionData;
 use Selli\Ticketing\Enums\MessageVisibility;
 use Selli\Ticketing\Enums\Priority;
+use Selli\Ticketing\Exceptions\CsatException;
 use Selli\Ticketing\Models\BusinessHours;
 use Selli\Ticketing\Models\CannedResponse;
 use Selli\Ticketing\Models\Holiday;
 use Selli\Ticketing\Models\Macro;
 use Selli\Ticketing\Models\RoutingRule;
+use Selli\Ticketing\Models\SatisfactionRating;
 use Selli\Ticketing\Models\SlaClock;
 use Selli\Ticketing\Models\SlaPolicy;
 use Selli\Ticketing\Models\Tag;
@@ -268,6 +272,72 @@ class Ticketing
         return $this->container->make(SplitTicket::class)->handle($source, $messageIds, $title, $actor);
     }
 
+    /**
+     * (Re-)request a satisfaction rating for a ticket, emitting CsatRequested.
+     */
+    public function requestCsat(Ticket $ticket, ?Model $actor = null): SatisfactionRating
+    {
+        return $this->container->make(RequestCsat::class)->handle($ticket, $actor);
+    }
+
+    /**
+     * Submit (or update) the satisfaction rating for a ticket.
+     */
+    public function submitCsat(Ticket $ticket, int $rating, ?string $comment = null, ?Model $submittedBy = null): SatisfactionRating
+    {
+        return $this->container->make(SubmitCsat::class)->handle($ticket, $rating, $comment, $submittedBy);
+    }
+
+    /**
+     * Submit a satisfaction rating from a signed token (e.g. the link in a CSAT
+     * email), resolving the ticket the token names. Fails closed on an invalid
+     * or expired token.
+     */
+    public function submitCsatByToken(string $token, int $rating, ?string $comment = null, ?Model $submittedBy = null): SatisfactionRating
+    {
+        $claims = CsatToken::verify($token);
+
+        if ($claims === null) {
+            throw CsatException::invalidToken();
+        }
+
+        $ticket = static::ticketModel()::query()->withoutTenancy()->find($claims['ticket']);
+
+        if (! $ticket instanceof Ticket) {
+            // An orphaned link (ticket deleted) is just an invalid token, not a
+            // 404 — keep the fail-closed contract consistent.
+            throw CsatException::invalidToken();
+        }
+
+        // The token is a bearer credential bound to its request cycle: one
+        // valuation per cycle (allowOverwrite: false) and the cycle is verified
+        // UNDER the ticket lock inside SubmitCsat, so a concurrent re-arm can't
+        // be raced past the stale-token check.
+        return $this->container->make(SubmitCsat::class)->handle(
+            $ticket,
+            $rating,
+            $comment,
+            $submittedBy,
+            allowOverwrite: false,
+            expectedCycle: $claims['cycle'],
+        );
+    }
+
+    /**
+     * Issue a fresh signed CSAT token for a ticket (e.g. to embed in a host URL),
+     * bound to the ticket's current request cycle when a rating row exists.
+     */
+    public function csatToken(Ticket $ticket, ?int $ttl = null): string
+    {
+        $existing = static::satisfactionRatingModel()::query()->withoutTenancy()
+            ->where('ticket_id', $ticket->getKey())
+            ->first();
+
+        $cycle = $existing instanceof SatisfactionRating ? (string) $existing->cycle : '';
+
+        return CsatToken::issue($ticket->getKey(), now()->addSeconds($ttl ?? Csat::tokenTtl()), $cycle);
+    }
+
     // --- Model binding -----------------------------------------------------
 
     public static function useTicketModel(string $model): void
@@ -328,6 +398,11 @@ class Ticketing
     public static function useRoutingRuleModel(string $model): void
     {
         static::$models['routing_rule'] = $model;
+    }
+
+    public static function useSatisfactionRatingModel(string $model): void
+    {
+        static::$models['satisfaction_rating'] = $model;
     }
 
     /**
@@ -497,6 +572,15 @@ class Ticketing
     {
         /** @var class-string<TicketLink> */
         return static::$models['ticket_link'] ?? config('ticketing.models.ticket_link', TicketLink::class);
+    }
+
+    /**
+     * @return class-string<SatisfactionRating>
+     */
+    public static function satisfactionRatingModel(): string
+    {
+        /** @var class-string<SatisfactionRating> */
+        return static::$models['satisfaction_rating'] ?? config('ticketing.models.satisfaction_rating', SatisfactionRating::class);
     }
 
     /**

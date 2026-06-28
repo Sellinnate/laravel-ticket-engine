@@ -1,0 +1,131 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Selli\Ticketing\Actions;
+
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
+use Selli\Ticketing\Events\CsatSubmitted;
+use Selli\Ticketing\Exceptions\CrossTenantException;
+use Selli\Ticketing\Exceptions\CsatException;
+use Selli\Ticketing\Models\SatisfactionRating;
+use Selli\Ticketing\Models\Ticket;
+use Selli\Ticketing\Support\AuditLogger;
+use Selli\Ticketing\Support\Csat;
+use Selli\Ticketing\Support\Ticketing;
+use Selli\Ticketing\Tenancy\TenantGuard;
+
+/**
+ * Records (or updates) the satisfaction rating for a ticket — one per ticket. The
+ * rating is validated against the scale it was requested with (or the configured
+ * scale if submitted without a prior request), and fails closed on a value the
+ * scale doesn't accept or a cross-tenant submitter.
+ */
+class SubmitCsat
+{
+    public function __construct(
+        protected AuditLogger $audit,
+        protected TenantGuard $tenant,
+    ) {}
+
+    /**
+     * @param  bool  $allowOverwrite  When false (the bearer-token path), an
+     *                                already-submitted rating is returned
+     *                                unchanged — one valuation per ticket/cycle,
+     *                                so a leaked link can't repeatedly rewrite it.
+     * @param  string|null  $expectedCycle  When non-empty (a bound token), a
+     *                                      matching rating row with this exact
+     *                                      cycle nonce must exist or the submit
+     *                                      fails closed. Checked UNDER the ticket
+     *                                      lock so a concurrent re-arm can't be
+     *                                      raced past. '' / null means unbound.
+     */
+    public function handle(Ticket $ticket, int $rating, ?string $comment = null, ?Model $submittedBy = null, bool $allowOverwrite = true, ?string $expectedCycle = null): SatisfactionRating
+    {
+        if (! Csat::enabled()) {
+            throw CsatException::disabled();
+        }
+
+        if ($submittedBy !== null && ! $this->tenant->belongsToTicketTenant($submittedBy, $ticket)) {
+            throw CrossTenantException::forAssignment('csat');
+        }
+
+        /** @var array{0: SatisfactionRating, 1: bool} $outcome */
+        $outcome = DB::transaction(function () use ($ticket, $rating, $comment, $submittedBy, $allowOverwrite, $expectedCycle): array {
+            // Serialise concurrent CSAT operations for this ticket on the ticket
+            // row, so two submits can't both miss the rating and race to create
+            // it (the one-per-ticket constraint would reject the loser).
+            Ticketing::ticketModel()::query()->withoutTenancy()
+                ->lockForUpdate()
+                ->find($ticket->getKey());
+
+            $model = Ticketing::satisfactionRatingModel();
+
+            // Look up by ticket_id alone — it's the unique key, so a tenant drift
+            // on the existing row can't make us miss it and hit the constraint.
+            $existing = $model::query()->withoutTenancy()
+                ->where('ticket_id', $ticket->getKey())
+                ->first();
+
+            // Cycle check UNDER the lock: a bound token (non-empty nonce) must
+            // match an existing rating row's current cycle, else fail closed —
+            // covering a stale cycle AND a missing/reset request. No TOCTOU window
+            // against a concurrent re-arm (which also locks the ticket).
+            if ($expectedCycle !== null && $expectedCycle !== ''
+                && (! $existing instanceof SatisfactionRating || $existing->cycle !== $expectedCycle)) {
+                throw CsatException::invalidToken();
+            }
+
+            if (! $allowOverwrite && $existing instanceof SatisfactionRating && $existing->isSubmitted()) {
+                // Idempotent for the token path: the rating already exists for
+                // this cycle, so a re-click (or a manipulation attempt) is a no-op.
+                return [$existing, false];
+            }
+
+            // Honour the scale the rating was requested with so a config change
+            // can't retro-invalidate an in-flight request.
+            $scale = $existing instanceof SatisfactionRating ? $existing->scale : Csat::scale();
+
+            if (! $scale->accepts($rating)) {
+                throw CsatException::invalidRating($rating, $scale);
+            }
+
+            $attributes = array_merge($ticket->tenantAttributes(), [
+                'ticket_id' => $ticket->getKey(),
+                'scale' => $scale->value,
+                'rating' => $rating,
+                'comment' => $comment,
+                'submitted_at' => now(),
+                'submitted_by_type' => $submittedBy?->getMorphClass(),
+                'submitted_by_id' => $submittedBy?->getKey(),
+            ]);
+
+            if ($existing instanceof SatisfactionRating) {
+                $existing->forceFill($attributes)->save();
+                $row = $existing;
+            } else {
+                // A direct submit with no prior request leaves requested_at null
+                // (it genuinely was never requested), which also keeps the CSAT
+                // cycle marker unset so a token-direct submit stays idempotent.
+                /** @var SatisfactionRating $row */
+                $row = $model::query()->create($attributes);
+            }
+
+            $this->audit->record($ticket, 'csat.submitted', $submittedBy, context: [
+                'rating' => $rating,
+                'rating_id' => $row->getKey(),
+            ]);
+
+            return [$row, true];
+        });
+
+        [$result, $changed] = $outcome;
+
+        if ($changed) {
+            CsatSubmitted::dispatch($ticket, $result);
+        }
+
+        return $result;
+    }
+}
