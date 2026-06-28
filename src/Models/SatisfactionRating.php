@@ -43,6 +43,14 @@ class SatisfactionRating extends Model
 
     protected $guarded = [];
 
+    /**
+     * Keep the per-request cycle nonce out of any serialization (API/broadcast):
+     * it's an internal token-binding marker, not data for the host to surface.
+     *
+     * @var list<string>
+     */
+    protected $hidden = ['cycle'];
+
     protected function tableConfigKey(): string
     {
         return 'satisfaction_ratings';
