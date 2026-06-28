@@ -152,13 +152,21 @@ class SlaManager
     public function recalculate(Ticket $ticket): void
     {
         $policy = $this->policies->resolve($ticket);
+        $model = Ticketing::slaClockModel();
 
         if ($policy === null) {
+            // No SLA coverage anymore — stop every incomplete clock so escalation
+            // no longer fires for a ticket without a policy.
+            $model::query()
+                ->withoutTenancy()
+                ->where('ticket_id', $ticket->getKey())
+                ->whereNull('completed_at')
+                ->update(['completed_at' => now(), 'paused_at' => null]);
+
             return;
         }
 
         $calendar = $this->calendars->forPolicy($policy);
-        $model = Ticketing::slaClockModel();
 
         // Only running clocks are recalculated: paused clocks are frozen and are
         // recomputed from their captured budget on resume, so overwriting their
@@ -198,12 +206,19 @@ class SlaManager
         $ticket = $this->loadTicket($clock);
 
         if ($ticket === null) {
+            // The ticket is gone (e.g. soft-deleted) — stop the orphaned clock so
+            // it no longer sweeps forever.
+            $this->claim($clock, ['completed_at' => $now, 'paused_at' => null], 'completed_at');
+
             return;
         }
 
         if ($clock->breached_at === null && $clock->due_at->lessThanOrEqualTo($now)) {
-            $clock->forceFill(['breached_at' => $now])->save();
-            SlaBreached::dispatch($ticket, $clock);
+            // Atomically claim the breach so two concurrent sweeps emit it once.
+            if ($this->claim($clock, ['breached_at' => $now], 'breached_at')) {
+                $clock->breached_at = $now;
+                SlaBreached::dispatch($ticket, $clock);
+            }
 
             return;
         }
@@ -211,9 +226,31 @@ class SlaManager
         // Don't emit a threshold warning once the clock has already breached.
         if (! $clock->threshold_notified && $clock->breached_at === null
             && $this->fractionConsumed($clock, $now) >= $thresholdPercent / 100) {
-            $clock->forceFill(['threshold_notified' => true])->save();
-            SlaThresholdReached::dispatch($ticket, $clock, $thresholdPercent);
+            if ($this->claim($clock, ['threshold_notified' => true], 'threshold_notified', false)) {
+                $clock->threshold_notified = true;
+                SlaThresholdReached::dispatch($ticket, $clock, $thresholdPercent);
+            }
         }
+    }
+
+    /**
+     * Atomically set $values on a clock only if $guardColumn still holds
+     * $guardIsNull's sentinel (null, or the given falsey value). Returns true
+     * when this caller won the claim.
+     *
+     * @param  array<string, mixed>  $values
+     */
+    protected function claim(SlaClock $clock, array $values, string $guardColumn, mixed $expected = null): bool
+    {
+        $model = Ticketing::slaClockModel();
+
+        $query = $model::query()->withoutTenancy()->whereKey($clock->getKey());
+
+        $query = $expected === null
+            ? $query->whereNull($guardColumn)
+            : $query->where($guardColumn, $expected);
+
+        return $query->update($values) >= 1;
     }
 
     protected function fractionConsumed(SlaClock $clock, Carbon $now): float

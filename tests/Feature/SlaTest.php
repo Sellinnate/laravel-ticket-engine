@@ -209,6 +209,41 @@ it('picks the most specific policy', function (): void {
     expect($policy->name)->toBe('specific');
 });
 
+it('emits a breach only once across repeated sweeps', function (): void {
+    SlaPolicy::factory()->create(['first_response_minutes' => null, 'resolution_minutes' => 480]);
+    Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+
+    Event::fake([SlaBreached::class]);
+    Carbon::setTestNow(Carbon::parse('2026-06-29 18:30:00', 'UTC'));
+
+    app(SlaManager::class)->sweep();
+    app(SlaManager::class)->sweep();
+
+    Event::assertDispatchedTimes(SlaBreached::class, 1);
+});
+
+it('stops orphaned clocks when the ticket is gone', function (): void {
+    SlaPolicy::factory()->create(['first_response_minutes' => null, 'resolution_minutes' => 480]);
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+
+    $ticket->delete(); // soft delete
+    Carbon::setTestNow(Carbon::parse('2026-06-29 18:30:00', 'UTC'));
+
+    app(SlaManager::class)->sweep();
+
+    expect(clockFor($ticket->getKey(), SlaTarget::Resolution)->isCompleted())->toBeTrue();
+});
+
+it('stops clocks on recalculate when no active policy matches', function (): void {
+    $policy = SlaPolicy::factory()->create(['resolution_minutes' => 480]);
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+
+    $policy->update(['is_active' => false]); // no active policy now
+    app(SlaManager::class)->recalculate($ticket->fresh());
+
+    expect(clockFor($ticket->getKey(), SlaTarget::Resolution)->isCompleted())->toBeTrue();
+});
+
 it('stops a clock whose target was removed from the policy on recalculate', function (): void {
     $policy = SlaPolicy::factory()->create(['first_response_minutes' => 60, 'resolution_minutes' => 480]);
     $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
