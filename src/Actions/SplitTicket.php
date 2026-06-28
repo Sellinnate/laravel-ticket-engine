@@ -137,10 +137,11 @@ class SplitTicket
 
             // Reconcile first_response_at for BOTH sides INSIDE the transaction
             // (before the post-commit TicketOpened) so the split is atomic. The
-            // created ticket inherits the moved reply; the source is recomputed
-            // so it stops looking answered if its only agent reply moved away.
+            // created ticket inherits the moved reply (additive); the source is
+            // recomputed authoritatively (allowClear) so it stops looking
+            // answered if its only agent reply moved away.
             $this->sla->reconcileFirstResponse($created);
-            $this->sla->reconcileFirstResponse($source);
+            $this->sla->reconcileFirstResponse($source, allowClear: true);
 
             return [$created, $source];
         });

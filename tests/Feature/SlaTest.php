@@ -126,6 +126,34 @@ it('clears a stale breach when a merged-in earlier reply meets the deadline', fu
         ->and($clock->isCompleted())->toBeTrue();
 });
 
+it('does not resurrect the first-response clock when splitting a resolved ticket', function (): void {
+    SlaPolicy::factory()->create(['first_response_minutes' => 60, 'resolution_minutes' => 480]);
+    $source = Ticketing::open(type: 'support', title: 'src', requester: makeUser());
+    $reply = Ticketing::for($source)->postMessage(makeUser(['name' => 'Agent']), 'on it');
+    Ticketing::for($source)->transition('resolve'); // stops all clocks
+
+    Ticketing::for($source)->split([$reply->getKey()]);
+
+    $clock = clockFor($source->getKey(), SlaTarget::FirstResponse);
+
+    expect($clock->isCompleted())->toBeTrue() // not reopened
+        ->and($clock->breached_at)->toBeNull();
+});
+
+it('pauses the reopened source first-response clock if the ticket is waiting on the customer', function (): void {
+    SlaPolicy::factory()->create(['first_response_minutes' => 60, 'resolution_minutes' => 480]);
+    $source = Ticketing::open(type: 'support', title: 'src', requester: makeUser());
+    $reply = Ticketing::for($source)->postMessage(makeUser(['name' => 'Agent']), 'on it');
+    Ticketing::for($source)->transition('wait'); // pending = pause state
+
+    Ticketing::for($source)->split([$reply->getKey()]);
+
+    $clock = clockFor($source->getKey(), SlaTarget::FirstResponse);
+
+    expect($clock->isPaused())->toBeTrue() // reopened but paused, not running through the wait
+        ->and($clock->isCompleted())->toBeFalse();
+});
+
 it('reopens the source first-response clock when its only agent reply is split away', function (): void {
     SlaPolicy::factory()->create(['first_response_minutes' => 60]);
     $source = Ticketing::open(type: 'support', title: 'src', requester: makeUser());

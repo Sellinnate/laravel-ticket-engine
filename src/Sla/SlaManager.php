@@ -103,13 +103,17 @@ class SlaManager
     }
 
     /**
-     * After messages are reparented between tickets (split/merge), recompute
-     * first_response_at AUTHORITATIVELY from the ticket's currently-attached
-     * conversation: the earliest qualifying public agent reply, or null when none
-     * remain. So a destination reflects transferred history, AND a source whose
-     * only agent reply was split away stops looking answered.
+     * Reconcile first_response_at after messages are reparented (split/merge)
+     * from the ticket's currently-attached conversation (earliest qualifying
+     * public agent reply).
+     *
+     * Additive contexts (merge target, fresh split child) use the default
+     * non-destructive mode: set when unset or pull earlier, but never erase a
+     * stamp on a transient negative nor push it later. The split SOURCE — whose
+     * conversation actually shrank — passes $allowClear so it stops looking
+     * answered (and its clock restarts) when every qualifying reply moved away.
      */
-    public function reconcileFirstResponse(Ticket $ticket): void
+    public function reconcileFirstResponse(Ticket $ticket, bool $allowClear = false): void
     {
         $earliest = $this->earliestAgentReplyAt($ticket);
 
@@ -124,12 +128,35 @@ class SlaManager
                 : $earliest;
         }
 
-        if (! $this->sameInstant($stamp, $ticket->first_response_at)) {
-            Ticketing::ticketModel()::query()->withoutTenancy()
-                ->whereKey($ticket->getKey())
-                ->update(['first_response_at' => $stamp]);
+        if (! $allowClear) {
+            // Additive: only adopt when unset or strictly earlier.
+            if ($stamp === null) {
+                if ($ticket->first_response_at !== null) {
+                    $this->completeFirstResponseClock($ticket);
+                }
 
-            $ticket->first_response_at = $stamp;
+                return;
+            }
+
+            $current = $ticket->first_response_at;
+
+            if ($current === null || $stamp->lessThan($current)) {
+                $this->persistFirstResponse($ticket, $stamp);
+            }
+
+            $this->completeFirstResponseClock($ticket);
+
+            return;
+        }
+
+        // Authoritative clear is moot on a resolved/closed ticket (SLA stopped):
+        // leave its historical stamp and completed clock untouched.
+        if ($stamp === null && $this->isStoppedState($ticket)) {
+            return;
+        }
+
+        if (! $this->sameInstant($stamp, $ticket->first_response_at)) {
+            $this->persistFirstResponse($ticket, $stamp);
         }
 
         if ($stamp !== null) {
@@ -139,6 +166,15 @@ class SlaManager
             // timer so the now-unanswered ticket is measured again from open.
             $this->reopenFirstResponseClock($ticket);
         }
+    }
+
+    protected function persistFirstResponse(Ticket $ticket, ?Carbon $stamp): void
+    {
+        Ticketing::ticketModel()::query()->withoutTenancy()
+            ->whereKey($ticket->getKey())
+            ->update(['first_response_at' => $stamp]);
+
+        $ticket->first_response_at = $stamp;
     }
 
     protected function sameInstant(?Carbon $a, ?Carbon $b): bool
@@ -151,6 +187,20 @@ class SlaManager
     }
 
     /**
+     * Whether the ticket is in a resolved/closed (SLA-stopping) state.
+     */
+    protected function isStoppedState(Ticket $ticket): bool
+    {
+        $workflow = $this->workflowKey($ticket);
+
+        return in_array(
+            $ticket->status,
+            $this->workflow->driver()->statesForSemantic($workflow, 'closed'),
+            true,
+        );
+    }
+
+    /**
      * Restart a completed first-response clock (no qualifying reply remains),
      * recomputing its deadline from the original start and clearing alert state.
      */
@@ -159,6 +209,13 @@ class SlaManager
         $clock = $this->clock($ticket, SlaTarget::FirstResponse);
 
         if ($clock === null || ! $clock->isCompleted()) {
+            return;
+        }
+
+        // Never resurrect a clock on a resolved/closed ticket: those states stop
+        // all SLA timers, so reopening with a historic due_at would let the
+        // sweeper breach a stopped ticket.
+        if ($this->isStoppedState($ticket)) {
             return;
         }
 
@@ -179,10 +236,17 @@ class SlaManager
             'breached_at' => null,
             'threshold_notified' => false,
             'paused_at' => null,
+            'remaining_minutes' => null,
             'budget_minutes' => $minutes,
             'business_hours_id' => $policy->business_hours_id,
             'due_at' => $calendar->addMinutes($clock->started_at, $minutes),
         ])->save();
+
+        // If the ticket is currently waiting on the customer, the reopened clock
+        // must be paused too — not left running through the wait window.
+        if (in_array($ticket->status, $this->pauseStates($ticket), true)) {
+            $this->pauseClocks($ticket);
+        }
     }
 
     /**
