@@ -66,23 +66,31 @@ class ProcessInboundEmail
             return null;
         }
 
-        // The claim only persists when a message is ACTUALLY recorded. If the
-        // email is rate limited, dropped (unroutable / unknown type), or errors,
-        // release it so a later provider retry of the same Message-ID can be
-        // ingested instead of being mistaken for a duplicate. A genuine ingest
-        // keeps the claim, which is what makes redelivery idempotent.
-        $recorded = null;
+        // Free the claim on a CONTROLLED drop (rate limited, or unroutable/unknown
+        // type), all of which happen before anything is committed — so a later
+        // retry of the same Message-ID can be ingested. A THROW is deliberately
+        // NOT released: process() may have already committed a ticket/message
+        // (e.g. an attachment failing after the message was saved), so keeping the
+        // claim is what stops a retry from double-creating.
+        if ($this->rateLimited($email)) {
+            $this->releaseClaimIf($messageId);
 
-        try {
-            if ($this->rateLimited($email)) {
-                return null;
-            }
+            return null;
+        }
 
-            return $recorded = $this->process($email);
-        } finally {
-            if ($messageId !== '' && $recorded === null) {
-                $this->releaseClaim($messageId);
-            }
+        $message = $this->process($email);
+
+        if ($message === null) {
+            $this->releaseClaimIf($messageId);
+        }
+
+        return $message;
+    }
+
+    protected function releaseClaimIf(string $messageId): void
+    {
+        if ($messageId !== '') {
+            $this->releaseClaim($messageId);
         }
     }
 
