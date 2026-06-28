@@ -43,14 +43,26 @@ it('broadcasts on the ticket, tenant and assignee channels for an all-audience e
         ->toContain('private-'.Channels::agent(5, $agent->getMorphClass(), $agent->getKey()));
 });
 
-it('keeps an agents-only event off the per-ticket channel', function (): void {
+it('sends an agents-only event to the per-ticket agents channel, not the watcher channel', function (): void {
     $context = app(TenantContext::class);
     $ticket = $context->forTenant(5, fn () => Ticketing::open(type: 'support', title: 'x', requester: makeUser(['tenant_id' => 5])));
 
     $names = broadcastChannelNames(TicketBroadcasted::fromTicket($ticket, 'assigned', [], TicketBroadcasted::AUDIENCE_AGENTS));
 
     expect($names)->not->toContain('private-'.Channels::ticket((string) $ticket->getKey()))
+        ->and($names)->toContain('private-'.Channels::ticketAgents((string) $ticket->getKey()))
         ->and($names)->toContain('private-'.Channels::tenantTickets(5));
+});
+
+it('still delivers an agents-only event on a shared (null-tenant) ticket', function (): void {
+    // No tenant context → a shared ticket with no tenant feed.
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+    expect($ticket->getAttribute($ticket->getTenantColumn()))->toBeNull();
+
+    $names = broadcastChannelNames(TicketBroadcasted::fromTicket($ticket, 'assigned', [], TicketBroadcasted::AUDIENCE_AGENTS));
+
+    // Exactly the per-ticket agents channel — never an empty list.
+    expect($names)->toBe(['private-'.Channels::ticketAgents((string) $ticket->getKey())]);
 });
 
 it('carries a minimal id + delta payload and a stable event name', function (): void {
@@ -154,6 +166,26 @@ it('authorizes a ticket channel for the morph subject', function (): void {
 
     $this->actingAs($subject);
     expect(app(DefaultChannelAuthorizer::class)->forTicket($subject, $ticket->getKey()))->toBeTrue();
+});
+
+it('authorizes the per-ticket agents feed for tenant agents only', function (): void {
+    $context = app(TenantContext::class);
+    $requester = TestRequester::query()->create(['name' => 'Req', 'tenant_id' => 5]);
+    $ticket = $context->forTenant(5, fn () => Ticketing::open(type: 'support', title: 'x', requester: $requester));
+    $authorizer = app(DefaultChannelAuthorizer::class);
+
+    $agent5 = makeUser(['tenant_id' => 5]);
+    $this->actingAs($agent5);
+    expect($authorizer->forTicketAgents($agent5, $ticket->getKey()))->toBeTrue();
+
+    // The requester (a participant on the watcher channel) is NOT on the agents feed.
+    $this->actingAs($requester);
+    expect($authorizer->forTicketAgents($requester, $ticket->getKey()))->toBeFalse();
+
+    // A cross-tenant agent is denied.
+    $agent9 = makeUser(['tenant_id' => 9]);
+    $this->actingAs($agent9);
+    expect($authorizer->forTicketAgents($agent9, $ticket->getKey()))->toBeFalse();
 });
 
 it('lets a null-tenant requester watch their own tenant-scoped ticket', function (): void {

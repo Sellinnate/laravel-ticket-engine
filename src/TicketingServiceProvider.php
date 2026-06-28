@@ -184,6 +184,11 @@ class TicketingServiceProvider extends PackageServiceProvider
         );
 
         Broadcast::channel(
+            $patterns['ticketAgents'],
+            fn (Authenticatable $user, int|string $ticketId): bool => $this->app->make(ChannelAuthorizer::class)->forTicketAgents($user, $ticketId),
+        );
+
+        Broadcast::channel(
             $patterns['ticket'],
             fn (Authenticatable $user, int|string $ticketId): bool => $this->app->make(ChannelAuthorizer::class)->forTicket($user, $ticketId),
         );

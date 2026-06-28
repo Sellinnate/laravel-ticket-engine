@@ -46,23 +46,36 @@ class Channels
         return preg_replace('/[^A-Za-z0-9_-]+/', '-', $value) ?? $value;
     }
 
-    /** A single ticket's watchers (participants + agents). */
+    /** A single ticket's watchers (participants + agents) — public events. */
     public static function ticket(int|string $ticketId): string
     {
         return self::prefix().'ticket.'.$ticketId;
     }
 
     /**
+     * A single ticket's AGENT-only feed (internal notes, assignment, priority).
+     * Distinct from ticket() so a requester watching the ticket never receives
+     * agent-only events, and so agent-only events still have a channel on a
+     * shared/single-tenant ticket that has no tenant feed.
+     */
+    public static function ticketAgents(int|string $ticketId): string
+    {
+        return self::prefix().'ticket.'.$ticketId.'.agents';
+    }
+
+    /**
      * The Broadcast::channel() route patterns, with {placeholders} Laravel binds
-     * to the authorization callback arguments.
+     * to the authorization callback arguments. Order matters: the more specific
+     * ticket.{id}.agents must be registered before ticket.{id}.
      *
-     * @return array{tenantTickets: string, agent: string, ticket: string}
+     * @return array{tenantTickets: string, agent: string, ticketAgents: string, ticket: string}
      */
     public static function patterns(): array
     {
         return [
             'tenantTickets' => self::prefix().'tenant.{tenantId}.tickets',
             'agent' => self::prefix().'tenant.{tenantId}.agent.{agentType}.{agentId}',
+            'ticketAgents' => self::prefix().'ticket.{ticketId}.agents',
             'ticket' => self::prefix().'ticket.{ticketId}',
         ];
     }

@@ -24,4 +24,7 @@ interface ChannelAuthorizer
 
     /** A single ticket — its agents, requester/subject or participants. */
     public function forTicket(Authenticatable $user, int|string $ticketId): bool;
+
+    /** A single ticket's AGENT-only feed — the ticket's tenant agents only. */
+    public function forTicketAgents(Authenticatable $user, int|string $ticketId): bool;
 }

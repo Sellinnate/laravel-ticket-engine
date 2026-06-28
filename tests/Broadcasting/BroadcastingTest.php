@@ -52,9 +52,11 @@ it('broadcasts a public reply to everyone but an internal note to agents only', 
         ->and($messageEvents[0]->audience)->toBe(TicketBroadcasted::AUDIENCE_ALL)
         ->and($messageEvents[1]->audience)->toBe(TicketBroadcasted::AUDIENCE_AGENTS);
 
-    // The internal note must not name the per-ticket channel a requester watches.
+    // The internal note must land on the per-ticket AGENTS channel, never the
+    // watcher channel a requester may listen to.
     $internalChannels = array_map(fn ($c): string => $c->name, $messageEvents[1]->broadcastOn());
-    expect($internalChannels)->not->toContain('private-'.Channels::ticket((string) $ticket->getKey()));
+    expect($internalChannels)->not->toContain('private-'.Channels::ticket((string) $ticket->getKey()))
+        ->and($internalChannels)->toContain('private-'.Channels::ticketAgents((string) $ticket->getKey()));
 });
 
 it('broadcasts assignment, priority and lifecycle transitions', function (): void {
@@ -88,7 +90,7 @@ it('registers the three private channels with authorization that delegates to th
     })->call(Broadcast::driver());
 
     $patterns = Channels::patterns();
-    expect($channels)->toHaveKeys([$patterns['tenantTickets'], $patterns['agent'], $patterns['ticket']]);
+    expect($channels)->toHaveKeys([$patterns['tenantTickets'], $patterns['agent'], $patterns['ticketAgents'], $patterns['ticket']]);
 
     $agent = makeUser(['tenant_id' => 5]);
     $this->actingAs($agent);
@@ -96,6 +98,7 @@ it('registers the three private channels with authorization that delegates to th
     $type = Channels::token($agent->getMorphClass());
 
     expect(($channels[$patterns['ticket']])($agent, $ticket->getKey()))->toBeTrue()
+        ->and(($channels[$patterns['ticketAgents']])($agent, $ticket->getKey()))->toBeTrue()
         ->and(($channels[$patterns['tenantTickets']])($agent, 5))->toBeTrue()
         ->and(($channels[$patterns['tenantTickets']])($agent, 9))->toBeFalse()
         ->and(($channels[$patterns['agent']])($agent, 5, $type, $agent->getKey()))->toBeTrue();

@@ -86,14 +86,17 @@ class TicketBroadcasted implements ShouldBroadcast
      */
     public function broadcastOn(): array
     {
-        $channels = [];
+        // Per-ticket delivery: public events go to the watcher channel (a
+        // requester may listen there); agent-only events go to the per-ticket
+        // AGENTS channel instead. The agents channel guarantees a destination
+        // even for a shared/single-tenant ticket with no tenant feed.
+        $channels = [
+            $this->audience === self::AUDIENCE_ALL
+                ? new PrivateChannel(Channels::ticket($this->ticketId))
+                : new PrivateChannel(Channels::ticketAgents($this->ticketId)),
+        ];
 
-        // The per-ticket channel can have a requester listening, so internal /
-        // agent-only changes never go there — only the tenant agent feeds.
-        if ($this->audience === self::AUDIENCE_ALL) {
-            $channels[] = new PrivateChannel(Channels::ticket($this->ticketId));
-        }
-
+        // Tenant-wide overview feeds, when the ticket carries a tenant.
         if ($this->tenantId !== null) {
             $channels[] = new PrivateChannel(Channels::tenantTickets($this->tenantId));
 

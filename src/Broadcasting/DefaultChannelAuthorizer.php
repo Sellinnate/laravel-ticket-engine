@@ -60,6 +60,20 @@ class DefaultChannelAuthorizer implements ChannelAuthorizer
         return $this->isSubject($user, $ticket) || $this->isParticipant($user, $ticket);
     }
 
+    public function forTicketAgents(Authenticatable $user, int|string $ticketId): bool
+    {
+        // Agent-only feed: never a requester/participant — the connecting user
+        // must be an agent of the ticket's tenant. Loaded unscoped (see forTicket)
+        // and gated by belongsToTicketTenant, which honours allow_shared.
+        if (! $user instanceof CanActOnTickets) {
+            return false;
+        }
+
+        $ticket = Ticketing::ticketModel()::withoutTenancy()->find($ticketId);
+
+        return $ticket instanceof Ticket && $this->belongsToTicketTenant($user, $ticket);
+    }
+
     protected function tenantMatches(Authenticatable $user, int|string $tenantId): bool
     {
         // Single-tenant mode (tenancy disabled) is a supported setup with no
