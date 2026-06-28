@@ -33,6 +33,21 @@ class AssignmentManager
         $this->customStrategies[$name] = $factory;
     }
 
+    /**
+     * The strategy names that strategy() can resolve — the four built-ins plus
+     * any a host registered via extend(). Lets the API validate a custom
+     * strategy instead of rejecting it against a hard-coded list.
+     *
+     * @return list<string>
+     */
+    public function availableStrategies(): array
+    {
+        return array_values(array_unique(array_merge(
+            ['manual', 'round-robin', 'least-busy', 'skill-based'],
+            array_keys($this->customStrategies),
+        )));
+    }
+
     public function strategy(?string $name = null): AssignmentStrategy
     {
         $name ??= (string) config('ticketing.routing.default_strategy', 'manual');

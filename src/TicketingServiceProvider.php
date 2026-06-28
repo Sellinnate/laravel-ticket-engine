@@ -5,8 +5,6 @@ declare(strict_types=1);
 namespace Selli\Ticketing;
 
 use Illuminate\Contracts\Auth\Factory;
-use Illuminate\Database\Eloquent\Model;
-use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Route;
 use Selli\Ticketing\Automation\RuleEngine;
@@ -147,8 +145,8 @@ class TicketingServiceProvider extends PackageServiceProvider
     }
 
     /**
-     * Mount the opt-in REST API under the configured prefix/version + middleware,
-     * binding {ticket} to the configured (tenant-scoped) model.
+     * Mount the opt-in REST API under the configured prefix/version + middleware.
+     * Controllers resolve {ticket} through the configured, tenant-scoped model.
      */
     protected function registerApiRoutes(): void
     {
@@ -159,20 +157,15 @@ class TicketingServiceProvider extends PackageServiceProvider
         $prefix = trim((string) config('ticketing.api.prefix', 'ticketing/api'), '/')
             .'/'.trim((string) config('ticketing.api.version', 'v1'), '/');
 
-        // Always include SubstituteBindings (it resolves {ticket} via the explicit
-        // binding below) and the throttle, even if the host overrides the rest of
-        // the middleware.
+        // Include the throttle even if the host overrides the rest of the
+        // middleware. {ticket} is NOT route-model-bound: each controller resolves
+        // it through Ticketing::ticketModel() (honouring a host's
+        // useTicketModel()/config override and the tenant scope), so we register
+        // no global Route::bind that would leak onto the host's own {ticket} routes.
         $middleware = array_values(array_unique(array_merge(
             (array) config('ticketing.api.middleware', ['api']),
-            [SubstituteBindings::class, 'throttle:'.config('ticketing.api.throttle', '120,1')],
+            ['throttle:'.config('ticketing.api.throttle', '120,1')],
         )));
-
-        // Resolve {ticket} through the *configured* model (honouring a host's
-        // useTicketModel()/config override) rather than the base class an implicit
-        // binding off the controller type-hint would give. query() applies the
-        // tenant global scope, so a cross-tenant id 404s. Only registered when the
-        // API is enabled, so it never pollutes a host that doesn't opt in.
-        Route::bind('ticket', fn (string $value): Model => Ticketing::ticketModel()::query()->findOrFail($value));
 
         Route::group(['prefix' => $prefix, 'middleware' => $middleware], function (): void {
             $this->loadRoutesFrom(__DIR__.'/../routes/api.php');

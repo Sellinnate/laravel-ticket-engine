@@ -8,6 +8,8 @@ use Selli\Ticketing\Enums\MessageVisibility;
 use Selli\Ticketing\Enums\Priority;
 use Selli\Ticketing\Facades\Ticketing;
 use Selli\Ticketing\Models\Team;
+use Selli\Ticketing\Routing\AssignmentManager;
+use Selli\Ticketing\Routing\Strategies\ManualStrategy;
 use Selli\Ticketing\Tenancy\TenantContext;
 use Selli\Ticketing\Tests\Fixtures\TestRequester;
 
@@ -162,6 +164,28 @@ it('self-assigns via assign_to_me', function (): void {
     $this->postJson(API.'/tickets/'.$ticket->getKey().'/assignment', ['assign_to_me' => true])
         ->assertOk()
         ->assertJsonPath('data.assignee.id', fn ($id): bool => (string) $id === (string) $agent->getKey());
+});
+
+it('accepts a host-registered custom assignment strategy', function (): void {
+    app(AssignmentManager::class)
+        ->extend('priority-weighted', fn ($container) => $container->make(ManualStrategy::class));
+
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+    $team = Team::factory()->create();
+    $this->actingAs(makeUser());
+
+    $this->postJson(API.'/tickets/'.$ticket->getKey().'/assignment', ['team_id' => $team->getKey(), 'strategy' => 'priority-weighted'])
+        ->assertOk()
+        ->assertJsonPath('data.team_id', (int) $team->getKey());
+});
+
+it('rejects an unknown assignment strategy', function (): void {
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+    $team = Team::factory()->create();
+    $this->actingAs(makeUser());
+
+    $this->postJson(API.'/tickets/'.$ticket->getKey().'/assignment', ['team_id' => $team->getKey(), 'strategy' => 'no-such-strategy'])
+        ->assertStatus(422)->assertJsonValidationErrors('strategy');
 });
 
 it('rejects an empty or unknown assignment', function (): void {

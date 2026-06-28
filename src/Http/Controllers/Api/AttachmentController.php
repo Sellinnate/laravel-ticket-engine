@@ -8,12 +8,13 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\UploadedFile;
 use Selli\Ticketing\Facades\Ticketing;
 use Selli\Ticketing\Http\Requests\StoreAttachmentRequest;
-use Selli\Ticketing\Models\Ticket;
 
 class AttachmentController extends Controller
 {
-    public function store(StoreAttachmentRequest $request, Ticket $ticket): JsonResponse
+    public function store(StoreAttachmentRequest $request, string $ticket): JsonResponse
     {
+        $ticket = $this->resolveTicket($ticket);
+
         /** @var UploadedFile $file */
         $file = $request->file('file');
 

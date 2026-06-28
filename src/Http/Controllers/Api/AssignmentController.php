@@ -10,13 +10,14 @@ use Selli\Ticketing\Facades\Ticketing;
 use Selli\Ticketing\Http\Requests\StoreAssignmentRequest;
 use Selli\Ticketing\Http\Resources\TicketResource;
 use Selli\Ticketing\Models\Team;
-use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Support\Ticketing as TicketingManager;
 
-class AssignmentController
+class AssignmentController extends Controller
 {
-    public function store(StoreAssignmentRequest $request, Ticket $ticket): TicketResource
+    public function store(StoreAssignmentRequest $request, string $ticket): TicketResource
     {
+        $ticket = $this->resolveTicket($ticket);
+
         $team = null;
 
         if ($request->filled('team_id')) {

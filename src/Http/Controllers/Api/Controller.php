@@ -12,6 +12,8 @@ use Selli\Ticketing\Exceptions\TicketingException;
 use Selli\Ticketing\Exceptions\TransitionNotAllowedException;
 use Selli\Ticketing\Exceptions\UnknownTicketTypeException;
 use Selli\Ticketing\Exceptions\UnknownTransitionException;
+use Selli\Ticketing\Models\Ticket;
+use Selli\Ticketing\Support\Ticketing;
 
 /**
  * Base controller for the REST API.
@@ -38,5 +40,20 @@ abstract class Controller
         } catch (UnknownTicketTypeException|UnknownTransitionException|TransitionNotAllowedException|CsatException|AttachmentRejectedException $exception) {
             throw ValidationException::withMessages([$field => $exception->getMessage()]);
         }
+    }
+
+    /**
+     * Resolve the {ticket} route key through the *configured* model (honouring a
+     * host's useTicketModel()/config override) rather than a base-class implicit
+     * binding. query() applies the tenant global scope, so a cross-tenant key
+     * 404s via ModelNotFoundException. Done here, not via a global Route::bind,
+     * so the package never leaks a binder onto the host's own {ticket} routes.
+     */
+    protected function resolveTicket(string $key): Ticket
+    {
+        /** @var Ticket $ticket */
+        $ticket = Ticketing::ticketModel()::query()->findOrFail($key);
+
+        return $ticket;
     }
 }

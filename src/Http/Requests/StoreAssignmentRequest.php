@@ -7,6 +7,7 @@ namespace Selli\Ticketing\Http\Requests;
 use Closure;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
+use Selli\Ticketing\Routing\AssignmentManager;
 
 class StoreAssignmentRequest extends FormRequest
 {
@@ -27,7 +28,7 @@ class StoreAssignmentRequest extends FormRequest
                 }
             }],
             'assign_to_me' => ['nullable', 'boolean'],
-            'strategy' => ['nullable', Rule::in(['manual', 'round-robin', 'least-busy', 'skill-based'])],
+            'strategy' => ['nullable', Rule::in(app(AssignmentManager::class)->availableStrategies())],
         ];
     }
 }

@@ -9,13 +9,14 @@ use Illuminate\Validation\ValidationException;
 use Selli\Ticketing\Facades\Ticketing;
 use Selli\Ticketing\Http\Requests\StoreCsatRequest;
 use Selli\Ticketing\Http\Resources\SatisfactionRatingResource;
-use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Support\CsatToken;
 
 class CsatController extends Controller
 {
-    public function store(StoreCsatRequest $request, Ticket $ticket): JsonResponse
+    public function store(StoreCsatRequest $request, string $ticket): JsonResponse
     {
+        $ticket = $this->resolveTicket($ticket);
+
         if ($request->filled('token')) {
             $token = (string) $request->string('token');
             $claims = CsatToken::verify($token);

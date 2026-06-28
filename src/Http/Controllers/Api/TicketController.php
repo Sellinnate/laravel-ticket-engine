@@ -12,7 +12,6 @@ use Selli\Ticketing\Enums\Priority;
 use Selli\Ticketing\Facades\Ticketing;
 use Selli\Ticketing\Http\Requests\StoreTicketRequest;
 use Selli\Ticketing\Http\Resources\TicketResource;
-use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Support\Ticketing as TicketingManager;
 
 /**
@@ -40,8 +39,10 @@ class TicketController extends Controller
         return TicketResource::collection($query->latest()->paginate($perPage));
     }
 
-    public function show(Ticket $ticket): TicketResource
+    public function show(string $ticket): TicketResource
     {
+        $ticket = $this->resolveTicket($ticket);
+
         // Expose only public (customer-facing) messages over the generic API;
         // internal agent notes are never surfaced here.
         $ticket->load(['messages' => fn ($query) => $query->where('visibility', MessageVisibility::Public->value)]);

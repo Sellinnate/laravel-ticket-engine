@@ -9,12 +9,13 @@ use Selli\Ticketing\Enums\MessageVisibility;
 use Selli\Ticketing\Facades\Ticketing;
 use Selli\Ticketing\Http\Requests\StoreMessageRequest;
 use Selli\Ticketing\Http\Resources\TicketMessageResource;
-use Selli\Ticketing\Models\Ticket;
 
-class MessageController
+class MessageController extends Controller
 {
-    public function store(StoreMessageRequest $request, Ticket $ticket): JsonResponse
+    public function store(StoreMessageRequest $request, string $ticket): JsonResponse
     {
+        $ticket = $this->resolveTicket($ticket);
+
         $message = Ticketing::postMessage(
             ticket: $ticket,
             author: $request->user(),
