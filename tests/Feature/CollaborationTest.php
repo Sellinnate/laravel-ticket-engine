@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Selli\Ticketing\Collaboration\MentionParser;
 use Selli\Ticketing\Contracts\MentionResolver;
 use Selli\Ticketing\Enums\ParticipantRole;
@@ -172,6 +173,17 @@ it('fails a macro that references an inactive team', function (): void {
 
     Ticketing::for($ticket)->applyMacro($macro);
 })->throws(InvalidConfigurationException::class);
+
+it('refuses to apply a macro to a ticket that was merged away', function (): void {
+    $target = Ticketing::open(type: 'support', title: 'target', requester: makeUser());
+    $source = Ticketing::open(type: 'support', title: 'source', requester: makeUser());
+    Ticketing::for($target)->mergeFrom([$source]);
+
+    // $source is now soft-deleted; a reply/tag-only macro must not persist on it.
+    $macro = Macro::factory()->create(['actions' => ['tags' => ['x']]]);
+
+    Ticketing::for($source)->applyMacro($macro);
+})->throws(ModelNotFoundException::class);
 
 it('refuses to apply an inactive macro', function (): void {
     $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());

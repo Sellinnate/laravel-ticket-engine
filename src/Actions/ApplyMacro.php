@@ -51,6 +51,15 @@ class ApplyMacro
         $reply = is_array($actions['reply'] ?? null) ? $actions['reply'] : [];
 
         DB::transaction(function () use ($ticket, $macro, $actor, $actions, $reply): void {
+            // Re-read the ticket under a row lock so the macro's side effects
+            // (reply/tags in particular) can't land on a ticket that was
+            // soft-deleted — e.g. merged away — concurrently. findOrFail uses the
+            // default scope, so a trashed ticket fails the whole macro closed.
+            /** @var Ticket $ticket */
+            $ticket = Ticketing::ticketModel()::query()->withoutTenancy()
+                ->lockForUpdate()
+                ->findOrFail($ticket->getKey());
+
             if (! empty($reply['body'])) {
                 $visibility = MessageVisibility::tryFrom((string) ($reply['visibility'] ?? 'public'));
 
