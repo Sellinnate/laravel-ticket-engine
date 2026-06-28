@@ -6,6 +6,7 @@ namespace Selli\Ticketing\Tests\Fixtures;
 
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Notifications\Notifiable;
 use Selli\Ticketing\Contracts\CanActOnTickets;
 use Selli\Ticketing\Contracts\CanRequestTickets;
 use Selli\Ticketing\Contracts\ReportsAvailability;
@@ -22,6 +23,8 @@ use Selli\Ticketing\Contracts\ReportsAvailability;
  */
 class TestUser extends Model implements Authenticatable, CanActOnTickets, CanRequestTickets, ReportsAvailability
 {
+    use Notifiable;
+
     protected $table = 'users';
 
     protected $guarded = [];
