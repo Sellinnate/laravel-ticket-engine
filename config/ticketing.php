@@ -478,6 +478,48 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Email-to-ticket
+    |--------------------------------------------------------------------------
+    |
+    | Inbound email becomes tickets/replies; outbound replies carry a tagged
+    | Reply-To so a customer's response threads back to the same ticket. The
+    | inbound side is opt-in and provider-agnostic: normalise the provider
+    | payload to a Mail\InboundEmail (a beyondcode/laravel-mailbox bridge is
+    | auto-wired when that package is installed) and hand it to
+    | Ticketing::receiveEmail(). Recipient address → tenant + type via "routes"
+    | (first match wins; "match" is an exact address, "*" catch-all, or /regex/).
+    | Threading: the +t_<token> reply tag is primary, with In-Reply-To/References
+    | (against stored Message-IDs) as fallback. Auto-replies are dropped and the
+    | same Message-ID is never ingested twice (loop/duplicate safe).
+    |
+    */
+    'mail' => [
+        'inbound' => [
+            'enabled' => false,
+
+            /** @var array<int, array{match: string, tenant?: int|string|null, type?: string}> */
+            'routes' => [],
+            'default_type' => 'support',
+
+            // Per-sender flood guard; an over-limit sender is dropped (fail closed).
+            'rate_limit' => ['max_per_minute' => 30],
+        ],
+
+        'outbound' => [
+            // Base address the tagged Reply-To is built from: support@example.com
+            // becomes support+t_<token>@example.com. Null = no threading Reply-To.
+            'reply_to_base' => null,
+
+            // ['address' => ..., 'name' => ...] for the From, or null = app default.
+            'from' => null,
+        ],
+
+        // Secret for the thread token HMAC; falls back to the application key.
+        'token' => ['secret' => null],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Authorization
     |--------------------------------------------------------------------------
     |

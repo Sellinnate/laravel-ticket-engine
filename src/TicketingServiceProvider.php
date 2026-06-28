@@ -16,6 +16,8 @@ use Selli\Ticketing\Collaboration\NullMentionResolver;
 use Selli\Ticketing\Commands\EscalateCommand;
 use Selli\Ticketing\Commands\RecalculateSlaCommand;
 use Selli\Ticketing\Contracts\ChannelAuthorizer;
+use Selli\Ticketing\Contracts\InboundMailRouter;
+use Selli\Ticketing\Contracts\InboundRequesterResolver;
 use Selli\Ticketing\Contracts\MentionResolver;
 use Selli\Ticketing\Contracts\NotificationPreferences;
 use Selli\Ticketing\Contracts\TenantResolver;
@@ -27,6 +29,8 @@ use Selli\Ticketing\Listeners\CsatSubscriber;
 use Selli\Ticketing\Listeners\NotificationSubscriber;
 use Selli\Ticketing\Listeners\RoutingSubscriber;
 use Selli\Ticketing\Listeners\SlaSubscriber;
+use Selli\Ticketing\Mail\ConfigInboundMailRouter;
+use Selli\Ticketing\Mail\NullInboundRequesterResolver;
 use Selli\Ticketing\Notifications\ConfigNotificationPreferences;
 use Selli\Ticketing\Routing\AssignmentManager;
 use Selli\Ticketing\Sla\SlaManager;
@@ -106,6 +110,11 @@ class TicketingServiceProvider extends PackageServiceProvider
         // host that already bound its own ChannelAuthorizer (e.g. delegating to
         // its policies) keeps it — we never override the host's broadcast policy.
         $this->app->bindIf(ChannelAuthorizer::class, DefaultChannelAuthorizer::class);
+
+        // Email-to-ticket: config-driven recipient routing + a null requester
+        // resolver by default. bindIf so a host's own bindings win.
+        $this->app->bindIf(InboundMailRouter::class, ConfigInboundMailRouter::class);
+        $this->app->bindIf(InboundRequesterResolver::class, NullInboundRequesterResolver::class);
     }
 
     public function packageBooted(): void
