@@ -131,6 +131,23 @@ it('never routes to another tenant team', function (): void {
     expect(Ticket::query()->withoutTenancy()->find($ticket->getKey())->team_id)->toBeNull();
 });
 
+it('never routes to an agent from another tenant', function (): void {
+    $context = app(TenantContext::class);
+    $otherAgent = $context->forTenant(99, fn () => makeUser(['name' => 'Other', 'tenant_id' => 99]));
+
+    RoutingRule::factory()->create([
+        'tenant_id' => null,
+        'conditions' => [['field' => 'type', 'operator' => '=', 'value' => 'support']],
+        'assignee_type' => $otherAgent->getMorphClass(),
+        'assignee_id' => $otherAgent->getKey(),
+        'strategy' => 'manual',
+    ]);
+
+    $ticket = $context->forTenant(5, fn () => Ticketing::open(type: 'support', title: 'x', requester: makeUser(['tenant_id' => 5])));
+
+    expect(Ticket::query()->withoutTenancy()->find($ticket->getKey())->assignee_id)->toBeNull();
+});
+
 it('prefers a tenant-owned rule over a shared rule at the same position', function (): void {
     $context = app(TenantContext::class);
 

@@ -32,7 +32,7 @@ class RoutingEngine
         }
 
         $team = $rule->team_id !== null ? $this->team($rule->team_id, $ticket) : null;
-        $assignee = $this->ruleAssignee($rule);
+        $assignee = $this->ruleAssignee($rule, $ticket);
 
         if ($team === null && $assignee === null) {
             return null;
@@ -176,7 +176,7 @@ class RoutingEngine
         return null;
     }
 
-    protected function ruleAssignee(RoutingRule $rule): ?Model
+    protected function ruleAssignee(RoutingRule $rule, Ticket $ticket): ?Model
     {
         if ($rule->assignee_type === null || $rule->assignee_id === null) {
             return null;
@@ -191,6 +191,30 @@ class RoutingEngine
 
         $assignee = $class::query()->find($rule->assignee_id);
 
-        return $assignee instanceof Model ? $assignee : null;
+        if (! $assignee instanceof Model || ! $this->belongsToTicketTenant($assignee, $ticket)) {
+            return null;
+        }
+
+        return $assignee;
+    }
+
+    /**
+     * Whether an agent may serve the ticket's tenant. Agent models that do not
+     * carry the tenant column are not scoped by us (single user pool); those
+     * that do must match the ticket's tenant or be shared (when allowed).
+     */
+    protected function belongsToTicketTenant(Model $assignee, Ticket $ticket): bool
+    {
+        $column = $ticket->getTenantColumn();
+
+        if (! array_key_exists($column, $assignee->getAttributes())) {
+            return true;
+        }
+
+        $agentTenant = $assignee->getAttribute($column);
+        $ticketTenant = $ticket->getAttribute($column);
+        $allowShared = config('ticketing.tenancy.allow_shared', true) !== false;
+
+        return $agentTenant == $ticketTenant || ($agentTenant === null && $allowShared);
     }
 }
