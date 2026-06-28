@@ -527,7 +527,7 @@ return [
     | The package keeps tickets for statistics but can scrub a requester's
     | personal data on request: Ticketing::anonymiseRequester($model) replaces
     | the denormalised PII the package stores (the email channel's from/name on
-    | messages) with a placeholder and emits RequesterAnonymised; the host
+    | messages) with a placeholder and emits RequesterAnonymized; the host
     | anonymises its own requester model. Ticketing::exportRequesterData($model)
     | returns the data-subject's tickets/messages/ratings. "retention" rules are
     | applied by `php artisan ticketing:prune`: each rule anonymises or deletes

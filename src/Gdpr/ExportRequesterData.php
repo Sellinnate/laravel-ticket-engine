@@ -26,7 +26,9 @@ class ExportRequesterData
     public function handle(Model $requester): array
     {
         $tickets = RequesterTickets::query($requester)
-            ->with(['messages' => fn ($query) => $query->where('visibility', MessageVisibility::Public->value)])
+            // withoutTenancy on the eager load too, or public messages on the
+            // requester's tickets in OTHER tenants come back empty.
+            ->with(['messages' => fn ($query) => $query->withoutTenancy()->where('visibility', MessageVisibility::Public->value)])
             ->get();
 
         $ratings = $this->ratingsByTicket($tickets->modelKeys());
@@ -41,7 +43,9 @@ class ExportRequesterData
                 'body' => $message->body,
                 'source' => $message->source->value,
                 'created_at' => $message->created_at?->toIso8601String(),
-                'meta' => $message->meta,
+                // Raw meta is deliberately omitted: it holds technical fields and
+                // denormalised PII (from/from_name) that don't belong in a
+                // requester's own export.
             ])->all(),
             'satisfaction' => $ratings[(string) $ticket->getKey()] ?? null,
         ])->all();

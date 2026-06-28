@@ -7,6 +7,7 @@ namespace Selli\Ticketing\Gdpr;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Selli\Ticketing\Models\Ticket;
+use Selli\Ticketing\Models\TicketParticipant;
 use Selli\Ticketing\Support\Ticketing;
 
 /**
@@ -31,7 +32,11 @@ class RequesterTickets
                         ->where('subject_id', $requester->getKey());
                 })
                 ->orWhereHas('participants', function (Builder $participant) use ($requester): void {
-                    $participant->where('participant_type', $requester->getMorphClass())
+                    // withoutTenancy on the related query too, or a cross-tenant
+                    // ticket where the requester is only a participant is missed.
+                    /** @var Builder<TicketParticipant> $participant */
+                    $participant->withoutTenancy()
+                        ->where('participant_type', $requester->getMorphClass())
                         ->where('participant_id', $requester->getKey());
                 });
         });

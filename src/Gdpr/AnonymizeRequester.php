@@ -28,28 +28,35 @@ class AnonymizeRequester
     {
         $label = (string) config('ticketing.gdpr.anonymized_label', '[anonymized]');
         $email = $requester instanceof CanRequestTickets ? $requester->requesterEmail() : null;
-        $email = is_string($email) && $email !== '' ? strtolower($email) : null;
+        // Match the normalisation the email channel stores from with (lowercased,
+        // trimmed), so a "Jane@Example.test " value still matches.
+        $email = is_string($email) && trim($email) !== '' ? strtolower(trim($email)) : null;
 
-        $tickets = RequesterTickets::query($requester)->get();
+        $touched = 0;
 
-        DB::transaction(function () use ($tickets, $requester, $email, $label): void {
-            foreach ($tickets as $ticket) {
-                $this->scrubMessages($ticket, $requester, $email, $label);
+        DB::transaction(function () use ($requester, $email, $label, &$touched): void {
+            foreach (RequesterTickets::query($requester)->cursor() as $ticket) {
+                if (! $this->scrubMessages($ticket, $requester, $email, $label)) {
+                    continue;
+                }
 
+                // Audit (and count) only tickets where data was actually scrubbed.
                 $this->audit->record(
                     ticket: $ticket,
                     event: 'requester.anonymized',
                     context: ['requester_type' => $requester->getMorphClass()],
                 );
+
+                $touched++;
             }
         });
 
-        RequesterAnonymized::dispatch($requester, $tickets->count());
+        RequesterAnonymized::dispatch($requester, $touched);
 
-        return $tickets->count();
+        return $touched;
     }
 
-    protected function scrubMessages(Ticket $ticket, Model $requester, ?string $email, string $label): void
+    protected function scrubMessages(Ticket $ticket, Model $requester, ?string $email, string $label): bool
     {
         $messages = $ticket->messages()->withoutTenancy()
             ->where(function (Builder $query) use ($requester, $email): void {
@@ -64,18 +71,27 @@ class AnonymizeRequester
             })
             ->get();
 
+        $changedAny = false;
+
         foreach ($messages as $message) {
             /** @var TicketMessage $message */
             $meta = $message->meta ?? [];
+            $changed = false;
 
             foreach (['from', 'from_name'] as $key) {
-                if (array_key_exists($key, $meta)) {
+                if (array_key_exists($key, $meta) && $meta[$key] !== $label) {
                     $meta[$key] = $label;
+                    $changed = true;
                 }
             }
 
-            $message->meta = $meta;
-            $message->save();
+            if ($changed) {
+                $message->meta = $meta;
+                $message->save();
+                $changedAny = true;
+            }
         }
+
+        return $changedAny;
     }
 }

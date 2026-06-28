@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Selli\Ticketing\Gdpr;
 
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Selli\Ticketing\Models\Ticket;
@@ -15,7 +16,7 @@ use Selli\Ticketing\Support\Ticketing;
  * tickets of a type (or "*") whose closed_at is older than N days. Anonymise
  * keeps the ticket (and its immutable audit) for statistics while scrubbing the
  * stored personal data; delete is a sanctioned erasure that removes the ticket
- * and its rows outright — including the audit trail, which retention/erasure is
+ * and every row it owns — including the audit trail, which retention/erasure is
  * the one legitimate reason to drop (unlike runtime tampering).
  */
 class ApplyRetention
@@ -41,15 +42,21 @@ class ApplyRetention
             $action = ($rule['action'] ?? 'anonymize') === 'delete' ? 'delete' : 'anonymize';
             $cutoff = Carbon::now()->subDays($afterDays);
 
-            $tickets = $this->dueTickets($type, $cutoff)->get();
+            $count = 0;
 
-            DB::transaction(function () use ($tickets, $action): void {
+            DB::transaction(function () use ($type, $cutoff, $action, &$count): void {
+                // Re-select (and lock) inside the transaction so a ticket reopened
+                // between selection and action isn't erased on a stale snapshot.
+                $tickets = $this->dueTickets($type, $cutoff)->lockForUpdate()->get();
+
                 foreach ($tickets as $ticket) {
                     $action === 'delete' ? $this->delete($ticket) : $this->anonymize($ticket);
                 }
+
+                $count = $tickets->count();
             });
 
-            $results[] = ['type' => $type, 'action' => $action, 'count' => $tickets->count()];
+            $results[] = ['type' => $type, 'action' => $action, 'count' => $count];
         }
 
         return $results;
@@ -82,7 +89,7 @@ class ApplyRetention
             $changed = false;
 
             foreach (['from', 'from_name'] as $key) {
-                if (array_key_exists($key, $meta)) {
+                if (array_key_exists($key, $meta) && $meta[$key] !== $label) {
                     $meta[$key] = $label;
                     $changed = true;
                 }
@@ -96,20 +103,62 @@ class ApplyRetention
     }
 
     /**
-     * Hard-delete a ticket and its rows. Children are removed by raw deletes so
-     * the audit model's immutability guard (which blocks deletes at runtime) is
-     * bypassed here, where erasure is the intent.
+     * Hard-delete a ticket and every row it owns. Child tables are resolved from
+     * the actual model bindings (honouring useTicketMessageModel() etc.), so a
+     * host override doesn't leave orphans. Raw deletes are used so the audit
+     * model's runtime immutability guard is bypassed here, where erasure is the
+     * intent. Polymorphic rows (attachments on the ticket AND its messages, tag
+     * pivots) are matched on their morph keys, not a ticket_id.
      */
     protected function delete(Ticket $ticket): void
     {
-        foreach (['ticket_messages', 'ticket_participants', 'ticket_activities', 'ticket_attachments', 'satisfaction_ratings'] as $table) {
-            DB::table($this->table($table))->where('ticket_id', $ticket->getKey())->delete();
+        $messageTable = $this->tableFor(Ticketing::ticketMessageModel());
+        $messageMorph = (new (Ticketing::ticketMessageModel()))->getMorphClass();
+        $messageIds = DB::table($messageTable)->where('ticket_id', $ticket->getKey())->pluck('id');
+
+        // Polymorphic attachments: on the ticket itself, and on each of its messages.
+        DB::table($this->tableFor(Ticketing::ticketAttachmentModel()))
+            ->where(function (\Illuminate\Database\Query\Builder $query) use ($ticket, $messageMorph, $messageIds): void {
+                $query->where('attachable_type', $ticket->getMorphClass())->where('attachable_id', $ticket->getKey());
+
+                if ($messageIds->isNotEmpty()) {
+                    $query->orWhere(function (\Illuminate\Database\Query\Builder $messages) use ($messageMorph, $messageIds): void {
+                        $messages->where('attachable_type', $messageMorph)->whereIn('attachable_id', $messageIds);
+                    });
+                }
+            })
+            ->delete();
+
+        // Polymorphic tag pivots on the ticket.
+        DB::table($this->configTable('taggables'))
+            ->where('taggable_type', $ticket->getMorphClass())
+            ->where('taggable_id', $ticket->getKey())
+            ->delete();
+
+        // Every ticket_id-owned child, by its bound model's table.
+        foreach ([
+            Ticketing::ticketMessageModel(),
+            Ticketing::ticketParticipantModel(),
+            Ticketing::ticketActivityModel(),
+            Ticketing::slaClockModel(),
+            Ticketing::ticketLinkModel(),
+            Ticketing::satisfactionRatingModel(),
+        ] as $model) {
+            DB::table($this->tableFor($model))->where('ticket_id', $ticket->getKey())->delete();
         }
 
         DB::table($ticket->getTable())->where($ticket->getKeyName(), $ticket->getKey())->delete();
     }
 
-    protected function table(string $key): string
+    /**
+     * @param  class-string<Model>  $model
+     */
+    protected function tableFor(string $model): string
+    {
+        return (new $model)->getTable();
+    }
+
+    protected function configTable(string $key): string
     {
         return ((string) config('ticketing.tables.prefix', '')).(string) config('ticketing.tables.'.$key, $key);
     }

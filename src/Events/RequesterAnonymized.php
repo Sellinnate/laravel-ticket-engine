@@ -7,6 +7,7 @@ namespace Selli\Ticketing\Events;
 use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Events\Dispatchable;
+use Illuminate\Queue\SerializesModels;
 
 /**
  * Emitted after a requester's denormalised PII has been scrubbed from the
@@ -15,6 +16,7 @@ use Illuminate\Foundation\Events\Dispatchable;
 class RequesterAnonymized implements ShouldDispatchAfterCommit
 {
     use Dispatchable;
+    use SerializesModels;
 
     public function __construct(
         public Model $requester,

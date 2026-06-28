@@ -6,6 +6,9 @@ use Illuminate\Support\Facades\Event;
 use Selli\Ticketing\Enums\MessageVisibility;
 use Selli\Ticketing\Events\RequesterAnonymized;
 use Selli\Ticketing\Facades\Ticketing;
+use Selli\Ticketing\Models\TicketActivity;
+use Selli\Ticketing\Models\TicketMessage;
+use Selli\Ticketing\Models\TicketParticipant;
 use Selli\Ticketing\Tests\Fixtures\TestRequester;
 
 it('anonymises a requester’s denormalised personal data and keeps the ticket', function (): void {
@@ -29,6 +32,17 @@ it('anonymises a requester’s denormalised personal data and keeps the ticket',
 
     // The anonymisation itself is audited.
     expect($ticket->fresh()->activities()->where('event', 'requester.anonymized')->exists())->toBeTrue();
+});
+
+it('anonymises and exports a ticket where the requester is the subject (not a participant)', function (): void {
+    $requester = TestRequester::query()->create(['name' => 'Subj', 'email' => 'subj@example.test']);
+    // for() makes the requester the ticket's SUBJECT, exercising that query branch.
+    $ticket = Ticketing::for($requester)->open(type: 'support', title: 'About me', requester: makeUser());
+    Ticketing::postMessage($ticket, $requester, 'hi', meta: ['from' => 'subj@example.test']);
+
+    expect(Ticketing::exportRequesterData($requester))->toHaveCount(1)
+        ->and(Ticketing::anonymiseRequester($requester))->toBe(1)
+        ->and($ticket->fresh()->messages()->first()->meta['from'])->toBe('[anonymized]');
 });
 
 it('exports a requester’s tickets, public messages and rating but not internal notes', function (): void {
@@ -65,14 +79,19 @@ it('anonymises old closed tickets via a retention rule', function (): void {
 it('deletes old closed tickets (and their rows) via a delete retention rule', function (): void {
     config()->set('ticketing.gdpr.retention', [['type' => '*', 'after_days' => 30, 'action' => 'delete']]);
 
-    $ticket = Ticketing::open(type: 'support', title: 'to delete', requester: makeUser());
-    Ticketing::postMessage($ticket, makeUser(), 'hi');
+    $requester = TestRequester::query()->create(['name' => 'Gone', 'email' => 'gone@example.test']);
+    $ticket = Ticketing::open(type: 'support', title: 'to delete', requester: $requester);
+    Ticketing::postMessage($ticket, $requester, 'hi');
     $ticket->forceFill(['closed_at' => now()->subDays(90)])->saveQuietly();
     $id = $ticket->getKey();
 
     $this->artisan('ticketing:prune')->assertSuccessful();
 
-    expect(Ticketing::ticketModel()::query()->withoutGlobalScopes()->find($id))->toBeNull();
+    // The ticket AND its child rows are gone — no orphaned PII.
+    expect(Ticketing::ticketModel()::query()->withoutGlobalScopes()->find($id))->toBeNull()
+        ->and(TicketMessage::query()->withoutGlobalScopes()->where('ticket_id', $id)->count())->toBe(0)
+        ->and(TicketParticipant::query()->withoutGlobalScopes()->where('ticket_id', $id)->count())->toBe(0)
+        ->and(TicketActivity::query()->withoutGlobalScopes()->where('ticket_id', $id)->count())->toBe(0);
 });
 
 it('does not touch a recently-closed ticket', function (): void {
