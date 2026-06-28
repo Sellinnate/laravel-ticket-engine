@@ -93,6 +93,28 @@ it('submits via a signed token', function (): void {
         ->and(CsatToken::verify($token))->toBe((string) $ticket->getKey());
 });
 
+it('does not overwrite an already-submitted rating via the token', function (): void {
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+    $token = Ticketing::csatToken($ticket);
+
+    Ticketing::submitCsatByToken($token, 5, 'first');
+    Ticketing::submitCsatByToken($token, 1, 'tampered'); // bearer link can't rewrite
+
+    $rating = SatisfactionRating::query()->where('ticket_id', $ticket->getKey())->first();
+    expect($rating->rating)->toBe(5)
+        ->and($rating->comment)->toBe('first');
+});
+
+it('does not auto-request when CSAT is disabled at runtime', function (): void {
+    config()->set('ticketing.csat.enabled', false); // subscriber still bound from boot
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+
+    Ticketing::for($ticket)->transition('resolve'); // must not throw or persist
+
+    expect(SatisfactionRating::query()->where('ticket_id', $ticket->getKey())->exists())->toBeFalse();
+    expect($ticket->fresh()->status)->toBe('resolved');
+});
+
 it('rejects an expired token', function (): void {
     Carbon::setTestNow(Carbon::parse('2026-06-29 10:00:00', 'UTC'));
     $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());

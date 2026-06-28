@@ -309,7 +309,10 @@ class Ticketing
             throw CsatException::invalidToken();
         }
 
-        return $this->submitCsat($ticket, $rating, $comment, $submittedBy);
+        // The token is a bearer credential: one valuation per cycle, so a leaked
+        // or re-clicked link can't repeatedly overwrite the rating.
+        return $this->container->make(SubmitCsat::class)
+            ->handle($ticket, $rating, $comment, $submittedBy, allowOverwrite: false);
     }
 
     /**

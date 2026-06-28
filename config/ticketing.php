@@ -329,6 +329,10 @@ return [
     | token.secret: HMAC key for the signed token (defaults to the app key).
     | token.ttl: how long a request link stays valid, in seconds.
     |
+    | The token is a bearer credential — serve rating links over HTTPS and keep
+    | the TTL as short as your flow allows. submitCsatByToken records one
+    | valuation per cycle (a re-clicked link won't overwrite it).
+    |
     */
     'csat' => [
         'enabled' => true,

@@ -20,7 +20,10 @@ class CsatSubscriber
 
     public function onResolved(TicketResolved $event): void
     {
-        if (! Csat::autoRequest()) {
+        // Bail when CSAT is disabled OR auto-request is off. Guarding on enabled
+        // too keeps the listener self-consistent even if the flag is toggled
+        // after boot (RequestCsat itself fails closed when disabled).
+        if (! Csat::enabled() || ! Csat::autoRequest()) {
             return;
         }
 

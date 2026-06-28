@@ -29,7 +29,13 @@ class SubmitCsat
         protected TenantGuard $tenant,
     ) {}
 
-    public function handle(Ticket $ticket, int $rating, ?string $comment = null, ?Model $submittedBy = null): SatisfactionRating
+    /**
+     * @param  bool  $allowOverwrite  When false (the bearer-token path), an
+     *                                already-submitted rating is returned
+     *                                unchanged — one valuation per ticket/cycle,
+     *                                so a leaked link can't repeatedly rewrite it.
+     */
+    public function handle(Ticket $ticket, int $rating, ?string $comment = null, ?Model $submittedBy = null, bool $allowOverwrite = true): SatisfactionRating
     {
         if (! Csat::enabled()) {
             throw CsatException::disabled();
@@ -39,7 +45,8 @@ class SubmitCsat
             throw CrossTenantException::forAssignment('csat');
         }
 
-        $result = DB::transaction(function () use ($ticket, $rating, $comment, $submittedBy): SatisfactionRating {
+        /** @var array{0: SatisfactionRating, 1: bool} $outcome */
+        $outcome = DB::transaction(function () use ($ticket, $rating, $comment, $submittedBy, $allowOverwrite): array {
             // Serialise concurrent CSAT operations for this ticket on the ticket
             // row, so two submits can't both miss the rating and race to create
             // it (the one-per-ticket constraint would reject the loser).
@@ -54,6 +61,12 @@ class SubmitCsat
             $existing = $model::query()->withoutTenancy()
                 ->where('ticket_id', $ticket->getKey())
                 ->first();
+
+            if (! $allowOverwrite && $existing instanceof SatisfactionRating && $existing->isSubmitted()) {
+                // Idempotent for the token path: the rating already exists for
+                // this cycle, so a re-click (or a manipulation attempt) is a no-op.
+                return [$existing, false];
+            }
 
             // Honour the scale the rating was requested with so a config change
             // can't retro-invalidate an in-flight request.
@@ -77,6 +90,10 @@ class SubmitCsat
                 $existing->forceFill($attributes)->save();
                 $row = $existing;
             } else {
+                // A direct submit with no prior request: stamp requested_at too so
+                // the "requested before submitted" semantics hold for these rows.
+                $attributes['requested_at'] = now();
+
                 /** @var SatisfactionRating $row */
                 $row = $model::query()->create($attributes);
             }
@@ -86,10 +103,14 @@ class SubmitCsat
                 'rating_id' => $row->getKey(),
             ]);
 
-            return $row;
+            return [$row, true];
         });
 
-        CsatSubmitted::dispatch($ticket, $result);
+        [$result, $changed] = $outcome;
+
+        if ($changed) {
+            CsatSubmitted::dispatch($ticket, $result);
+        }
 
         return $result;
     }
