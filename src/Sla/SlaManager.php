@@ -51,8 +51,15 @@ class SlaManager
         $calendar = $this->calendars->forPolicy($policy);
         $now = now();
 
-        if ($policy->first_response_minutes !== null && $ticket->first_response_at === null) {
+        if ($policy->first_response_minutes !== null) {
             $this->writeClock($ticket, SlaTarget::FirstResponse, $now, $calendar->addMinutes($now, $policy->first_response_minutes), $policy->first_response_minutes, $policy->business_hours_id);
+
+            // A ticket opened already carrying a first response (e.g. a split of
+            // an answered thread) still gets a clock row, immediately completed,
+            // so sweeps and reporting see it like any other.
+            if ($ticket->first_response_at !== null) {
+                $this->completeFirstResponseClock($ticket);
+            }
         }
 
         if ($policy->resolution_minutes !== null) {
@@ -109,7 +116,7 @@ class SlaManager
             // No qualifying reply in the combined thread; if a stamp already
             // exists just make sure the clock is closed out.
             if ($ticket->first_response_at !== null) {
-                $this->handleFirstResponse($ticket);
+                $this->completeFirstResponseClock($ticket);
             }
 
             return;
@@ -127,21 +134,33 @@ class SlaManager
             $ticket->first_response_at = $earliest;
         }
 
-        // Force the first-response clock (if any) to the adopted timestamp, even
-        // if it was previously completed at a later time. Clamp to started_at so
-        // a merged-in reply that predates the target's clock can't record a
-        // completion before the clock began.
+        $this->completeFirstResponseClock($ticket);
+    }
+
+    /**
+     * Force the first-response clock (if one exists) to the ticket's
+     * first_response_at, clamped to never precede the clock's started_at, even
+     * if it was previously completed at a later time.
+     */
+    protected function completeFirstResponseClock(Ticket $ticket): void
+    {
+        if ($ticket->first_response_at === null) {
+            return;
+        }
+
         $clock = $this->clock($ticket, SlaTarget::FirstResponse);
 
-        if ($clock !== null) {
-            $completedAt = $ticket->first_response_at;
-
-            if ($completedAt !== null && $completedAt->lessThan($clock->started_at)) {
-                $completedAt = $clock->started_at;
-            }
-
-            $clock->forceFill(['completed_at' => $completedAt])->save();
+        if ($clock === null) {
+            return;
         }
+
+        $completedAt = $ticket->first_response_at;
+
+        if ($completedAt->lessThan($clock->started_at)) {
+            $completedAt = $clock->started_at;
+        }
+
+        $clock->forceFill(['completed_at' => $completedAt])->save();
     }
 
     /**

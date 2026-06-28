@@ -74,6 +74,21 @@ it('clamps a merged-in first response to the clock start when it predates it', f
         ->and($clock->completed_at->equalTo($clock->started_at))->toBeTrue();
 });
 
+it('creates a completed first-response clock for a split ticket with an inherited reply', function (): void {
+    SlaPolicy::factory()->create(['first_response_minutes' => 60]);
+
+    $source = Ticketing::open(type: 'support', title: 'src', requester: makeUser());
+    $reply = Ticketing::for($source)->postMessage(makeUser(['name' => 'Agent']), 'on it');
+
+    $created = Ticketing::for($source)->split([$reply->getKey()]);
+
+    $clock = clockFor($created->getKey(), SlaTarget::FirstResponse);
+
+    expect($clock)->not->toBeNull() // a row exists for sweeps/reporting
+        ->and($clock->isCompleted())->toBeTrue()
+        ->and($created->fresh()->first_response_at)->not->toBeNull();
+});
+
 it('completes the resolution clock on resolution', function (): void {
     SlaPolicy::factory()->create(['resolution_minutes' => 480]);
     $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
