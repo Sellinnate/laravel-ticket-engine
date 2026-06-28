@@ -60,6 +60,33 @@ it('does not let extra attributes smuggle in a tenant', function (): void {
     expect($ticket->tenant_id)->toBe(3);
 });
 
+it('ignores engine-managed columns passed through attributes', function (): void {
+    $ticket = Ticketing::open(
+        type: 'support',
+        title: 'Real title',
+        requester: makeUser(),
+        attributes: [
+            'subject_type' => 'Hacked\\Model',
+            'subject_id' => 999,
+            'assignee_type' => 'Hacked\\Agent',
+            'assignee_id' => 7,
+            'due_at' => '2000-01-01 00:00:00',
+            'reopened_count' => 42,
+            'status' => 'closed',
+            'custom_fields' => ['ok' => true], // legitimate, should pass through
+        ],
+    );
+
+    $ticket = $ticket->fresh();
+
+    expect($ticket->subject_type)->toBeNull()
+        ->and($ticket->assignee_type)->toBeNull()
+        ->and($ticket->due_at)->toBeNull()
+        ->and($ticket->reopened_count)->toBe(0)
+        ->and($ticket->status)->toBe('open')
+        ->and($ticket->customField('ok'))->toBeTrue();
+});
+
 it('registers the requester as a participant', function (): void {
     $requester = makeUser(['name' => 'Ada']);
 

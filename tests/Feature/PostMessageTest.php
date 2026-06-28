@@ -7,6 +7,7 @@ use Selli\Ticketing\Enums\MessageVisibility;
 use Selli\Ticketing\Events\MessagePosted;
 use Selli\Ticketing\Facades\Ticketing;
 use Selli\Ticketing\Models\TicketMessage;
+use Selli\Ticketing\Tenancy\TenantContext;
 
 it('posts a public message to a ticket', function (): void {
     $ticket = Ticketing::open(type: 'support', title: 'Help', requester: makeUser());
@@ -36,6 +37,19 @@ it('does not stamp first response when the requester replies to their own ticket
     $user = makeUser();
     $ticket = Ticketing::open(type: 'support', title: 'Help', requester: $user);
 
+    Ticketing::for($ticket)->postMessage($user, 'Any update?', MessageVisibility::Public);
+
+    expect($ticket->fresh()->first_response_at)->toBeNull();
+});
+
+it('recognises the requester even without an ambient tenant context', function (): void {
+    $context = app(TenantContext::class);
+
+    // Tenant-scoped ticket whose requester is a dual-contract user.
+    $user = makeUser(['tenant_id' => 6]);
+    $ticket = $context->forTenant(6, fn () => Ticketing::open(type: 'support', title: 'Help', requester: $user));
+
+    // Reply as the requester with NO ambient tenant context (queue/CLI flow).
     Ticketing::for($ticket)->postMessage($user, 'Any update?', MessageVisibility::Public);
 
     expect($ticket->fresh()->first_response_at)->toBeNull();

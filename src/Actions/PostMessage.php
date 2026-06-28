@@ -103,7 +103,11 @@ class PostMessage
             return false;
         }
 
+        // Look up participants without the tenant scope: the ticket_id already
+        // identifies this ticket's rows, and a queue/CLI flow with no resolved
+        // tenant must still find a tenant-scoped requester.
         return $data->ticket->participants()
+            ->withoutTenancy()
             ->where('role', ParticipantRole::Requester->value)
             ->where('participant_type', $data->author->getMorphClass())
             ->where('participant_id', $data->author->getKey())

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Selli\Ticketing\Actions;
 
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Selli\Ticketing\Data\OpenTicketData;
 use Selli\Ticketing\Enums\ParticipantRole;
@@ -24,6 +25,33 @@ use Selli\Ticketing\Tenancy\TenantContext;
  */
 class OpenTicket
 {
+    /**
+     * Columns the engine owns; never settable through caller `attributes`.
+     *
+     * @var list<string>
+     */
+    private const ENGINE_MANAGED_COLUMNS = [
+        'id',
+        'reference',
+        'status',
+        'ticket_type_id',
+        'priority',
+        'title',
+        'category',
+        'subject_type',
+        'subject_id',
+        'assignee_type',
+        'assignee_id',
+        'first_response_at',
+        'resolved_at',
+        'closed_at',
+        'due_at',
+        'reopened_count',
+        'created_at',
+        'updated_at',
+        'deleted_at',
+    ];
+
     public function __construct(
         protected TicketTypeRegistry $types,
         protected ReferenceGenerator $references,
@@ -77,14 +105,13 @@ class OpenTicket
     ): Ticket {
         $model = Ticketing::ticketModel();
 
-        $base = $data->attributes;
-        // Callers may not set engine-managed columns nor smuggle a tenant in
-        // through extra attributes (which would bypass tenant scoping).
-        unset(
-            $base['reference'],
-            $base['status'],
-            $base['ticket_type_id'],
-            $base[$this->tenant->column()],
+        // Callers may not set engine-managed columns through extra attributes
+        // (subject/assignee morphs, SLA timestamps, the tenant column, …). Those
+        // are controlled by dedicated parameters/actions. Anything else (e.g.
+        // custom_fields, host-added columns) passes through.
+        $base = Arr::except(
+            $data->attributes,
+            array_merge(self::ENGINE_MANAGED_COLUMNS, [$this->tenant->column()]),
         );
 
         $payload = array_merge($base, [
