@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 use Selli\Ticketing\Contracts\InboundMailRouter;
 use Selli\Ticketing\Enums\BodyFormat;
@@ -171,6 +172,40 @@ it('threads a reply via In-Reply-To against a stored Message-ID', function (): v
 
     expect($reply->ticket->getKey())->toBe($ticket->getKey())
         ->and($ticket->fresh()->messages()->count())->toBe(2);
+});
+
+it('threads via a space-separated References header string', function (): void {
+    enableInbound();
+
+    $ticket = Ticketing::receiveEmail(inbound(['message_id' => '<root@example.test>']))->ticket;
+
+    // References arrives as one header string with several ids.
+    $reply = Ticketing::receiveEmail(inbound([
+        'message_id' => '<later@example.test>',
+        'references' => '<unknown@example.test> <root@example.test>',
+        'text' => 'threaded',
+    ]));
+
+    expect($reply->ticket->getKey())->toBe($ticket->getKey())
+        ->and($ticket->fresh()->messages()->count())->toBe(2);
+});
+
+it('still ingests when the dedupe lock times out but nothing was stored', function (): void {
+    enableInbound();
+    config()->set('ticketing.mail.inbound.lock_wait_seconds', 0);
+
+    $messageId = '<contended@example.test>';
+    $lock = Cache::lock('ticketing:inbound:'.sha1('contended@example.test'), 15);
+    $lock->get();
+
+    try {
+        // The lock is held and nothing is ingested yet, so the timeout must fall
+        // back to processing rather than silently dropping the mail.
+        $message = Ticketing::receiveEmail(inbound(['message_id' => $messageId]));
+        expect($message)->not->toBeNull();
+    } finally {
+        $lock->release();
+    }
 });
 
 it('prefers the In-Reply-To parent over a newer References match', function (): void {

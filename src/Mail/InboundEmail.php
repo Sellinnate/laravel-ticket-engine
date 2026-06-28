@@ -61,7 +61,7 @@ final readonly class InboundEmail
             html: isset($data['html']) ? (string) $data['html'] : null,
             messageId: isset($data['message_id']) ? (string) $data['message_id'] : null,
             inReplyTo: isset($data['in_reply_to']) ? (string) $data['in_reply_to'] : null,
-            references: self::stringList($data['references'] ?? []),
+            references: self::messageIdList($data['references'] ?? []),
             headers: $headers,
             attachments: self::normaliseAttachments($data['attachments'] ?? []),
             fromName: isset($data['from_name']) ? (string) $data['from_name'] : null,
@@ -115,6 +115,40 @@ final readonly class InboundEmail
         }
 
         return false;
+    }
+
+    /**
+     * Split a References header into individual Message-IDs. The header is a
+     * single whitespace-separated string (e.g. "<a@h> <b@h>"); a host may also
+     * pass an array, possibly with multi-id elements. Either way, every id is
+     * surfaced so header threading can match each ancestor.
+     *
+     * @return list<string>
+     */
+    private static function messageIdList(mixed $value): array
+    {
+        if (is_string($value)) {
+            $value = [$value];
+        }
+
+        if (! is_array($value)) {
+            return [];
+        }
+
+        $out = [];
+        foreach ($value as $item) {
+            if (! is_string($item)) {
+                continue;
+            }
+
+            foreach (preg_split('/\s+/', trim($item)) ?: [] as $id) {
+                if ($id !== '') {
+                    $out[] = $id;
+                }
+            }
+        }
+
+        return $out;
     }
 
     /**

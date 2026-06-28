@@ -69,9 +69,10 @@ class ProcessInboundEmail
         // needs a shared cache store in production, as queues/sessions do.
         $messageId = $this->normaliseId($email->messageId);
         $lock = Cache::lock('ticketing:inbound:'.sha1($messageId), 15);
+        $wait = (int) config('ticketing.mail.inbound.lock_wait_seconds', 8);
 
         try {
-            return $lock->block(8, function () use ($email, $messageId): ?TicketMessage {
+            return $lock->block($wait, function () use ($email, $messageId): ?TicketMessage {
                 if ($this->alreadyIngested($messageId)) {
                     return null;
                 }
@@ -79,8 +80,10 @@ class ProcessInboundEmail
                 return $this->process($email);
             });
         } catch (LockTimeoutException) {
-            // Another worker holds it for this Message-ID — treat as a duplicate.
-            return null;
+            // The holder may have crashed/stalled. Only drop if the message
+            // actually landed; otherwise process without the lock so the mail is
+            // not lost (the holder's lock TTL expires shortly either way).
+            return $this->alreadyIngested($messageId) ? null : $this->process($email);
         }
     }
 
