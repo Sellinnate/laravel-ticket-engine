@@ -39,20 +39,27 @@ class SplitTicket
         // writes use the correct tenant regardless of ambient context.
         $sourceTenant = $source->getAttribute($source->getTenantColumn());
 
-        $created = $this->tenant->forTenant($sourceTenant, fn (): Ticket => $this->split($source, $messageIds, $title, $actor));
+        // split() returns the freshly reloaded source (locked inside the
+        // transaction) so listeners never see the caller's stale in-memory
+        // instance whose relations predate the moved messages.
+        [$created, $reloadedSource] = $this->tenant->forTenant(
+            $sourceTenant,
+            fn (): array => $this->split($source, $messageIds, $title, $actor),
+        );
 
         TicketOpened::dispatch($created);
-        TicketSplit::dispatch($source, $created, $actor);
+        TicketSplit::dispatch($reloadedSource, $created, $actor);
 
         return $created;
     }
 
     /**
      * @param  list<int|string>  $messageIds
+     * @return array{0: Ticket, 1: Ticket}
      */
-    protected function split(Ticket $source, array $messageIds, ?string $title, ?Model $actor): Ticket
+    protected function split(Ticket $source, array $messageIds, ?string $title, ?Model $actor): array
     {
-        return DB::transaction(function () use ($source, $messageIds, $title, $actor): Ticket {
+        return DB::transaction(function () use ($source, $messageIds, $title, $actor): array {
             $ticketModel = Ticketing::ticketModel();
             $messageModel = Ticketing::ticketMessageModel();
             $linkModel = Ticketing::ticketLinkModel();
@@ -124,7 +131,7 @@ class SplitTicket
             $this->audit->record($source, 'ticket.split', $actor, context: ['created_id' => $created->getKey(), 'messages' => $messageIds]);
             $this->audit->record($created, 'ticket.split_from', $actor, context: ['source_id' => $source->getKey()]);
 
-            return $created;
+            return [$created, $source];
         });
     }
 

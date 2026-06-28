@@ -57,6 +57,25 @@ it('splits messages out of a ticket into a new one', function (): void {
     Event::assertDispatched(TicketSplit::class);
 });
 
+it('dispatches TicketSplit with the source reflecting the moved messages', function (): void {
+    Event::fake([TicketSplit::class]);
+
+    $source = Ticketing::open(type: 'support', title: 'Mixed', requester: makeUser());
+    $m1 = Ticketing::for($source)->postMessage(makeUser(), 'keep this');
+    $m2 = Ticketing::for($source)->postMessage(makeUser(), 'move this');
+
+    Ticketing::for($source)->split([$m2->getKey()]);
+
+    Event::assertDispatched(TicketSplit::class, function (TicketSplit $event) use ($source, $m1): bool {
+        // The event must carry the reloaded source whose live relation reflects
+        // the post-move state (only the kept message remains), not the caller's
+        // stale instance.
+        return (string) $event->source->getKey() === (string) $source->getKey()
+            && $event->source->messages()->count() === 1
+            && (string) $event->source->messages()->first()->getKey() === (string) $m1->getKey();
+    });
+});
+
 it('starts the split ticket fresh at the initial state and fires TicketOpened', function (): void {
     Event::fake([TicketOpened::class]);
 
