@@ -13,6 +13,7 @@ class TransitionController extends Controller
     public function store(StoreTransitionRequest $request, string $ticket): TicketResource
     {
         $ticket = $this->resolveTicket($ticket);
+        $this->authorizeTicket($request->user(), 'transition', $ticket);
 
         $ticket = $this->guard('transition', fn () => Ticketing::transition(
             ticket: $ticket,

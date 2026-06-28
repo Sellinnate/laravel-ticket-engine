@@ -32,8 +32,12 @@ class CsatController extends Controller
                 throw ValidationException::withMessages(['token' => 'The CSAT token does not match this ticket.']);
             }
 
+            // The signed token IS the authorization here (it's mailed only to the
+            // requester), so no policy check — a logged-in session isn't required.
             $rating = $this->guard('rating', fn () => Ticketing::submitCsatByToken($token, $request->integer('rating'), $request->input('comment'), $request->user()));
         } else {
+            $this->authorizeTicket($request->user(), 'submitCsat', $ticket);
+
             $rating = $this->guard('rating', fn () => Ticketing::submitCsat($ticket, $request->integer('rating'), $request->input('comment'), $request->user()));
         }
 

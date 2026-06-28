@@ -14,6 +14,7 @@ class AttachmentController extends Controller
     public function store(StoreAttachmentRequest $request, string $ticket): JsonResponse
     {
         $ticket = $this->resolveTicket($ticket);
+        $this->authorizeTicket($request->user(), 'addAttachment', $ticket);
 
         /** @var UploadedFile $file */
         $file = $request->file('file');

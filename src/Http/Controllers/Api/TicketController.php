@@ -22,6 +22,8 @@ class TicketController extends Controller
 {
     public function index(Request $request): AnonymousResourceCollection
     {
+        $this->authorizeAny($request->user(), 'viewAny');
+
         $query = TicketingManager::ticketModel()::query();
 
         // Only scalar filter values: an array query param (?status[]=x) handed to
@@ -44,9 +46,10 @@ class TicketController extends Controller
         return TicketResource::collection($query->latest()->paginate($perPage));
     }
 
-    public function show(string $ticket): TicketResource
+    public function show(Request $request, string $ticket): TicketResource
     {
         $ticket = $this->resolveTicket($ticket);
+        $this->authorizeTicket($request->user(), 'view', $ticket);
 
         // Expose only public (customer-facing) messages over the generic API;
         // internal agent notes are never surfaced here.
@@ -57,6 +60,8 @@ class TicketController extends Controller
 
     public function store(StoreTicketRequest $request): JsonResponse
     {
+        $this->authorizeAny($request->user(), 'create');
+
         $ticket = $this->guard('type', fn () => Ticketing::open(
             type: (string) $request->string('type'),
             title: (string) $request->string('title'),

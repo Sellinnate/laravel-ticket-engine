@@ -8,6 +8,7 @@ use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Auth\Factory;
 use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Route;
 use Selli\Ticketing\Automation\RuleEngine;
 use Selli\Ticketing\Broadcasting\Channels;
@@ -32,6 +33,7 @@ use Selli\Ticketing\Listeners\SlaSubscriber;
 use Selli\Ticketing\Mail\ConfigInboundMailRouter;
 use Selli\Ticketing\Mail\NullInboundRequesterResolver;
 use Selli\Ticketing\Notifications\ConfigNotificationPreferences;
+use Selli\Ticketing\Policies\TicketPolicy;
 use Selli\Ticketing\Routing\AssignmentManager;
 use Selli\Ticketing\Sla\SlaManager;
 use Selli\Ticketing\Support\Ticketing;
@@ -166,6 +168,10 @@ class TicketingServiceProvider extends PackageServiceProvider
         if (config('ticketing.broadcasting.enabled', false) === true) {
             $this->subscribe($this->app->make(BroadcastSubscriber::class));
             $this->registerBroadcastChannels();
+        }
+
+        if (config('ticketing.authorization.register_policies', true) !== false) {
+            Gate::policy(Ticketing::ticketModel(), TicketPolicy::class);
         }
     }
 
