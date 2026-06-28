@@ -27,6 +27,7 @@ use Selli\Ticketing\Data\TransitionData;
 use Selli\Ticketing\Enums\MessageVisibility;
 use Selli\Ticketing\Enums\Priority;
 use Selli\Ticketing\Exceptions\CsatException;
+use Selli\Ticketing\Exceptions\InvalidConfigurationException;
 use Selli\Ticketing\Mail\InboundEmail;
 use Selli\Ticketing\Mail\ProcessInboundEmail;
 use Selli\Ticketing\Models\AutomationRule;
@@ -376,7 +377,17 @@ class Ticketing
             return null;
         }
 
-        return MailThreadToken::tagAddress($base, MailThreadToken::issue($ticket->getKey()));
+        try {
+            $token = MailThreadToken::issue($ticket->getKey());
+        } catch (InvalidConfigurationException $exception) {
+            // No token secret configured: degrade to no tagged Reply-To rather
+            // than crashing a (possibly queued) outbound notification.
+            report($exception);
+
+            return null;
+        }
+
+        return MailThreadToken::tagAddress($base, $token);
     }
 
     // --- Model binding -----------------------------------------------------

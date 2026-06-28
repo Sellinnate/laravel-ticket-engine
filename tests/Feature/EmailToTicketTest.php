@@ -293,6 +293,38 @@ it('deduplicates before rate limiting so a redelivery does not burn a slot', fun
         ->and($b)->not->toBeNull();
 });
 
+it('releases the idempotency claim when the email is dropped, so a retry reprocesses', function (): void {
+    enableInbound();
+    config()->set('ticketing.mail.inbound.rate_limit.max_per_minute', 1);
+
+    // First message consumes the only slot.
+    Ticketing::receiveEmail(inbound(['message_id' => '<x@example.test>']));
+
+    // A NEW message is rate limited and dropped — its claim must be released.
+    $dropped = Ticketing::receiveEmail(inbound(['message_id' => '<y@example.test>']));
+    expect($dropped)->toBeNull();
+
+    // Lift the limit; the same Message-ID re-delivered must now ingest (the claim
+    // wasn't left dangling on the earlier drop).
+    config()->set('ticketing.mail.inbound.rate_limit.max_per_minute', 100);
+    $retry = Ticketing::receiveEmail(inbound(['message_id' => '<y@example.test>']));
+    expect($retry)->not->toBeNull();
+});
+
+it('still sends a notification when no token secret is available for the Reply-To', function (): void {
+    config()->set('ticketing.mail.outbound.reply_to_base', 'support@example.test');
+    config()->set('ticketing.mail.token.secret', null);
+    config()->set('app.key', '');
+
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+    $message = Ticketing::for($ticket)->postMessage(makeUser(), 'hi');
+
+    // Must not throw despite the missing secret; the Reply-To is simply omitted.
+    $mail = (new ReplyPostedNotification($ticket, $message))->toMail(makeUser());
+
+    expect($mail->replyTo)->toBe([]);
+});
+
 it('imports inbound attachments onto the message', function (): void {
     Storage::fake('local');
     enableInbound();
