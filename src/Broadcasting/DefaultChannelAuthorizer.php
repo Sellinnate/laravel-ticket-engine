@@ -8,6 +8,7 @@ use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\Eloquent\Model;
 use Selli\Ticketing\Contracts\CanActOnTickets;
 use Selli\Ticketing\Contracts\ChannelAuthorizer;
+use Selli\Ticketing\Enums\ParticipantRole;
 use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Support\Ticketing;
 use Selli\Ticketing\Tenancy\TenantContext;
@@ -62,16 +63,22 @@ class DefaultChannelAuthorizer implements ChannelAuthorizer
 
     public function forTicketAgents(Authenticatable $user, int|string $ticketId): bool
     {
-        // Agent-only feed: never a requester/participant — the connecting user
-        // must be an agent of the ticket's tenant. Loaded unscoped (see forTicket)
-        // and gated by belongsToTicketTenant, which honours allow_shared.
+        // Agent-only feed: the connecting user must be an agent of the ticket's
+        // tenant. Loaded unscoped (see forTicket), gated by belongsToTicketTenant
+        // (honours allow_shared). A dual-role model that is the ticket's REQUESTER
+        // or subject (the customer side) is excluded even if it also implements
+        // CanActOnTickets — but an assignee/collaborator agent (also a participant)
+        // is NOT, since they legitimately work the ticket.
         if (! $user instanceof CanActOnTickets) {
             return false;
         }
 
         $ticket = Ticketing::ticketModel()::withoutTenancy()->find($ticketId);
 
-        return $ticket instanceof Ticket && $this->belongsToTicketTenant($user, $ticket);
+        return $ticket instanceof Ticket
+            && $this->belongsToTicketTenant($user, $ticket)
+            && ! $this->isSubject($user, $ticket)
+            && ! $this->isRequester($user, $ticket);
     }
 
     protected function tenantMatches(Authenticatable $user, int|string $tenantId): bool
@@ -114,6 +121,19 @@ class DefaultChannelAuthorizer implements ChannelAuthorizer
         return $user instanceof Model
             && $ticket->subject_type === $user->getMorphClass()
             && (string) $ticket->subject_id === (string) $user->getKey();
+    }
+
+    protected function isRequester(Authenticatable $user, Ticket $ticket): bool
+    {
+        if (! $user instanceof Model) {
+            return false;
+        }
+
+        return $ticket->participants()->withoutTenancy()
+            ->where('role', ParticipantRole::Requester->value)
+            ->where('participant_type', $user->getMorphClass())
+            ->where('participant_id', $user->getKey())
+            ->exists();
     }
 
     protected function isParticipant(Authenticatable $user, Ticket $ticket): bool

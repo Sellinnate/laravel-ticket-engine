@@ -188,6 +188,28 @@ it('authorizes the per-ticket agents feed for tenant agents only', function (): 
     expect($authorizer->forTicketAgents($agent9, $ticket->getKey()))->toBeFalse();
 });
 
+it('excludes a dual-role requester from the agents feed but keeps the assigned agent', function (): void {
+    $context = app(TenantContext::class);
+
+    // A dual-role user (agent AND requester) who OPENS the ticket is its requester.
+    $requesterAgent = makeUser(['tenant_id' => 5]);
+    $ticket = $context->forTenant(5, fn () => Ticketing::open(type: 'support', title: 'x', requester: $requesterAgent));
+
+    // Assign a different agent — assignees are recorded as participants too.
+    $assignee = makeUser(['tenant_id' => 5]);
+    $context->forTenant(5, fn () => Ticketing::assign(ticket: $ticket, assignee: $assignee));
+
+    $authorizer = app(DefaultChannelAuthorizer::class);
+
+    // The requester is excluded even though it implements CanActOnTickets...
+    $this->actingAs($requesterAgent);
+    expect($authorizer->forTicketAgents($requesterAgent, $ticket->getKey()))->toBeFalse();
+
+    // ...but the assigned agent (also a participant) is allowed.
+    $this->actingAs($assignee);
+    expect($authorizer->forTicketAgents($assignee, $ticket->getKey()))->toBeTrue();
+});
+
 it('lets a null-tenant requester watch their own tenant-scoped ticket', function (): void {
     // A requester whose own tenant_id is null is still the subject of a ticket
     // that lives in a tenant — loading without the scope is what makes this work.
