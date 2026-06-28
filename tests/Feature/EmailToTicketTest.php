@@ -2,12 +2,15 @@
 
 declare(strict_types=1);
 
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Storage;
 use Selli\Ticketing\Contracts\InboundMailRouter;
+use Selli\Ticketing\Contracts\InboundRequesterResolver;
 use Selli\Ticketing\Enums\BodyFormat;
 use Selli\Ticketing\Enums\MessageSource;
 use Selli\Ticketing\Facades\Ticketing;
 use Selli\Ticketing\Mail\InboundEmail;
+use Selli\Ticketing\Mail\NullInboundRequesterResolver;
 use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Models\TicketAttachment;
 use Selli\Ticketing\Notifications\ReplyPostedNotification;
@@ -323,6 +326,29 @@ it('still sends a notification when no token secret is available for the Reply-T
     $mail = (new ReplyPostedNotification($ticket, $message))->toMail(makeUser());
 
     expect($mail->replyTo)->toBe([]);
+});
+
+it('rolls back the ticket and the dedupe claim when ingestion throws', function (): void {
+    enableInbound();
+
+    // A resolver that blows up mid-ingest.
+    app()->bind(InboundRequesterResolver::class, fn () => new class implements InboundRequesterResolver
+    {
+        public function resolve(InboundEmail $email): ?Model
+        {
+            throw new RuntimeException('boom');
+        }
+    });
+
+    expect(fn () => Ticketing::receiveEmail(inbound(['message_id' => '<boom@example.test>'])))
+        ->toThrow(RuntimeException::class);
+
+    // Everything rolled back: no ticket persisted.
+    expect(Ticket::query()->withoutGlobalScopes()->count())->toBe(0);
+
+    // The claim rolled back too, so a retry (with a working resolver) ingests.
+    app()->bind(InboundRequesterResolver::class, NullInboundRequesterResolver::class);
+    expect(Ticketing::receiveEmail(inbound(['message_id' => '<boom@example.test>'])))->not->toBeNull();
 });
 
 it('imports inbound attachments onto the message', function (): void {

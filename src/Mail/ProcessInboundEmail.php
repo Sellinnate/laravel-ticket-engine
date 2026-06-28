@@ -54,43 +54,56 @@ class ProcessInboundEmail
             return null;
         }
 
-        // Atomic, DB-level idempotency. The first delivery of a Message-ID wins
-        // the unique insert; a concurrent or duplicate delivery is a no-op insert
-        // and is dropped — no lock, no read-then-write race. Done BEFORE rate
-        // limiting so a redelivery never burns a sender's flood-control slot.
-        // (An absent / angle-brackets-only id is un-dedupable, so it just falls
-        // through to processing.)
         $messageId = $email->messageId === null ? '' : $this->normaliseId($email->messageId);
 
-        if ($messageId !== '' && ! $this->claim($messageId)) {
+        // Cheap pre-check (a read) so an obvious redelivery is dropped BEFORE the
+        // rate limiter, never burning the sender's flood-control slot. The
+        // authoritative dedupe is the unique claim insert inside the transaction.
+        if ($messageId !== '' && $this->claimed($messageId)) {
             return null;
         }
 
-        // Free the claim on a CONTROLLED drop (rate limited, or unroutable/unknown
-        // type), all of which happen before anything is committed — so a later
-        // retry of the same Message-ID can be ingested. A THROW is deliberately
-        // NOT released: process() may have already committed a ticket/message
-        // (e.g. an attachment failing after the message was saved), so keeping the
-        // claim is what stops a retry from double-creating.
+        // A rate-limited NEW message is dropped here, before any claim, so a
+        // later retry (once the burst subsides) can still be ingested.
         if ($this->rateLimited($email)) {
-            $this->releaseClaimIf($messageId);
-
             return null;
         }
 
-        $message = $this->process($email);
+        // Ingest the email and record the dedupe claim in ONE transaction, so the
+        // claim, the ticket and the message commit (or roll back) together:
+        //  - a throw rolls EVERYTHING back, leaving no orphan claim or empty
+        //    ticket, so a provider retry reprocesses cleanly;
+        //  - a successful commit persists the claim as the permanent dedupe
+        //    record, making redelivery idempotent;
+        //  - a concurrent same-id delivery serialises on the unique index.
+        DB::beginTransaction();
 
-        if ($message === null) {
-            $this->releaseClaimIf($messageId);
-        }
+        try {
+            // Lost a concurrent race for this id (the other delivery's claim
+            // committed first) → nothing to do.
+            if ($messageId !== '' && ! $this->claim($messageId)) {
+                DB::rollBack();
 
-        return $message;
-    }
+                return null;
+            }
 
-    protected function releaseClaimIf(string $messageId): void
-    {
-        if ($messageId !== '') {
-            $this->releaseClaim($messageId);
+            $message = $this->process($email);
+
+            // Unroutable / unknown type: nothing was ingested, so roll the claim
+            // back too — never persist a claim for an email we didn't record.
+            if ($message === null) {
+                DB::rollBack();
+
+                return null;
+            }
+
+            DB::commit();
+
+            return $message;
+        } catch (\Throwable $exception) {
+            DB::rollBack();
+
+            throw $exception;
         }
     }
 
@@ -106,9 +119,9 @@ class ProcessInboundEmail
         ]) > 0;
     }
 
-    protected function releaseClaim(string $messageId): void
+    protected function claimed(string $messageId): bool
     {
-        DB::table($this->dedupeTable())->where('message_id', $messageId)->delete();
+        return DB::table($this->dedupeTable())->where('message_id', $messageId)->exists();
     }
 
     protected function dedupeTable(): string
