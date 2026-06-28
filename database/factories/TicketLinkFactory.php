@@ -16,6 +16,19 @@ class TicketLinkFactory extends Factory
     protected $model = TicketLink::class;
 
     /**
+     * Honour a host-overridden model (Ticketing::useTicketLinkModel()).
+     *
+     * @return class-string<TicketLink>
+     */
+    public function modelName(): string
+    {
+        /** @var class-string<TicketLink> $model */
+        $model = Ticketing::ticketLinkModel();
+
+        return $model;
+    }
+
+    /**
      * @return array<string, mixed>
      */
     public function definition(): array

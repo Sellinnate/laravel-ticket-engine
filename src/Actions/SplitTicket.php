@@ -50,12 +50,6 @@ class SplitTicket
         return $this->tenant->forTenant($sourceTenant, function () use ($source, $messageIds, $title, $actor): Ticket {
             [$created, $reloadedSource] = $this->split($source, $messageIds, $title, $actor);
 
-            // If the moved thread already contains a qualifying agent reply, the
-            // split ticket's first response has effectively happened — stamp it
-            // BEFORE TicketOpened so the SLA bootstrap doesn't open a fresh
-            // first-response clock for an already-answered conversation.
-            $this->sla->reconcileFirstResponse($created);
-
             TicketOpened::dispatch($created);
             TicketSplit::dispatch($reloadedSource, $created, $actor);
 
@@ -140,6 +134,12 @@ class SplitTicket
 
             $this->audit->record($source, 'ticket.split', $actor, context: ['created_id' => $created->getKey(), 'messages' => $messageIds]);
             $this->audit->record($created, 'ticket.split_from', $actor, context: ['source_id' => $source->getKey()]);
+
+            // Stamp first_response_at from the moved thread INSIDE the transaction
+            // (before the post-commit TicketOpened) so the split is atomic: if it
+            // throws, the whole move rolls back rather than leaving a moved
+            // conversation whose SLA bootstrap never ran.
+            $this->sla->reconcileFirstResponse($created);
 
             return [$created, $source];
         });

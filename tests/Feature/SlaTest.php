@@ -12,6 +12,7 @@ use Selli\Ticketing\Events\SlaThresholdReached;
 use Selli\Ticketing\Facades\Ticketing;
 use Selli\Ticketing\Models\SlaClock;
 use Selli\Ticketing\Models\SlaPolicy;
+use Selli\Ticketing\Models\TicketMessage;
 use Selli\Ticketing\Sla\SlaManager;
 use Selli\Ticketing\Sla\SlaPolicyResolver;
 use Selli\Ticketing\Tenancy\TenantContext;
@@ -51,6 +52,26 @@ it('completes the first-response clock on the first agent reply', function (): v
     Ticketing::for($ticket)->postMessage($agent, 'On it');
 
     expect(clockFor($ticket->getKey(), SlaTarget::FirstResponse)->isCompleted())->toBeTrue();
+});
+
+it('clamps a merged-in first response to the clock start when it predates it', function (): void {
+    SlaPolicy::factory()->create(['first_response_minutes' => 60]);
+
+    $target = Ticketing::open(type: 'support', title: 'T', requester: makeUser());
+    $source = Ticketing::open(type: 'support', title: 'S', requester: makeUser());
+
+    // Agent reply on the source predates the target's clock start (10:00).
+    $reply = Ticketing::for($source)->postMessage(makeUser(['name' => 'Agent']), 'early');
+    TicketMessage::query()->withoutTenancy()->whereKey($reply->getKey())
+        ->update(['created_at' => Carbon::parse('2026-06-29 09:00:00', 'UTC')]);
+
+    Ticketing::for($target)->mergeFrom([$source]);
+
+    $clock = clockFor($target->getKey(), SlaTarget::FirstResponse);
+
+    expect($clock->isCompleted())->toBeTrue()
+        ->and($clock->completed_at->greaterThanOrEqualTo($clock->started_at))->toBeTrue()
+        ->and($clock->completed_at->equalTo($clock->started_at))->toBeTrue();
 });
 
 it('completes the resolution clock on resolution', function (): void {

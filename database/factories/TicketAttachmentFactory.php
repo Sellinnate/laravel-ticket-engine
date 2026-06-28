@@ -17,6 +17,19 @@ class TicketAttachmentFactory extends Factory
     protected $model = TicketAttachment::class;
 
     /**
+     * Honour a host-overridden model (Ticketing::useTicketAttachmentModel()).
+     *
+     * @return class-string<TicketAttachment>
+     */
+    public function modelName(): string
+    {
+        /** @var class-string<TicketAttachment> $model */
+        $model = Ticketing::ticketAttachmentModel();
+
+        return $model;
+    }
+
+    /**
      * @return array<string, mixed>
      */
     public function definition(): array

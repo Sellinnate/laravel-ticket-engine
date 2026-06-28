@@ -128,11 +128,19 @@ class SlaManager
         }
 
         // Force the first-response clock (if any) to the adopted timestamp, even
-        // if it was previously completed at a later time.
+        // if it was previously completed at a later time. Clamp to started_at so
+        // a merged-in reply that predates the target's clock can't record a
+        // completion before the clock began.
         $clock = $this->clock($ticket, SlaTarget::FirstResponse);
 
         if ($clock !== null) {
-            $clock->forceFill(['completed_at' => $ticket->first_response_at])->save();
+            $completedAt = $ticket->first_response_at;
+
+            if ($completedAt !== null && $completedAt->lessThan($clock->started_at)) {
+                $completedAt = $clock->started_at;
+            }
+
+            $clock->forceFill(['completed_at' => $completedAt])->save();
         }
     }
 
