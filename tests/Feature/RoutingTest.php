@@ -9,6 +9,7 @@ use Selli\Ticketing\Models\RoutingRule;
 use Selli\Ticketing\Models\Team;
 use Selli\Ticketing\Models\TeamMember;
 use Selli\Ticketing\Models\Ticket;
+use Selli\Ticketing\Routing\RoutingEngine;
 use Selli\Ticketing\Tenancy\TenantContext;
 
 it('routes a ticket to a team via a matching rule on open', function (): void {
@@ -96,15 +97,47 @@ it('falls through to a backup rule when the first match has no valid target', fu
     expect((string) $ticket->team_id)->toBe((string) $teamOk->getKey());
 });
 
-it('throws on an unknown routing field', function (): void {
+it('fails closed on an unknown routing field at the engine level', function (): void {
     RoutingRule::factory()->create([
         'conditions' => [['field' => 'bogus', 'operator' => '=', 'value' => 'x']],
         'team_id' => Team::factory()->create()->getKey(),
         'strategy' => 'manual',
     ]);
 
-    Ticketing::open(type: 'support', title: 'x', requester: makeUser());
-})->throws(InvalidConfigurationException::class);
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+
+    // The engine throws on the bad field…
+    expect(fn () => app(RoutingEngine::class)->route($ticket))
+        ->toThrow(InvalidConfigurationException::class);
+});
+
+it('does not let a routing error break ticket creation', function (): void {
+    // A bad rule must not fail (or half-complete) the open — the side-effect
+    // subscriber reports the error and the ticket is simply left unrouted.
+    RoutingRule::factory()->create([
+        'conditions' => [['field' => 'bogus', 'operator' => '=', 'value' => 'x']],
+        'team_id' => Team::factory()->create()->getKey(),
+        'strategy' => 'manual',
+    ]);
+
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+
+    expect($ticket->exists)->toBeTrue()
+        ->and($ticket->fresh()->team_id)->toBeNull();
+});
+
+it('does not route to a deactivated team', function (): void {
+    $team = Team::factory()->create(['is_active' => false]);
+    RoutingRule::factory()->create([
+        'conditions' => [['field' => 'type', 'operator' => '=', 'value' => 'support']],
+        'team_id' => $team->getKey(),
+        'strategy' => 'manual',
+    ]);
+
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+
+    expect($ticket->fresh()->team_id)->toBeNull();
+});
 
 it('routes to an explicit assignee declared on a rule', function (): void {
     $agent = makeUser();

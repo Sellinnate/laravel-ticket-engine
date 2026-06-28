@@ -92,6 +92,10 @@ class TicketingServiceProvider extends PackageServiceProvider
 
     /**
      * Register an event subscriber's listeners on the dispatcher.
+     *
+     * The handlers are wrapped so a failure in a side-effect (SLA, routing) is
+     * reported but never propagates back to the action that emitted the event —
+     * a misconfigured rule must not fail (or half-complete) a ticket open.
      */
     protected function subscribe(object $subscriber): void
     {
@@ -99,7 +103,13 @@ class TicketingServiceProvider extends PackageServiceProvider
         $map = $subscriber->subscribe();
 
         foreach ($map as $event => $method) {
-            Event::listen($event, [$subscriber, $method]);
+            Event::listen($event, function (object $payload) use ($subscriber, $method): void {
+                try {
+                    $subscriber->{$method}($payload);
+                } catch (\Throwable $exception) {
+                    report($exception);
+                }
+            });
         }
     }
 }

@@ -168,7 +168,11 @@ class RoutingEngine
             return null;
         }
 
-        // Never route to another tenant's team.
+        // Skip deactivated teams, and never route to another tenant's team.
+        if (! $team->is_active) {
+            return null;
+        }
+
         return $this->tenant->belongsToTicketTenant($team, $ticket) ? $team : null;
     }
 
