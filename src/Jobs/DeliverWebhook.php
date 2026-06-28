@@ -44,7 +44,7 @@ class DeliverWebhook implements ShouldQueue
 
     public function handle(): void
     {
-        $this->assertUrlAllowed($this->url);
+        $pinnedIp = $this->assertUrlAllowed($this->url);
 
         $body = json_encode($this->payload, JSON_THROW_ON_ERROR);
         $headers = ['Content-Type' => 'application/json'];
@@ -57,14 +57,39 @@ class DeliverWebhook implements ShouldQueue
 
         $timeout = max(1, (int) config('ticketing.webhooks.timeout', 5));
 
-        Http::timeout($timeout)
+        $request = Http::timeout($timeout)
             // Never follow redirects: a public/allow-listed first hop must not be
             // able to bounce the request to a private/loopback target (SSRF).
             ->withoutRedirecting()
             ->withHeaders($headers)
-            ->withBody($body, 'application/json')
-            ->post($this->url)
-            ->throw(); // non-2xx -> RequestException -> retry
+            ->withBody($body, 'application/json');
+
+        if ($pinnedIp !== null) {
+            // Pin curl's resolution to the exact IP we validated, so the host
+            // can't re-resolve to a private address at connect time (DNS
+            // rebinding). The Host header / SNI stays the original hostname.
+            $request = $request->withOptions([
+                'curl' => [CURLOPT_RESOLVE => $this->curlResolveEntries($this->url, $pinnedIp)],
+            ]);
+        }
+
+        $request->post($this->url)->throw(); // non-2xx -> RequestException -> retry
+    }
+
+    /**
+     * @return list<string>
+     */
+    protected function curlResolveEntries(string $url, string $ip): array
+    {
+        $host = trim((string) parse_url($url, PHP_URL_HOST), '[]');
+        $scheme = strtolower((string) parse_url($url, PHP_URL_SCHEME));
+        $port = parse_url($url, PHP_URL_PORT);
+
+        if (! is_int($port)) {
+            $port = $scheme === 'https' ? 443 : 80;
+        }
+
+        return ["{$host}:{$port}:{$ip}"];
     }
 
     /**
@@ -78,10 +103,11 @@ class DeliverWebhook implements ShouldQueue
     /**
      * Guard the destination: HTTP(S) only, and — unless an explicit host
      * allow-list is configured — block requests that resolve to private,
-     * loopback or link-local/metadata addresses (SSRF). An unresolvable host is
-     * left to the HTTP client to fail.
+     * loopback or link-local/metadata addresses (SSRF). Returns the validated IP
+     * to pin (closing the connect-time DNS-rebinding gap), or null when no
+     * pinning is needed (allow-list / private blocking disabled).
      */
-    protected function assertUrlAllowed(string $url): void
+    protected function assertUrlAllowed(string $url): ?string
     {
         $scheme = strtolower((string) parse_url($url, PHP_URL_SCHEME));
 
@@ -105,11 +131,11 @@ class DeliverWebhook implements ShouldQueue
                 throw new InvalidConfigurationException("Webhook host [{$host}] is not allow-listed.");
             }
 
-            return;
+            return null;
         }
 
         if (config('ticketing.webhooks.block_private', true) === false) {
-            return;
+            return null;
         }
 
         $ips = $this->resolveIps($host);
@@ -126,6 +152,9 @@ class DeliverWebhook implements ShouldQueue
                 throw new InvalidConfigurationException("Webhook host [{$host}] resolves to a private or reserved address.");
             }
         }
+
+        // Pin the first validated public IP for the actual request.
+        return $ips[0];
     }
 
     /**

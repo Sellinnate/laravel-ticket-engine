@@ -56,8 +56,8 @@ class ConditionEvaluator
         $actual = $this->fieldValue($ticket, $field);
 
         return match ($operator) {
-            '=', 'eq' => $this->looseEquals($actual, $expected),
-            '!=', 'neq' => ! $this->looseEquals($actual, $expected),
+            '=', 'eq' => $this->equals($actual, $expected),
+            '!=', 'neq' => ! $this->equals($actual, $expected),
             'gt' => $this->compareNum($actual, $expected, fn (float $a, float $b): bool => $a > $b),
             'gte' => $this->compareNum($actual, $expected, fn (float $a, float $b): bool => $a >= $b),
             'lt' => $this->compareNum($actual, $expected, fn (float $a, float $b): bool => $a < $b),
@@ -66,7 +66,7 @@ class ConditionEvaluator
             'not_in' => ! $this->inList($actual, $expected),
             'is_null' => $actual === null,
             'is_not_null' => $actual !== null,
-            'contains' => $actual !== null && is_scalar($expected) && str_contains((string) $actual, (string) $expected),
+            'contains' => $this->contains($actual, $expected),
             default => throw new InvalidConfigurationException("Unknown automation condition operator [{$operator}]."),
         };
     }
@@ -102,12 +102,18 @@ class ConditionEvaluator
     }
 
     /**
-     * Type-tolerant scalar equality: rule JSON usually stores values as strings,
-     * so "30" must match the integer 30 and "true" the boolean true. Booleans
-     * compare by truthiness, numerics numerically, everything else as strings.
+     * Type-tolerant scalar equality that FAILS CLOSED on a malformed operand
+     * (so a bad rule can't accidentally match via the `!=` / `not_in` negation):
+     * rule JSON usually stores values as strings, so "30" matches the integer 30
+     * and "true" the boolean true, but a non-scalar value or an unparseable
+     * boolean throws rather than silently returning false.
      */
-    protected function looseEquals(mixed $a, mixed $b): bool
+    protected function equals(mixed $a, mixed $b): bool
     {
+        if (! is_scalar($b) && $b !== null) {
+            throw new InvalidConfigurationException('Automation =/!= condition expects a scalar value.');
+        }
+
         if ($a === null || $b === null) {
             return $a === $b;
         }
@@ -120,21 +126,19 @@ class ConditionEvaluator
             return (float) $a === (float) $b;
         }
 
-        if ((is_scalar($a)) && (is_scalar($b))) {
-            return (string) $a === (string) $b;
-        }
-
-        return false;
+        return (string) $a === (string) $b;
     }
 
     protected function inList(mixed $actual, mixed $expected): bool
     {
         if (! is_array($expected)) {
-            return false;
+            // Fail closed: a non-list value is a malformed in/not_in rule, which
+            // must not become an accidental match through not_in's negation.
+            throw new InvalidConfigurationException('Automation in/not_in condition expects a list value.');
         }
 
         foreach ($expected as $candidate) {
-            if ($this->looseEquals($actual, $candidate)) {
+            if ($this->equals($actual, $candidate)) {
                 return true;
             }
         }
@@ -142,9 +146,32 @@ class ConditionEvaluator
         return false;
     }
 
+    protected function contains(mixed $actual, mixed $expected): bool
+    {
+        if (! is_scalar($expected)) {
+            throw new InvalidConfigurationException('Automation contains condition expects a scalar value.');
+        }
+
+        return $actual !== null && str_contains((string) $actual, (string) $expected);
+    }
+
+    /**
+     * Parse a value to a bool, failing closed on an unrecognised string (so a
+     * typo like "maybe" doesn't quietly collapse to false).
+     */
     protected function toBool(mixed $value): bool
     {
-        return is_bool($value) ? $value : (bool) filter_var($value, FILTER_VALIDATE_BOOL);
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        $parsed = filter_var($value, FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE);
+
+        if ($parsed === null) {
+            throw new InvalidConfigurationException('Automation boolean condition has an unparseable value.');
+        }
+
+        return $parsed;
     }
 
     /**

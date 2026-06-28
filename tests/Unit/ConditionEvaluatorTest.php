@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Selli\Ticketing\Automation\ConditionEvaluator;
 use Selli\Ticketing\Enums\Priority;
+use Selli\Ticketing\Exceptions\InvalidConfigurationException;
 use Selli\Ticketing\Facades\Ticketing;
 
 function evalCond(array $conditions, string $match = 'all'): bool
@@ -63,6 +64,20 @@ it('fails closed on numeric comparisons with a non-numeric/null operand', functi
     // assignee_id is null on a fresh ticket — must not coerce to 0 and match.
     expect(evalCond([['field' => 'assignee_id', 'operator' => 'gt', 'value' => 5]]))->toBeFalse()
         ->and(evalCond([['field' => 'priority', 'operator' => 'gt', 'value' => 'not-a-number']]))->toBeFalse();
+});
+
+it('fails closed on malformed equality, list and bool operands', function (): void {
+    // A non-scalar = value, a non-list not_in value, an unparseable bool, and a
+    // non-scalar contains value must all throw — not silently (mis)match,
+    // especially through the !=/not_in negation.
+    expect(fn () => evalCond([['field' => 'category', 'operator' => '=', 'value' => ['arr']]]))
+        ->toThrow(InvalidConfigurationException::class)
+        ->and(fn () => evalCond([['field' => 'category', 'operator' => 'not_in', 'value' => 'not-a-list']]))
+        ->toThrow(InvalidConfigurationException::class)
+        ->and(fn () => evalCond([['field' => 'is_assigned', 'operator' => '=', 'value' => 'maybe']]))
+        ->toThrow(InvalidConfigurationException::class)
+        ->and(fn () => evalCond([['field' => 'category', 'operator' => 'contains', 'value' => ['a']]]))
+        ->toThrow(InvalidConfigurationException::class);
 });
 
 it('combines with all vs any', function (): void {

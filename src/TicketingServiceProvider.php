@@ -6,6 +6,7 @@ namespace Selli\Ticketing;
 
 use Illuminate\Contracts\Auth\Factory;
 use Illuminate\Support\Facades\Event;
+use Selli\Ticketing\Automation\RuleEngine;
 use Selli\Ticketing\Collaboration\NullMentionResolver;
 use Selli\Ticketing\Commands\EscalateCommand;
 use Selli\Ticketing\Commands\RecalculateSlaCommand;
@@ -72,6 +73,10 @@ class TicketingServiceProvider extends PackageServiceProvider
         $this->app->singleton(SlaManager::class);
 
         $this->app->singleton(AssignmentManager::class, fn (): AssignmentManager => new AssignmentManager($this->app));
+
+        // Scoped so the automation engine's re-entrancy depth counter is shared
+        // within one request but reset between requests on a persistent worker.
+        $this->app->scoped(RuleEngine::class);
 
         $this->app->bind(MentionResolver::class, function (): MentionResolver {
             /** @var class-string<MentionResolver> $class */
