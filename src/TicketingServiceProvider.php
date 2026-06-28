@@ -6,12 +6,14 @@ namespace Selli\Ticketing;
 
 use Illuminate\Contracts\Auth\Factory;
 use Illuminate\Support\Facades\Event;
+use Selli\Ticketing\Automation\RuleEngine;
 use Selli\Ticketing\Collaboration\NullMentionResolver;
 use Selli\Ticketing\Commands\EscalateCommand;
 use Selli\Ticketing\Commands\RecalculateSlaCommand;
 use Selli\Ticketing\Contracts\MentionResolver;
 use Selli\Ticketing\Contracts\TenantResolver;
 use Selli\Ticketing\Contracts\WorkflowDriver;
+use Selli\Ticketing\Listeners\AutomationSubscriber;
 use Selli\Ticketing\Listeners\CollaborationSubscriber;
 use Selli\Ticketing\Listeners\CsatSubscriber;
 use Selli\Ticketing\Listeners\RoutingSubscriber;
@@ -72,6 +74,10 @@ class TicketingServiceProvider extends PackageServiceProvider
 
         $this->app->singleton(AssignmentManager::class, fn (): AssignmentManager => new AssignmentManager($this->app));
 
+        // Scoped so the automation engine's re-entrancy depth counter is shared
+        // within one request but reset between requests on a persistent worker.
+        $this->app->scoped(RuleEngine::class);
+
         $this->app->bind(MentionResolver::class, function (): MentionResolver {
             /** @var class-string<MentionResolver> $class */
             $class = config('ticketing.collaboration.mentions.resolver', NullMentionResolver::class);
@@ -106,6 +112,10 @@ class TicketingServiceProvider extends PackageServiceProvider
 
         if (config('ticketing.csat.enabled', true) !== false) {
             $this->subscribe($this->app->make(CsatSubscriber::class));
+        }
+
+        if (config('ticketing.automation.enabled', true) !== false) {
+            $this->subscribe($this->app->make(AutomationSubscriber::class));
         }
     }
 

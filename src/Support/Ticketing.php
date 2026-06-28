@@ -11,6 +11,7 @@ use Illuminate\Support\Str;
 use Selli\Ticketing\Actions\AddAttachment;
 use Selli\Ticketing\Actions\ApplyMacro;
 use Selli\Ticketing\Actions\AssignTicket;
+use Selli\Ticketing\Actions\ChangePriority;
 use Selli\Ticketing\Actions\MergeTickets;
 use Selli\Ticketing\Actions\OpenTicket;
 use Selli\Ticketing\Actions\PostMessage;
@@ -26,6 +27,7 @@ use Selli\Ticketing\Data\TransitionData;
 use Selli\Ticketing\Enums\MessageVisibility;
 use Selli\Ticketing\Enums\Priority;
 use Selli\Ticketing\Exceptions\CsatException;
+use Selli\Ticketing\Models\AutomationRule;
 use Selli\Ticketing\Models\BusinessHours;
 use Selli\Ticketing\Models\CannedResponse;
 use Selli\Ticketing\Models\Holiday;
@@ -273,6 +275,14 @@ class Ticketing
     }
 
     /**
+     * Change a ticket's priority (audited, emits PriorityChanged).
+     */
+    public function changePriority(Ticket $ticket, Priority $priority, ?Model $actor = null): Ticket
+    {
+        return $this->container->make(ChangePriority::class)->handle($ticket, $priority, $actor);
+    }
+
+    /**
      * (Re-)request a satisfaction rating for a ticket, emitting CsatRequested.
      */
     public function requestCsat(Ticket $ticket, ?Model $actor = null): SatisfactionRating
@@ -403,6 +413,11 @@ class Ticketing
     public static function useSatisfactionRatingModel(string $model): void
     {
         static::$models['satisfaction_rating'] = $model;
+    }
+
+    public static function useAutomationRuleModel(string $model): void
+    {
+        static::$models['automation_rule'] = $model;
     }
 
     /**
@@ -581,6 +596,15 @@ class Ticketing
     {
         /** @var class-string<SatisfactionRating> */
         return static::$models['satisfaction_rating'] ?? config('ticketing.models.satisfaction_rating', SatisfactionRating::class);
+    }
+
+    /**
+     * @return class-string<AutomationRule>
+     */
+    public static function automationRuleModel(): string
+    {
+        /** @var class-string<AutomationRule> */
+        return static::$models['automation_rule'] ?? config('ticketing.models.automation_rule', AutomationRule::class);
     }
 
     /**
