@@ -12,9 +12,12 @@ use Selli\Ticketing\Jobs\DeliverWebhook;
 use Selli\Ticketing\Support\WebhookSigner;
 
 // The delivery tests target example.test; allow-list it so the SSRF heuristic
-// (which may resolve reserved test domains) doesn't get in the way. The SSRF
-// test below clears this to exercise the heuristic directly.
-beforeEach(fn () => config()->set('ticketing.webhooks.allowed_hosts', ['example.test']));
+// (which may resolve reserved test domains) doesn't get in the way. Reset the
+// guard flags each test so a test that toggles them can't leak via order.
+beforeEach(function (): void {
+    config()->set('ticketing.webhooks.block_private', true);
+    config()->set('ticketing.webhooks.allowed_hosts', ['example.test']);
+});
 
 it('signs and posts the payload', function (): void {
     config()->set('ticketing.webhooks.secret', 'shhh');
@@ -65,6 +68,11 @@ it('refuses a non-http(s) url', function (): void {
 it('blocks a webhook to a private/loopback address (SSRF)', function (): void {
     config()->set('ticketing.webhooks.allowed_hosts', []); // use the private-range heuristic
     (new DeliverWebhook('http://127.0.0.1/hook', ['a' => 1]))->handle();
+})->throws(InvalidConfigurationException::class);
+
+it('blocks a webhook to an IPv6 loopback address (SSRF)', function (): void {
+    config()->set('ticketing.webhooks.allowed_hosts', []);
+    (new DeliverWebhook('http://[::1]/hook', ['a' => 1]))->handle();
 })->throws(InvalidConfigurationException::class);
 
 it('allows a private address when explicitly allow-listed', function (): void {

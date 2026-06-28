@@ -58,6 +58,9 @@ class DeliverWebhook implements ShouldQueue
         $timeout = max(1, (int) config('ticketing.webhooks.timeout', 5));
 
         Http::timeout($timeout)
+            // Never follow redirects: a public/allow-listed first hop must not be
+            // able to bounce the request to a private/loopback target (SSRF).
+            ->withoutRedirecting()
             ->withHeaders($headers)
             ->withBody($body, 'application/json')
             ->post($this->url)
@@ -86,7 +89,8 @@ class DeliverWebhook implements ShouldQueue
             throw new InvalidConfigurationException("Webhook url must be http(s): [{$url}].");
         }
 
-        $host = (string) parse_url($url, PHP_URL_HOST);
+        // Strip the brackets from an IPv6 literal host ([::1]).
+        $host = trim((string) parse_url($url, PHP_URL_HOST), '[]');
 
         if ($host === '') {
             throw new InvalidConfigurationException("Webhook url has no host: [{$url}].");
@@ -108,14 +112,45 @@ class DeliverWebhook implements ShouldQueue
             return;
         }
 
-        // Resolve a hostname to an IP; a literal IP is used as-is. Only block when
-        // we actually have an IP that falls in a private/reserved range.
-        $ip = filter_var($host, FILTER_VALIDATE_IP) ? $host : gethostbyname($host);
-
-        if (filter_var($ip, FILTER_VALIDATE_IP)
-            && filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false) {
-            throw new InvalidConfigurationException("Webhook host [{$host}] resolves to a private or reserved address.");
+        // Block if ANY resolved address (v4 or v6) is private/reserved.
+        foreach ($this->resolveIps($host) as $ip) {
+            if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false) {
+                throw new InvalidConfigurationException("Webhook host [{$host}] resolves to a private or reserved address.");
+            }
         }
+    }
+
+    /**
+     * Resolve a host to its IP addresses (a literal IP is returned as-is). Covers
+     * both A and AAAA records so an IPv6-only private target is caught too. An
+     * unresolvable host yields no IPs and is left for the HTTP client to fail.
+     *
+     * @return list<string>
+     */
+    protected function resolveIps(string $host): array
+    {
+        if (filter_var($host, FILTER_VALIDATE_IP)) {
+            return [$host];
+        }
+
+        $ips = [];
+
+        /** @var list<array<string, mixed>>|false $records */
+        $records = @dns_get_record($host, DNS_A | DNS_AAAA);
+
+        if (is_array($records)) {
+            foreach ($records as $record) {
+                if (isset($record['ip']) && is_string($record['ip'])) {
+                    $ips[] = $record['ip'];      // A
+                }
+
+                if (isset($record['ipv6']) && is_string($record['ipv6'])) {
+                    $ips[] = $record['ipv6'];    // AAAA
+                }
+            }
+        }
+
+        return $ips;
     }
 
     public function failed(Throwable $exception): void
