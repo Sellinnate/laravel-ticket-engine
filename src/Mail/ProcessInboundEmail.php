@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Selli\Ticketing\Mail;
 
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\RateLimiter;
 use Selli\Ticketing\Actions\AddAttachment;
 use Selli\Ticketing\Actions\PostMessage;
@@ -55,11 +57,34 @@ class ProcessInboundEmail
             return null;
         }
 
-        // Idempotent against a provider re-delivering the same webhook.
-        if ($email->messageId !== null && $this->alreadyIngested($this->normaliseId($email->messageId))) {
-            return null;
+        // Without a Message-ID there's nothing to deduplicate on — process plainly.
+        if ($email->messageId === null) {
+            return $this->process($email);
         }
 
+        // Serialise concurrent deliveries of the SAME Message-ID under an atomic
+        // lock, then re-check inside it: the read-then-write alreadyIngested check
+        // alone races (two webhooks both pass it and double-create). The lock
+        // needs a shared cache store in production, as queues/sessions do.
+        $messageId = $this->normaliseId($email->messageId);
+        $lock = Cache::lock('ticketing:inbound:'.sha1($messageId), 15);
+
+        try {
+            return $lock->block(8, function () use ($email, $messageId): ?TicketMessage {
+                if ($this->alreadyIngested($messageId)) {
+                    return null;
+                }
+
+                return $this->process($email);
+            });
+        } catch (LockTimeoutException) {
+            // Another worker holds it for this Message-ID — treat as a duplicate.
+            return null;
+        }
+    }
+
+    protected function process(InboundEmail $email): ?TicketMessage
+    {
         $ticket = $this->thread($email) ?? $this->open($email);
 
         if (! $ticket instanceof Ticket) {
@@ -93,26 +118,34 @@ class ProcessInboundEmail
             }
         }
 
-        $references = [];
-        foreach (array_merge([$email->inReplyTo], $email->references) as $reference) {
-            if (is_string($reference) && $reference !== '') {
-                $references[] = $this->normaliseId($reference);
+        // In-Reply-To names the DIRECT parent, so it's tried first; References is
+        // ordered oldest→newest, so its newest (closest ancestor) is tried next.
+        // Each id is resolved on its own — never a whereIn+latest() that could
+        // pick the most recent of several matches over the actual parent.
+        $candidates = array_merge([$email->inReplyTo], array_reverse($email->references));
+
+        $seen = [];
+        foreach ($candidates as $reference) {
+            if (! is_string($reference) || ($id = $this->normaliseId($reference)) === '' || isset($seen[$id])) {
+                continue;
+            }
+
+            $seen[$id] = true;
+
+            /** @var TicketMessage|null $message */
+            $message = Ticketing::ticketMessageModel()::withoutTenancy()
+                ->where('meta->message_id', $id)
+                ->latest()
+                ->first();
+
+            $ticket = $message?->ticket()->withoutTenancy()->first();
+
+            if ($ticket instanceof Ticket) {
+                return $ticket;
             }
         }
 
-        if ($references === []) {
-            return null;
-        }
-
-        /** @var TicketMessage|null $message */
-        $message = Ticketing::ticketMessageModel()::withoutTenancy()
-            ->whereIn('meta->message_id', array_values(array_unique($references)))
-            ->latest()
-            ->first();
-
-        $ticket = $message?->ticket()->withoutTenancy()->first();
-
-        return $ticket instanceof Ticket ? $ticket : null;
+        return null;
     }
 
     /**

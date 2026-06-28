@@ -172,6 +172,25 @@ it('threads a reply via In-Reply-To against a stored Message-ID', function (): v
         ->and($ticket->fresh()->messages()->count())->toBe(2);
 });
 
+it('prefers the In-Reply-To parent over a newer References match', function (): void {
+    enableInbound();
+
+    // Ticket A is the direct parent; ticket B is created later (newer row).
+    $a = Ticketing::receiveEmail(inbound(['message_id' => '<a@example.test>']))->ticket;
+    $b = Ticketing::receiveEmail(inbound(['from' => 'other@example.test', 'message_id' => '<b@example.test>']))->ticket;
+
+    // The reply names A as the direct parent, but also references the newer B.
+    $reply = Ticketing::receiveEmail(inbound([
+        'message_id' => '<c@example.test>',
+        'in_reply_to' => '<a@example.test>',
+        'references' => ['<b@example.test>'],
+        'text' => 'Threaded to A, please.',
+    ]));
+
+    expect($reply->ticket->getKey())->toBe($a->getKey())
+        ->and($reply->ticket->getKey())->not->toBe($b->getKey());
+});
+
 it('ignores a duplicate delivery of the same Message-ID', function (): void {
     enableInbound();
 
