@@ -14,6 +14,7 @@ use Selli\Ticketing\Automation\RuleEngine;
 use Selli\Ticketing\Broadcasting\Channels;
 use Selli\Ticketing\Broadcasting\DefaultChannelAuthorizer;
 use Selli\Ticketing\Collaboration\NullMentionResolver;
+use Selli\Ticketing\Commands\DemoCommand;
 use Selli\Ticketing\Commands\EscalateCommand;
 use Selli\Ticketing\Commands\PruneCommand;
 use Selli\Ticketing\Commands\RecalculateSlaCommand;
@@ -42,6 +43,7 @@ use Selli\Ticketing\Tenancy\DefaultTenantResolver;
 use Selli\Ticketing\Tenancy\TenantContext;
 use Selli\Ticketing\Workflow\ConfigValidator;
 use Selli\Ticketing\Workflow\WorkflowManager;
+use Spatie\LaravelPackageTools\Commands\InstallCommand;
 use Spatie\LaravelPackageTools\Package;
 use Spatie\LaravelPackageTools\PackageServiceProvider;
 
@@ -56,7 +58,15 @@ class TicketingServiceProvider extends PackageServiceProvider
                 EscalateCommand::class,
                 RecalculateSlaCommand::class,
                 PruneCommand::class,
-            ]);
+                DemoCommand::class,
+            ])
+            ->hasInstallCommand(function (InstallCommand $command): void {
+                $command
+                    ->publishConfigFile()
+                    ->publishMigrations()
+                    ->askToRunMigrations()
+                    ->askToStarRepoOnGitHub('Sellinnate/laravel-ticket-engine');
+            });
     }
 
     public function packageRegistered(): void
