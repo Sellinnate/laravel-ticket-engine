@@ -24,6 +24,18 @@ class EscalateCommand extends Command
             : (int) config('ticketing.sla.default_threshold_percent', 75);
         $chunk = (int) $this->option('chunk');
 
+        if ($threshold < 0 || $threshold > 100) {
+            $this->error('--threshold must be between 0 and 100.');
+
+            return self::INVALID;
+        }
+
+        if ($chunk < 1) {
+            $this->error('--chunk must be at least 1.');
+
+            return self::INVALID;
+        }
+
         $sla->sweep($threshold, $chunk);
 
         $this->info('SLA sweep complete.');

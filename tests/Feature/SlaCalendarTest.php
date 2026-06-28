@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Carbon;
 use Selli\Ticketing\Enums\SlaTarget;
+use Selli\Ticketing\Exceptions\InvalidConfigurationException;
 use Selli\Ticketing\Facades\Ticketing;
 use Selli\Ticketing\Models\BusinessHours;
 use Selli\Ticketing\Models\Holiday;
@@ -121,6 +122,10 @@ it('resolves tenant-specific policies without ambient tenant context', function 
     expect($policy)->not->toBeNull()
         ->and($policy->name)->toBe('t3');
 });
+
+it('throws when a policy references a missing calendar', function (): void {
+    app(CalendarResolver::class)->forBusinessHoursId(999999);
+})->throws(InvalidConfigurationException::class);
 
 it('starts no clocks when no policy matches', function (): void {
     $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());

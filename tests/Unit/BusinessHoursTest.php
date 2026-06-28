@@ -75,6 +75,35 @@ it('counts only working minutes between two instants', function (): void {
     expect($bh->minutesBetween($start, $end))->toBe(180);
 });
 
+it('handles a DST spring-forward day as 23 hours', function (): void {
+    // Europe/Rome moves CET→CEST on 2026-03-29 (02:00 → 03:00), a 23-hour day.
+    $bh = BusinessHours::alwaysOpen('Europe/Rome');
+    $dayStart = CarbonImmutable::parse('2026-03-29 00:00:00', 'Europe/Rome');
+    $nextStart = CarbonImmutable::parse('2026-03-30 00:00:00', 'Europe/Rome');
+
+    expect($bh->minutesBetween($dayStart, $nextStart))->toBe(1380); // 23h, not 1440
+});
+
+it('anchors windows to local wall-clock across DST', function (): void {
+    // Office hours in Rome; a deadline that rolls over the spring-forward weekend
+    // must still land at 09:00 local on the next working day.
+    $bh = officeHours();
+    $rome = new BusinessHours('Europe/Rome', (function (): array {
+        $week = [];
+        for ($day = 1; $day <= 5; $day++) {
+            $week[$day] = [['09:00', '18:00']];
+        }
+
+        return $week;
+    })());
+
+    // Friday 2026-03-27 16:00 + 240m → Fri 16–18 (120m) + Mon 09:00 + 120m = 11:00 local.
+    $start = CarbonImmutable::parse('2026-03-27 16:00:00', 'Europe/Rome');
+    $due = $rome->addMinutes($start, 240);
+
+    expect($due->setTimezone('Europe/Rome')->format('Y-m-d H:i'))->toBe('2026-03-30 11:00');
+});
+
 it('reports whether the calendar is open at an instant', function (): void {
     $bh = officeHours(['2026-06-30']);
 

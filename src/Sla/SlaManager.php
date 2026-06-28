@@ -159,11 +159,17 @@ class SlaManager
      */
     public function handleResolved(Ticket $ticket): void
     {
-        $clock = $this->clock($ticket, SlaTarget::Resolution);
+        // Resolving stops every running/paused SLA timer for the ticket — not
+        // just resolution — so a resolved ticket can never breach or trip a
+        // threshold (and a resume on the way out of a pause state can't leave a
+        // first/next-response clock running).
+        $model = Ticketing::slaClockModel();
 
-        if ($clock !== null && ! $clock->isCompleted()) {
-            $clock->forceFill(['completed_at' => now(), 'paused_at' => null])->save();
-        }
+        $model::query()
+            ->withoutTenancy()
+            ->where('ticket_id', $ticket->getKey())
+            ->whereNull('completed_at')
+            ->update(['completed_at' => now(), 'paused_at' => null]);
     }
 
     /**
@@ -200,7 +206,6 @@ class SlaManager
                 $query->where('due_at', '<=', $now)
                     ->orWhere('threshold_notified', false);
             })
-            ->orderBy('due_at')
             ->chunkById($chunk, function ($clocks) use ($thresholdPercent, $now): void {
                 foreach ($clocks as $clock) {
                     $this->tenant->forTenant(
@@ -234,24 +239,29 @@ class SlaManager
 
         $calendar = $this->calendars->forPolicy($policy);
 
-        // Only running clocks are recalculated: paused clocks are frozen and are
-        // recomputed from their captured budget on resume, so overwriting their
-        // due_at here would desync them from remaining_minutes.
+        // Consider all incomplete clocks (running and paused): a removed target
+        // must stop even a paused clock, otherwise resume would reactivate it
+        // with a stale budget/calendar.
         $clocks = $model::query()
             ->withoutTenancy()
             ->where('ticket_id', $ticket->getKey())
             ->whereNull('completed_at')
-            ->whereNull('paused_at')
             ->get();
 
         foreach ($clocks as $clock) {
             $minutes = $this->minutesFor($policy, $clock->target);
 
             if ($minutes === null) {
-                // The target was removed from the policy — stop the timer so it
-                // no longer sweeps against a target that no longer exists.
+                // The target was removed from the policy — stop the timer (even
+                // if paused) so it no longer sweeps or resumes.
                 $clock->forceFill(['completed_at' => now(), 'paused_at' => null])->save();
 
+                continue;
+            }
+
+            // Paused clocks stay frozen: they are recomputed from their captured
+            // budget on resume, so overwriting due_at here would desync them.
+            if ($clock->isPaused()) {
                 continue;
             }
 
@@ -297,7 +307,8 @@ class SlaManager
         }
 
         if ($clock->breached_at === null && $clock->due_at->lessThanOrEqualTo($now)) {
-            // Atomically claim the breach so two concurrent sweeps emit it once.
+            // Atomically claim the breach so two concurrent sweeps emit it once,
+            // and only while the clock is still active (not resolved/paused).
             if ($this->claim($clock, ['breached_at' => $now], 'breached_at')) {
                 $clock->breached_at = $now;
                 SlaBreached::dispatch($ticket, $clock);
@@ -317,9 +328,10 @@ class SlaManager
     }
 
     /**
-     * Atomically set $values on a clock only if $guardColumn still holds
-     * $guardIsNull's sentinel (null, or the given falsey value). Returns true
-     * when this caller won the claim.
+     * Atomically set $values on a clock only if (a) it is still active
+     * (not completed, not paused) and (b) $guardColumn still holds the expected
+     * sentinel. Returns true when this caller won the claim — guarding against a
+     * concurrent resolve/pause between the sweep query and this update.
      *
      * @param  array<string, mixed>  $values
      */
@@ -327,7 +339,11 @@ class SlaManager
     {
         $model = Ticketing::slaClockModel();
 
-        $query = $model::query()->withoutTenancy()->whereKey($clock->getKey());
+        $query = $model::query()
+            ->withoutTenancy()
+            ->whereKey($clock->getKey())
+            ->whereNull('completed_at')
+            ->whereNull('paused_at');
 
         $query = $expected === null
             ? $query->whereNull($guardColumn)

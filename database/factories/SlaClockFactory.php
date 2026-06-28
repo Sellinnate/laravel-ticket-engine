@@ -7,7 +7,7 @@ namespace Selli\Ticketing\Database\Factories;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Selli\Ticketing\Enums\SlaTarget;
 use Selli\Ticketing\Models\SlaClock;
-use Selli\Ticketing\Models\Ticket;
+use Selli\Ticketing\Support\Ticketing;
 
 /**
  * @extends Factory<SlaClock>
@@ -22,7 +22,7 @@ class SlaClockFactory extends Factory
     public function definition(): array
     {
         return [
-            'ticket_id' => Ticket::factory(),
+            'ticket_id' => Ticketing::ticketModel()::factory(),
             'target' => SlaTarget::Resolution,
             'budget_minutes' => 480,
             'business_hours_id' => null,

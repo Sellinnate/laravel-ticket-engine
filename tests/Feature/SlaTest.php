@@ -13,6 +13,7 @@ use Selli\Ticketing\Models\SlaClock;
 use Selli\Ticketing\Models\SlaPolicy;
 use Selli\Ticketing\Sla\SlaManager;
 use Selli\Ticketing\Sla\SlaPolicyResolver;
+use Selli\Ticketing\Tenancy\TenantContext;
 
 beforeEach(function (): void {
     Carbon::setTestNow(Carbon::parse('2026-06-29 10:00:00', 'UTC')); // Monday
@@ -269,6 +270,50 @@ it('reads the threshold percent from config when the option is omitted', functio
 
     // 50% would not trip the default 75% gate, proving the config value was used.
     Event::assertDispatched(SlaThresholdReached::class);
+});
+
+it('stops every SLA clock on resolution', function (): void {
+    SlaPolicy::factory()->create(['first_response_minutes' => 60, 'resolution_minutes' => 480]);
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+
+    expect(clockFor($ticket->getKey(), SlaTarget::FirstResponse)->isCompleted())->toBeFalse();
+
+    Ticketing::for($ticket)->transition('resolve');
+
+    expect(clockFor($ticket->getKey(), SlaTarget::FirstResponse)->isCompleted())->toBeTrue()
+        ->and(clockFor($ticket->getKey(), SlaTarget::Resolution)->isCompleted())->toBeTrue();
+});
+
+it('prefers a tenant-owned policy over an equally specific shared one', function (): void {
+    $context = app(TenantContext::class);
+
+    $policy = $context->forTenant(3, function (): SlaPolicy {
+        SlaPolicy::factory()->create(['name' => 'owned', 'tenant_id' => 3, 'resolution_minutes' => 30]);
+        // Shared policy created AFTER (higher key) to prove ownership beats key.
+        SlaPolicy::factory()->create(['name' => 'shared', 'tenant_id' => null, 'resolution_minutes' => 999]);
+
+        $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser(['tenant_id' => 3]));
+
+        return app(SlaPolicyResolver::class)->resolve($ticket->fresh());
+    });
+
+    expect($policy->name)->toBe('owned');
+});
+
+it('ignores shared SLA policies when allow_shared is disabled', function (): void {
+    config()->set('ticketing.tenancy.allow_shared', false);
+    app()->forgetInstance(TenantContext::class);
+
+    SlaPolicy::factory()->create(['tenant_id' => null, 'resolution_minutes' => 480]); // shared
+
+    // A tenant-scoped ticket must NOT see the shared policy when sharing is off.
+    $count = app(TenantContext::class)->forTenant(5, function (): int {
+        $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser(['tenant_id' => 5]));
+
+        return SlaClock::query()->withoutTenancy()->where('ticket_id', $ticket->getKey())->count();
+    });
+
+    expect($count)->toBe(0);
 });
 
 it('starts next-response on a customer reply and completes it on an agent reply', function (): void {

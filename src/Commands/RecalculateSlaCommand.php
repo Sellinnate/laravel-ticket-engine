@@ -15,33 +15,44 @@ use Selli\Ticketing\Tenancy\TenantContext;
  */
 class RecalculateSlaCommand extends Command
 {
-    protected $signature = 'ticketing:recalculate-sla {--chunk=200 : Tickets processed per chunk}';
+    protected $signature = 'ticketing:recalculate-sla {--chunk=200 : Rows fetched per batch}';
 
     protected $description = 'Recompute SLA deadlines for tickets with running clocks.';
 
     public function handle(SlaManager $sla, TenantContext $tenant): int
     {
+        $chunk = max(1, (int) $this->option('chunk'));
         $clockModel = Ticketing::slaClockModel();
         $ticketModel = Ticketing::ticketModel();
+        $column = $tenant->column();
+
+        $seen = [];
         $count = 0;
 
+        // Cursor by primary key so completing clocks during recalculate cannot
+        // shift an offset and skip tickets. Each ticket is recalculated once.
         $clockModel::query()
             ->withoutTenancy()
             ->whereNull('completed_at')
-            ->select(['ticket_id', $tenant->column()])
-            ->distinct()
-            ->orderBy('ticket_id')
-            ->chunk((int) $this->option('chunk'), function ($rows) use ($sla, $tenant, $ticketModel, &$count): void {
-                foreach ($rows as $row) {
-                    $tenant->forTenant($row->getAttribute($tenant->column()), function () use ($sla, $ticketModel, $row, &$count): void {
-                        $ticket = $ticketModel::query()->withoutTenancy()->find($row->ticket_id);
+            ->orderBy((new $clockModel)->getKeyName())
+            ->lazyById($chunk)
+            ->each(function ($clock) use ($sla, $tenant, $ticketModel, $column, &$seen, &$count): void {
+                $key = $clock->getAttribute($column).'|'.$clock->ticket_id;
 
-                        if ($ticket !== null) {
-                            $sla->recalculate($ticket);
-                            $count++;
-                        }
-                    });
+                if (isset($seen[$key])) {
+                    return;
                 }
+
+                $seen[$key] = true;
+
+                $tenant->forTenant($clock->getAttribute($column), function () use ($sla, $ticketModel, $clock, &$count): void {
+                    $ticket = $ticketModel::query()->withoutTenancy()->find($clock->ticket_id);
+
+                    if ($ticket !== null) {
+                        $sla->recalculate($ticket);
+                        $count++;
+                    }
+                });
             });
 
         $this->info("Recalculated SLA for {$count} ticket(s).");

@@ -144,24 +144,28 @@ final class BusinessHours
     private function intervalsFor(CarbonImmutable $date): array
     {
         $windows = $this->schedule[$date->dayOfWeekIso] ?? [];
-        $midnight = $date->startOfDay();
         $intervals = [];
 
         foreach ($windows as [$open, $close]) {
-            $intervals[] = [
-                $midnight->addMinutes($this->toMinutes($open)),
-                $midnight->addMinutes($this->toMinutes($close)),
-            ];
+            $intervals[] = [$this->boundary($date, $open), $this->boundary($date, $close)];
         }
 
         return $intervals;
     }
 
-    private function toMinutes(string $time): int
+    /**
+     * A window boundary anchored to the local wall-clock time, so DST shifts do
+     * not move "09:00" off 9am. "24:00" is the next local midnight.
+     */
+    private function boundary(CarbonImmutable $date, string $time): CarbonImmutable
     {
+        if ($time === '24:00') {
+            return $date->addDay()->startOfDay();
+        }
+
         [$hours, $minutes] = array_map('intval', explode(':', $time));
 
-        return $hours * 60 + $minutes;
+        return $date->setTime($hours, $minutes);
     }
 
     private function minutes(CarbonImmutable $from, CarbonImmutable $to): int

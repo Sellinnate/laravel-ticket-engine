@@ -142,6 +142,26 @@ class Ticketing
         static::$models['ticket_activity'] = $model;
     }
 
+    public static function useSlaPolicyModel(string $model): void
+    {
+        static::$models['sla_policy'] = $model;
+    }
+
+    public static function useSlaClockModel(string $model): void
+    {
+        static::$models['sla_clock'] = $model;
+    }
+
+    public static function useBusinessHoursModel(string $model): void
+    {
+        static::$models['business_hours'] = $model;
+    }
+
+    public static function useHolidayModel(string $model): void
+    {
+        static::$models['holiday'] = $model;
+    }
+
     /**
      * Enable ULID primary keys across the package tables.
      */
