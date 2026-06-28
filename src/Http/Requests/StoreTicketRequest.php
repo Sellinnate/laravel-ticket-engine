@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Selli\Ticketing\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
+use Selli\Ticketing\Enums\Priority;
 
 class StoreTicketRequest extends FormRequest
 {
@@ -21,7 +23,7 @@ class StoreTicketRequest extends FormRequest
         return [
             'type' => ['required', 'string', 'max:255'],
             'title' => ['required', 'string', 'max:255'],
-            'priority' => ['nullable', 'integer'],
+            'priority' => ['nullable', Rule::enum(Priority::class)],
             'category' => ['nullable', 'string', 'max:255'],
         ];
     }

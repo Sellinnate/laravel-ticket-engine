@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Selli\Ticketing;
 
 use Illuminate\Contracts\Auth\Factory;
+use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Route;
 use Selli\Ticketing\Automation\RuleEngine;
@@ -154,17 +155,17 @@ class TicketingServiceProvider extends PackageServiceProvider
             return;
         }
 
-        // Resolve {ticket} via the configured model so a host override is honoured
-        // (and the model's tenant global scope still makes a cross-tenant id 404).
-        Route::model('ticket', Ticketing::ticketModel());
-
         $prefix = trim((string) config('ticketing.api.prefix', 'ticketing/api'), '/')
             .'/'.trim((string) config('ticketing.api.version', 'v1'), '/');
 
-        $middleware = array_merge(
+        // Always include SubstituteBindings (implicit {ticket} resolution, which
+        // applies the model's tenant scope so a cross-tenant id 404s) and the
+        // throttle, even if the host overrides the rest of the middleware. The
+        // binding stays scoped to this group rather than registered globally.
+        $middleware = array_values(array_unique(array_merge(
             (array) config('ticketing.api.middleware', ['api']),
-            ['throttle:'.config('ticketing.api.throttle', '120,1')],
-        );
+            [SubstituteBindings::class, 'throttle:'.config('ticketing.api.throttle', '120,1')],
+        )));
 
         Route::group(['prefix' => $prefix, 'middleware' => $middleware], function (): void {
             $this->loadRoutesFrom(__DIR__.'/../routes/api.php');

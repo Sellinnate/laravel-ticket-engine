@@ -18,8 +18,15 @@ class StoreAttachmentRequest extends FormRequest
      */
     public function rules(): array
     {
-        return [
-            'file' => ['required', 'file'],
-        ];
+        $rules = ['required', 'file', 'max:'.max(1, (int) config('ticketing.attachments.max_size_kb', 25600))];
+
+        /** @var list<string> $mimes */
+        $mimes = (array) config('ticketing.attachments.allowed_mimes', []);
+
+        if ($mimes !== []) {
+            $rules[] = 'mimetypes:'.implode(',', $mimes);
+        }
+
+        return ['file' => $rules];
     }
 }

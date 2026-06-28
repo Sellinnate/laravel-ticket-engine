@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
+use Selli\Ticketing\Enums\MessageVisibility;
 use Selli\Ticketing\Enums\Priority;
 use Selli\Ticketing\Facades\Ticketing;
 use Selli\Ticketing\Models\Team;
@@ -48,6 +49,39 @@ it('lists and shows tickets scoped to the tenant', function (): void {
         ->assertJsonPath('data.0.title', 'Mine');
 
     $this->getJson(API.'/tickets/'.$mine->getKey())->assertOk()->assertJsonPath('data.reference', $mine->reference);
+});
+
+it('hides internal notes on show', function (): void {
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+    Ticketing::for($ticket)->postMessage(makeUser(), 'public reply');
+    Ticketing::for($ticket)->postMessage(makeUser(), 'internal note', MessageVisibility::Internal);
+    $this->actingAs(makeUser());
+
+    $response = $this->getJson(API.'/tickets/'.$ticket->getKey());
+
+    $response->assertOk()->assertJsonCount(1, 'data.messages')
+        ->assertJsonPath('data.messages.0.body', 'public reply');
+});
+
+it('rejects an out-of-enum priority and out-of-range rating', function (): void {
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+    $this->actingAs(makeUser());
+
+    $this->postJson(API.'/tickets', ['type' => 'support', 'title' => 'x', 'priority' => 999])
+        ->assertStatus(422)->assertJsonValidationErrors('priority');
+
+    $this->postJson(API.'/tickets/'.$ticket->getKey().'/csat', ['rating' => 99])
+        ->assertStatus(422)->assertJsonValidationErrors('rating');
+});
+
+it('rejects a CSAT token that names another ticket', function (): void {
+    $a = Ticketing::open(type: 'support', title: 'A', requester: makeUser());
+    $b = Ticketing::open(type: 'support', title: 'B', requester: makeUser());
+    $tokenForB = Ticketing::csatToken($b);
+    $this->actingAs(makeUser());
+
+    $this->postJson(API.'/tickets/'.$a->getKey().'/csat', ['rating' => 5, 'token' => $tokenForB])
+        ->assertStatus(422)->assertJsonValidationErrors('token');
 });
 
 it('404s a ticket from another tenant', function (): void {

@@ -7,6 +7,7 @@ namespace Selli\Ticketing\Http\Controllers\Api;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Selli\Ticketing\Enums\MessageVisibility;
 use Selli\Ticketing\Enums\Priority;
 use Selli\Ticketing\Facades\Ticketing;
 use Selli\Ticketing\Http\Requests\StoreTicketRequest;
@@ -41,18 +42,20 @@ class TicketController
 
     public function show(Ticket $ticket): TicketResource
     {
-        return new TicketResource($ticket->load('messages'));
+        // Expose only public (customer-facing) messages over the generic API;
+        // internal agent notes are never surfaced here.
+        $ticket->load(['messages' => fn ($query) => $query->where('visibility', MessageVisibility::Public->value)]);
+
+        return new TicketResource($ticket);
     }
 
     public function store(StoreTicketRequest $request): JsonResponse
     {
-        $priority = $request->integer('priority');
-
         $ticket = Ticketing::open(
             type: (string) $request->string('type'),
             title: (string) $request->string('title'),
             requester: $request->user(),
-            priority: $priority > 0 ? Priority::tryFrom($priority) : null,
+            priority: $request->filled('priority') ? Priority::from($request->integer('priority')) : null,
             category: $request->input('category'),
         );
 
