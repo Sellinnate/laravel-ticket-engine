@@ -6,10 +6,12 @@ namespace Selli\Ticketing;
 
 use Illuminate\Contracts\Auth\Factory;
 use Selli\Ticketing\Contracts\TenantResolver;
+use Selli\Ticketing\Contracts\WorkflowDriver;
 use Selli\Ticketing\Support\Ticketing;
 use Selli\Ticketing\Tenancy\DefaultTenantResolver;
 use Selli\Ticketing\Tenancy\TenantContext;
 use Selli\Ticketing\Workflow\ConfigValidator;
+use Selli\Ticketing\Workflow\WorkflowManager;
 use Spatie\LaravelPackageTools\Package;
 use Spatie\LaravelPackageTools\PackageServiceProvider;
 
@@ -46,6 +48,10 @@ class TicketingServiceProvider extends PackageServiceProvider
         ));
 
         $this->app->singleton(Ticketing::class, fn (): Ticketing => new Ticketing($this->app));
+
+        $this->app->singleton(WorkflowManager::class, fn (): WorkflowManager => new WorkflowManager($this->app));
+
+        $this->app->bind(WorkflowDriver::class, fn (): WorkflowDriver => $this->app->make(WorkflowManager::class)->driver());
     }
 
     public function packageBooted(): void

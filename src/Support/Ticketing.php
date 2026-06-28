@@ -5,10 +5,13 @@ declare(strict_types=1);
 namespace Selli\Ticketing\Support;
 
 use Illuminate\Contracts\Container\Container;
+use Illuminate\Database\Eloquent\Model;
 use Selli\Ticketing\Actions\OpenTicket;
 use Selli\Ticketing\Actions\PostMessage;
+use Selli\Ticketing\Actions\TransitionTicket;
 use Selli\Ticketing\Data\OpenTicketData;
 use Selli\Ticketing\Data\PostMessageData;
+use Selli\Ticketing\Data\TransitionData;
 use Selli\Ticketing\Enums\MessageVisibility;
 use Selli\Ticketing\Enums\Priority;
 use Selli\Ticketing\Models\Ticket;
@@ -84,6 +87,27 @@ class Ticketing
             body: $body,
             visibility: $visibility,
             meta: $meta,
+        ));
+    }
+
+    /**
+     * Apply a workflow transition to a ticket.
+     *
+     * @param  array<string, mixed>  $params
+     */
+    public function transition(
+        Ticket $ticket,
+        string $transition,
+        ?Model $actor = null,
+        ?string $note = null,
+        array $params = [],
+    ): Ticket {
+        return $this->container->make(TransitionTicket::class)->handle(new TransitionData(
+            ticket: $ticket,
+            transition: $transition,
+            actor: $actor,
+            note: $note,
+            params: $params,
         ));
     }
 
