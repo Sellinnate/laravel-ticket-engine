@@ -24,17 +24,22 @@ class TicketController extends Controller
     {
         $query = TicketingManager::ticketModel()::query();
 
+        // Only scalar filter values: an array query param (?status[]=x) handed to
+        // where() would bind an array as a scalar and blow up with a 500.
         foreach (['status', 'category'] as $field) {
-            if (($value = $request->query($field)) !== null) {
-                $query->where($field, $value);
+            $value = $request->query($field);
+
+            if (is_scalar($value)) {
+                $query->where($field, (string) $value);
             }
         }
 
-        if (($priority = $request->query('priority')) !== null) {
+        if (is_scalar($priority = $request->query('priority'))) {
             $query->where('priority', (int) $priority);
         }
 
-        $perPage = min(100, max(1, (int) $request->query('per_page', 25)));
+        $requested = $request->query('per_page', 25);
+        $perPage = min(100, max(1, is_scalar($requested) ? (int) $requested : 25));
 
         return TicketResource::collection($query->latest()->paginate($perPage));
     }

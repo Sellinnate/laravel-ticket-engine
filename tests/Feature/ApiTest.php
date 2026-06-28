@@ -54,6 +54,16 @@ it('lists and shows tickets scoped to the tenant', function (): void {
     $this->getJson(API.'/tickets/'.$mine->getKey())->assertOk()->assertJsonPath('data.reference', $mine->reference);
 });
 
+it('ignores array-shaped list filters instead of 500ing', function (): void {
+    Ticketing::open(type: 'support', title: 'Mine', requester: makeUser());
+    $this->actingAs(makeUser());
+
+    // ?status[]=open&priority[]=10&per_page[]=5 must not reach where() as arrays.
+    $this->getJson(API.'/tickets?status[]=open&priority[]=10&per_page[]=5')
+        ->assertOk()
+        ->assertJsonCount(1, 'data');
+});
+
 it('hides internal notes on show', function (): void {
     $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
     Ticketing::for($ticket)->postMessage(makeUser(), 'public reply');
