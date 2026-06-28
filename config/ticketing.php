@@ -426,6 +426,26 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | REST API
+    |--------------------------------------------------------------------------
+    |
+    | An opt-in, versioned JSON API over the same domain operations. Disabled by
+    | default; enable it and protect it with YOUR app's auth (Sanctum/Passport)
+    | via "middleware". Routes mount under "{prefix}/{version}" and are rate
+    | limited by "throttle". You can also publish routes/api.php and wire it
+    | yourself instead.
+    |
+    */
+    'api' => [
+        'enabled' => false,
+        'prefix' => 'ticketing/api',
+        'version' => 'v1',
+        'middleware' => ['api', 'auth'],
+        'throttle' => '120,1', // requests, minutes
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Authorization
     |--------------------------------------------------------------------------
     |

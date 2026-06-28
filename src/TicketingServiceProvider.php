@@ -6,6 +6,7 @@ namespace Selli\Ticketing;
 
 use Illuminate\Contracts\Auth\Factory;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Route;
 use Selli\Ticketing\Automation\RuleEngine;
 use Selli\Ticketing\Collaboration\NullMentionResolver;
 use Selli\Ticketing\Commands\EscalateCommand;
@@ -102,7 +103,13 @@ class TicketingServiceProvider extends PackageServiceProvider
             $this->publishesMigrations([
                 __DIR__.'/../database/migrations' => database_path('migrations'),
             ], 'ticketing-migrations');
+
+            $this->publishes([
+                __DIR__.'/../routes/api.php' => base_path('routes/ticketing-api.php'),
+            ], 'ticketing-routes');
         }
+
+        $this->registerApiRoutes();
 
         if (config('ticketing.workflow.validate_on_boot', true) !== false) {
             $this->app->make(ConfigValidator::class)->validate();
@@ -135,6 +142,34 @@ class TicketingServiceProvider extends PackageServiceProvider
         if (config('ticketing.automation.enabled', true) !== false) {
             $this->subscribe($this->app->make(AutomationSubscriber::class));
         }
+    }
+
+    /**
+     * Mount the opt-in REST API under the configured prefix/version + middleware.
+     * Controllers resolve {ticket} through the configured, tenant-scoped model.
+     */
+    protected function registerApiRoutes(): void
+    {
+        if (config('ticketing.api.enabled', false) !== true) {
+            return;
+        }
+
+        $prefix = trim((string) config('ticketing.api.prefix', 'ticketing/api'), '/')
+            .'/'.trim((string) config('ticketing.api.version', 'v1'), '/');
+
+        // Include the throttle even if the host overrides the rest of the
+        // middleware. {ticket} is NOT route-model-bound: each controller resolves
+        // it through Ticketing::ticketModel() (honouring a host's
+        // useTicketModel()/config override and the tenant scope), so we register
+        // no global Route::bind that would leak onto the host's own {ticket} routes.
+        $middleware = array_values(array_unique(array_merge(
+            (array) config('ticketing.api.middleware', ['api']),
+            ['throttle:'.config('ticketing.api.throttle', '120,1')],
+        )));
+
+        Route::group(['prefix' => $prefix, 'middleware' => $middleware], function (): void {
+            $this->loadRoutesFrom(__DIR__.'/../routes/api.php');
+        });
     }
 
     /**

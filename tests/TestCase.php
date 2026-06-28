@@ -39,6 +39,13 @@ class TestCase extends Orchestra
         // A real Laravel app always has an application key; set one so signed
         // CSAT tokens have a secret (the package fails closed without it).
         config()->set('app.key', 'base64:'.base64_encode(str_repeat('a', 32)));
+
+        // Mount the REST API for the suite; the host's auth is its concern, so the
+        // tests authenticate via actingAs() and run without auth middleware (the
+        // provider always adds SubstituteBindings for route-model binding).
+        config()->set('ticketing.api.enabled', true);
+        config()->set('ticketing.api.middleware', []);
+
         config()->set('database.default', 'testing');
         config()->set('database.connections.testing', [
             'driver' => 'sqlite',
