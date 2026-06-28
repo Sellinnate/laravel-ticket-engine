@@ -93,7 +93,7 @@ it('notifies the assignee on an SLA breach', function (): void {
 });
 
 it('honours configured channel preferences', function (): void {
-    config()->set('ticketing.notifications.events.ticket.assigned', ['mail']);
+    config()->set('ticketing.notifications.events', ['ticket.assigned' => ['mail']]);
     $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
 
     $channels = (new TicketAssignedNotification($ticket))->via(makeUser());
@@ -188,7 +188,7 @@ it('drops slack before the throttle when no webhook is configured', function ():
 });
 
 it('skips slack when no webhook is configured', function (): void {
-    config()->set('ticketing.notifications.events.ticket.assigned', ['slack']);
+    config()->set('ticketing.notifications.events', ['ticket.assigned' => ['slack']]);
     config()->set('ticketing.notifications.slack.webhook', null);
     config()->set('ticketing.notifications.throttle.seconds', 0);
     Http::fake();
@@ -200,7 +200,7 @@ it('skips slack when no webhook is configured', function (): void {
 });
 
 it('delivers slack via the webhook channel', function (): void {
-    config()->set('ticketing.notifications.events.ticket.assigned', ['slack']);
+    config()->set('ticketing.notifications.events', ['ticket.assigned' => ['slack']]);
     config()->set('ticketing.notifications.slack.webhook', 'https://hooks.slack.test/abc');
     config()->set('ticketing.notifications.throttle.seconds', 0);
     Http::fake(['*' => Http::response('', 200)]);

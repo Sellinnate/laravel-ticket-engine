@@ -17,11 +17,15 @@ class ConfigNotificationPreferences implements NotificationPreferences
 {
     public function channels(object $notifiable, string $notification, array $supported): array
     {
+        // Index the events array by the LITERAL key (notification keys contain a
+        // dot, which config()'s dot-notation would otherwise treat as nesting).
+        $events = (array) config('ticketing.notifications.events', []);
+
+        // Fall back to the (opt-in, empty by default) global channels.
         /** @var list<string> $configured */
-        $configured = (array) config(
-            "ticketing.notifications.events.{$notification}",
-            config('ticketing.notifications.default_channels', ['mail', 'database']),
-        );
+        $configured = is_array($events[$notification] ?? null)
+            ? $events[$notification]
+            : (array) config('ticketing.notifications.default_channels', []);
 
         // Keep only channels both the preference and the notification support,
         // preserving the notification's declared order.
