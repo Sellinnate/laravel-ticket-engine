@@ -8,6 +8,7 @@ use Selli\Ticketing\Models\TicketMessage;
 use Selli\Ticketing\Models\TicketParticipant;
 use Selli\Ticketing\Models\TicketType;
 use Selli\Ticketing\Tenancy\DefaultTenantResolver;
+use Selli\Ticketing\Workflow\Guards\RequireResolutionNote;
 
 return [
 
@@ -174,7 +175,7 @@ return [
                     'start' => ['from' => ['triaged'], 'to' => 'in_progress'],
                     'wait' => ['from' => ['in_progress'], 'to' => 'pending_customer'],
                     'resume' => ['from' => ['pending_customer'], 'to' => 'in_progress'],
-                    'resolve' => ['from' => ['in_progress'], 'to' => 'resolved'],
+                    'resolve' => ['from' => ['in_progress'], 'to' => 'resolved', 'guard' => RequireResolutionNote::class],
                     'close' => ['from' => ['resolved'], 'to' => 'closed'],
                     'reopen' => ['from' => ['resolved', 'closed'], 'to' => 'in_progress'],
                 ],

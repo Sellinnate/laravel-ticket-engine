@@ -4,6 +4,20 @@ All notable changes to `selli/ticketing` will be documented in this file.
 
 ## Unreleased
 
+### Added — Workflow engine
+
+- `WorkflowDriver` contract + `WorkflowManager` (driver resolution, `extend()`
+  for custom drivers such as a future spatie/laravel-model-states bridge).
+- `ConfigWorkflowDriver`: config-declared states, transitions, terminal states
+  and system-semantic mapping (open/closed/paused).
+- `Transition`/`TransitionContext` value objects and `TransitionGuard` contract,
+  with a `RequireResolutionNote` example guard.
+- `TransitionTicket` action: validates the transition, runs guards, updates
+  derived lifecycle timestamps (resolved_at/closed_at), counts reopens, writes
+  the audit entry and emits `StateTransitioned`, `TicketResolved`,
+  `TicketClosed`, `TicketReopened`.
+- `Ticketing::transition()` / `Ticketing::for($ticket)->transition(...)`.
+
 ### Added — Foundation
 
 - Package scaffolding for `selli/ticketing` (namespace `Selli\Ticketing`).

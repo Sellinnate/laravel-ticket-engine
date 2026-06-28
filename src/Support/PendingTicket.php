@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Selli\Ticketing\Support;
 
+use Illuminate\Database\Eloquent\Model;
 use Selli\Ticketing\Enums\MessageVisibility;
 use Selli\Ticketing\Enums\Priority;
 use Selli\Ticketing\Models\Ticket;
@@ -64,6 +65,26 @@ class PendingTicket
             body: $body,
             visibility: $visibility,
             meta: $meta,
+        );
+    }
+
+    /**
+     * Apply a workflow transition to the bound ticket.
+     *
+     * @param  array<string, mixed>  $params
+     */
+    public function transition(
+        string $transition,
+        ?Model $actor = null,
+        ?string $note = null,
+        array $params = [],
+    ): Ticket {
+        return $this->manager->transition(
+            ticket: $this->ticket(),
+            transition: $transition,
+            actor: $actor,
+            note: $note,
+            params: $params,
         );
     }
 
