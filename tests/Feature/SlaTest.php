@@ -89,6 +89,22 @@ it('creates a completed first-response clock for a split ticket with an inherite
         ->and($created->fresh()->first_response_at)->not->toBeNull();
 });
 
+it('creates a completed first-response clock when the target is enabled after the first response', function (): void {
+    $policy = SlaPolicy::factory()->create(['first_response_minutes' => null, 'resolution_minutes' => 480]);
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+    Ticketing::for($ticket)->postMessage(makeUser(['name' => 'Agent']), 'on it'); // stamps first_response_at, no FR clock
+
+    expect(clockFor($ticket->getKey(), SlaTarget::FirstResponse))->toBeNull();
+
+    $policy->update(['first_response_minutes' => 60]);
+    app(SlaManager::class)->recalculate($ticket->fresh());
+
+    $clock = clockFor($ticket->getKey(), SlaTarget::FirstResponse);
+
+    expect($clock)->not->toBeNull()
+        ->and($clock->isCompleted())->toBeTrue();
+});
+
 it('completes the resolution clock on resolution', function (): void {
     SlaPolicy::factory()->create(['resolution_minutes' => 480]);
     $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());

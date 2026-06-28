@@ -46,6 +46,7 @@ class ApplyMacro
             // deleted.
             /** @var Macro $macro */
             $macro = Ticketing::macroModel()::query()->withoutTenancy()
+                ->lockForUpdate()
                 ->findOrFail($macro->getKey());
 
             if (! $macro->is_active) {

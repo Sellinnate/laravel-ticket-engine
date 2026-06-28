@@ -425,12 +425,15 @@ class SlaManager
                 continue;
             }
 
-            if ($target === SlaTarget::FirstResponse && $ticket->first_response_at !== null) {
-                continue;
-            }
-
             $now = now();
             $this->writeClock($ticket, $target, $now, $calendar->addMinutes($now, $minutes), $minutes, $policy->business_hours_id);
+
+            // A first-response target enabled AFTER the ticket was already
+            // answered still gets a completed row (clamped), so reporting/sweeps
+            // aren't left without a first-response clock.
+            if ($target === SlaTarget::FirstResponse && $ticket->first_response_at !== null) {
+                $this->completeFirstResponseClock($ticket);
+            }
         }
     }
 

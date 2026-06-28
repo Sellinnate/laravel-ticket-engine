@@ -17,6 +17,10 @@ use Selli\Ticketing\Models\TicketAttachment;
 use Selli\Ticketing\Models\TicketMessage;
 use Selli\Ticketing\Tenancy\TenantContext;
 
+// Always clear any frozen test clock, even if a test throws before its own
+// reset, so a leaked fake clock can't contaminate later tests.
+afterEach(fn () => Carbon::setTestNow());
+
 it('merges source tickets into a target', function (): void {
     Event::fake([TicketMerged::class]);
 
