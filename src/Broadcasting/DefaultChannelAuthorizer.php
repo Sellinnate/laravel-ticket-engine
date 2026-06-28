@@ -75,10 +75,20 @@ class DefaultChannelAuthorizer implements ChannelAuthorizer
 
         $ticket = Ticketing::ticketModel()::withoutTenancy()->find($ticketId);
 
-        return $ticket instanceof Ticket
-            && $this->belongsToTicketTenant($user, $ticket)
-            && ! $this->isSubject($user, $ticket)
-            && ! $this->isRequester($user, $ticket);
+        if (! $ticket instanceof Ticket || ! $this->belongsToTicketTenant($user, $ticket)) {
+            return false;
+        }
+
+        // The assignee always gets the agent feed — even a dual-role user who
+        // opened the ticket and then self-assigned. On a shared ticket this is
+        // their only agent-event channel, so the requester carve-out must not
+        // lock the person working the ticket out of it.
+        if ($this->isAssignee($user, $ticket)) {
+            return true;
+        }
+
+        // Otherwise the customer side (subject/requester) is excluded.
+        return ! $this->isSubject($user, $ticket) && ! $this->isRequester($user, $ticket);
     }
 
     protected function tenantMatches(Authenticatable $user, int|string $tenantId): bool
@@ -121,6 +131,14 @@ class DefaultChannelAuthorizer implements ChannelAuthorizer
         return $user instanceof Model
             && $ticket->subject_type === $user->getMorphClass()
             && (string) $ticket->subject_id === (string) $user->getKey();
+    }
+
+    protected function isAssignee(Authenticatable $user, Ticket $ticket): bool
+    {
+        return $user instanceof Model
+            && $ticket->assignee_type === $user->getMorphClass()
+            && $ticket->assignee_id !== null
+            && (string) $ticket->assignee_id === (string) $user->getKey();
     }
 
     protected function isRequester(Authenticatable $user, Ticket $ticket): bool

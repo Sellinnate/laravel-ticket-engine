@@ -210,6 +210,19 @@ it('excludes a dual-role requester from the agents feed but keeps the assigned a
     expect($authorizer->forTicketAgents($assignee, $ticket->getKey()))->toBeTrue();
 });
 
+it('keeps a self-assigned dual-role user on the agents feed of a shared ticket', function (): void {
+    // Shared ticket (null tenant): the per-ticket agents channel is the only
+    // agent-event channel, so the requester carve-out must not lock out the
+    // assignee when they are the same self-service agent.
+    $user = makeUser();
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: $user);
+    Ticketing::assign(ticket: $ticket, assignee: $user);
+    expect($ticket->fresh()->getAttribute($ticket->getTenantColumn()))->toBeNull();
+
+    $this->actingAs($user);
+    expect(app(DefaultChannelAuthorizer::class)->forTicketAgents($user, $ticket->getKey()))->toBeTrue();
+});
+
 it('lets a null-tenant requester watch their own tenant-scoped ticket', function (): void {
     // A requester whose own tenant_id is null is still the subject of a ticket
     // that lives in a tenant — loading without the scope is what makes this work.
