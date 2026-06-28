@@ -32,6 +32,23 @@ it('merges source tickets into a target', function (): void {
     Event::assertDispatched(TicketMerged::class);
 });
 
+it('does not self-merge and delete the target when a source key is the target with a different type', function (): void {
+    $target = Ticketing::open(type: 'support', title: 'Target', requester: makeUser());
+    $source = Ticketing::open(type: 'support', title: 'Dup', requester: makeUser());
+    Ticketing::for($source)->postMessage(makeUser(), 'from the duplicate');
+
+    // A "ghost" of the target whose key is the string form of the target's id,
+    // simulating an int-vs-string key mismatch in the source list.
+    $ghost = clone $target;
+    $ghost->setAttribute($target->getKeyName(), (string) $target->getKey());
+
+    Ticketing::for($target)->mergeFrom([$ghost, $source]);
+
+    expect(Ticket::query()->find($target->getKey()))->not->toBeNull() // target survives
+        ->and(Ticket::query()->withTrashed()->find($target->getKey())->trashed())->toBeFalse()
+        ->and($target->messages()->count())->toBe(1); // real source content moved
+});
+
 it('refuses to merge tickets across tenants', function (): void {
     $context = app(TenantContext::class);
     $target = $context->forTenant(5, fn () => Ticketing::open(type: 'support', title: 'T', requester: makeUser(['tenant_id' => 5])));

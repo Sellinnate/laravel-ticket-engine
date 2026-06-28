@@ -29,7 +29,6 @@ class AddAttachment
 
         $disk = $this->resolveDisk($data->disk);
         $file = $data->file;
-        $ticket = $this->ticketOf($data->attachable);
 
         // Store the file BEFORE the transaction and capture its metadata, then
         // delete it if the database write rolls back — so a failed insert can't
@@ -47,7 +46,14 @@ class AddAttachment
         $checksum = hash_file('sha256', $file->getRealPath()) ?: null;
 
         try {
-            $attachment = DB::transaction(function () use ($data, $disk, $ticket, $path, $name, $mime, $size, $checksum): TicketAttachment {
+            /** @var array{0: TicketAttachment, 1: Ticket} $result */
+            $result = DB::transaction(function () use ($data, $disk, $path, $name, $mime, $size, $checksum): array {
+                // Resolve the owning ticket INSIDE the transaction so a message
+                // moved (or a ticket merged away) between the caller loading the
+                // attachable and this write can't send tenant/audit/event to the
+                // wrong — or a soft-deleted — ticket. ticketOf() re-reads the row
+                // and fails closed (findOrFail) if it no longer exists.
+                $ticket = $this->ticketOf($data->attachable);
                 $model = Ticketing::ticketAttachmentModel();
 
                 /** @var TicketAttachment $attachment */
@@ -71,13 +77,15 @@ class AddAttachment
                     context: ['attachment_id' => $attachment->getKey(), 'name' => $attachment->name],
                 );
 
-                return $attachment;
+                return [$attachment, $ticket];
             });
         } catch (\Throwable $exception) {
             Storage::disk($disk)->delete($path);
 
             throw $exception;
         }
+
+        [$attachment, $ticket] = $result;
 
         AttachmentAdded::dispatch($ticket, $attachment);
 
@@ -126,8 +134,16 @@ class AddAttachment
 
     protected function ticketOf(object $attachable): Ticket
     {
+        $ticketModel = Ticketing::ticketModel();
+
         if ($attachable instanceof Ticket) {
-            return $attachable;
+            // Re-read (default scope excludes soft-deleted) so attaching to a
+            // ticket that was merged away since the caller loaded it fails closed
+            // rather than landing the row on a dead ticket.
+            /** @var Ticket $ticket */
+            $ticket = $ticketModel::query()->withoutTenancy()->findOrFail($attachable->getKey());
+
+            return $ticket;
         }
 
         if ($attachable instanceof TicketMessage) {
@@ -139,9 +155,8 @@ class AddAttachment
             /** @var TicketMessage $message */
             $message = $messageModel::query()->withoutTenancy()->findOrFail($attachable->getKey());
 
-            $model = Ticketing::ticketModel();
             /** @var Ticket $ticket */
-            $ticket = $model::query()->withoutTenancy()->findOrFail($message->ticket_id);
+            $ticket = $ticketModel::query()->withoutTenancy()->findOrFail($message->ticket_id);
 
             return $ticket;
         }

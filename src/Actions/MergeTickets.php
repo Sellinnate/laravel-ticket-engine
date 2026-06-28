@@ -32,15 +32,19 @@ class MergeTickets
     public function handle(Ticket $target, iterable $sources, ?Model $actor = null): Ticket
     {
         $targetKey = $target->getKey();
+        $targetKeyString = (string) $targetKey;
 
         /** @var list<int|string> $sourceKeys */
         $sourceKeys = [];
         foreach ($sources as $source) {
-            if ($source->getKey() !== $targetKey) {
+            // Compare as strings so a source that is really the target but typed
+            // differently (int 5 vs string "5") is excluded — otherwise it would
+            // be "merged into itself" and then soft-deleted, destroying the target.
+            if ((string) $source->getKey() !== $targetKeyString) {
                 $sourceKeys[] = $source->getKey();
             }
         }
-        $sourceKeys = array_values(array_unique($sourceKeys));
+        $sourceKeys = array_values(array_unique(array_map('strval', $sourceKeys)));
 
         $result = DB::transaction(function () use ($targetKey, $sourceKeys, $actor): array {
             $ticketModel = Ticketing::ticketModel();

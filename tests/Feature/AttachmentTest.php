@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Storage;
@@ -66,6 +67,17 @@ it('exposes a download url for the attachment', function (): void {
 
     expect($attachment->temporaryUrl())->toBeString();
 });
+
+it('fails closed when attaching to a ticket that was merged away', function (): void {
+    $target = Ticketing::open(type: 'support', title: 'target', requester: makeUser());
+    $source = Ticketing::open(type: 'support', title: 'source', requester: makeUser());
+
+    // After the merge the source is soft-deleted; a stale reference must not
+    // land an attachment on the dead ticket.
+    Ticketing::for($target)->mergeFrom([$source]);
+
+    Ticketing::addAttachment($source, UploadedFile::fake()->create('a.txt', 1));
+})->throws(ModelNotFoundException::class);
 
 it('resolves the current ticket for a message moved by a split', function (): void {
     Event::fake([AttachmentAdded::class]);
