@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Illuminate\Contracts\Console\Kernel;
 use Selli\Ticketing\Enums\MessageVisibility;
 use Selli\Ticketing\Facades\Ticketing;
 
@@ -32,5 +33,5 @@ it('fails gracefully on an unknown demo type', function (): void {
 });
 
 it('registers the install command', function (): void {
-    expect(array_key_exists('ticketing:install', $this->app[\Illuminate\Contracts\Console\Kernel::class]->all()))->toBeTrue();
+    expect(array_key_exists('ticketing:install', $this->app[Kernel::class]->all()))->toBeTrue();
 });
