@@ -110,3 +110,18 @@ it('refuses to split a message that belongs to another ticket', function (): voi
 
     Ticketing::for($a)->split([$own->getKey(), $foreign->getKey()]);
 })->throws(InvalidArgumentException::class);
+
+it('realigns moved content to the target tenant on merge', function (): void {
+    // A shared (null-tenant) source merged into a tenant-scoped target: the moved
+    // message must adopt the target's tenant so it stays in scope.
+    $context = app(TenantContext::class);
+
+    $source = Ticketing::open(type: 'support', title: 'S', requester: makeUser(), attributes: ['tenant_id' => null]);
+    $message = Ticketing::for($source)->postMessage(makeUser(), 'shared msg');
+
+    $target = $context->forTenant(5, fn () => Ticketing::open(type: 'support', title: 'T', requester: makeUser(['tenant_id' => 5])));
+
+    Ticketing::for($target)->mergeFrom([$source]);
+
+    expect(TicketMessage::query()->withoutTenancy()->find($message->getKey())->tenant_id)->toBe(5);
+});

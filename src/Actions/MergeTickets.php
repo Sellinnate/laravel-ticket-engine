@@ -109,14 +109,20 @@ class MergeTickets
 
     protected function moveContent(Ticket $source, Ticket $target): void
     {
+        // Re-parent the rows AND realign their tenant to the target's, so a
+        // merge from a shared/null-tenant source doesn't leave child rows out of
+        // the target's scope.
+        $tenantColumn = $target->getTenantColumn();
+        $tenantValue = $target->getAttribute($tenantColumn);
+
         Ticketing::ticketMessageModel()::query()->withoutTenancy()
             ->where('ticket_id', $source->getKey())
-            ->update(['ticket_id' => $target->getKey()]);
+            ->update(['ticket_id' => $target->getKey(), $tenantColumn => $tenantValue]);
 
         Ticketing::ticketAttachmentModel()::query()->withoutTenancy()
             ->where('attachable_type', $target->getMorphClass())
             ->where('attachable_id', $source->getKey())
-            ->update(['attachable_id' => $target->getKey()]);
+            ->update(['attachable_id' => $target->getKey(), $tenantColumn => $tenantValue]);
     }
 
     protected function copyRequesters(Ticket $source, Ticket $target): void
