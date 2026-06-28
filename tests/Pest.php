@@ -2,11 +2,15 @@
 
 declare(strict_types=1);
 
+use Selli\Ticketing\Tests\BroadcastingTestCase;
 use Selli\Ticketing\Tests\Fixtures\TestOrder;
 use Selli\Ticketing\Tests\Fixtures\TestUser;
 use Selli\Ticketing\Tests\TestCase;
 
-uses(TestCase::class)->in(__DIR__);
+uses(TestCase::class)->in('Feature', 'Unit');
+
+// Boots with broadcasting enabled so the provider wires the realtime channels.
+uses(BroadcastingTestCase::class)->in('Broadcasting');
 
 /**
  * Create a test user (acts as both requester and agent).
