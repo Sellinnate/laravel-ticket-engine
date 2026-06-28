@@ -118,11 +118,12 @@ class NotificationSubscriber
 
             $channels = NotificationThrottle::filter($recipient, $notification->key(), $channels, $notification->ticket->getKey());
 
-            if ($channels === []) {
-                continue;
+            // Send one notification PER channel so each becomes an independent
+            // queued job: a failure/retry on one channel (e.g. Slack throwing on
+            // a 5xx) can't redeliver the channels that already succeeded.
+            foreach ($channels as $channel) {
+                NotificationFacade::send([$recipient], $make()->onlyChannels([$channel]));
             }
-
-            NotificationFacade::send([$recipient], $notification->onlyChannels($channels));
         }
     }
 

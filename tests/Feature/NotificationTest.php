@@ -114,6 +114,17 @@ it('digests a throttled channel within the window', function (): void {
         ->and($second)->toBe(['database']);      // mail digested, in-app still delivered
 });
 
+it('sends one notification per channel so retries stay channel-isolated', function (): void {
+    Notification::fake();
+    config()->set('ticketing.notifications.events', ['ticket.assigned' => ['mail', 'database']]);
+    $agent = makeUser();
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+
+    Ticketing::assign($ticket, assignee: $agent);
+
+    Notification::assertSentToTimes($agent, TicketAssignedNotification::class, 2); // one per channel
+});
+
 it('does not double-notify the assignee on first assignment', function (): void {
     Notification::fake();
     $agent = makeUser();

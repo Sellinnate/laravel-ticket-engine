@@ -103,7 +103,11 @@ class WebhookGuard
             $port = $scheme === 'https' ? 443 : 80;
         }
 
-        return ["{$host}:{$port}:{$ip}"];
+        // libcurl (>= 7.57) requires an IPv6 ADDRESS to be bracketed in a
+        // CURLOPT_RESOLVE rule.
+        $address = filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) !== false ? "[{$ip}]" : $ip;
+
+        return ["{$host}:{$port}:{$address}"];
     }
 
     /**
