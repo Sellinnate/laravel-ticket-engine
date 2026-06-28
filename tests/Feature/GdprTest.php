@@ -62,6 +62,20 @@ it('exports a requester’s tickets, public messages and rating but not internal
         ->and($export[0]['satisfaction']['comment'])->toBe('great service');
 });
 
+it('excludes tickets where the user is only an assignee, not the requester', function (): void {
+    $customer = TestRequester::query()->create(['name' => 'Customer', 'email' => 'customer@example.test']);
+    $agent = makeUser(); // an agent who will be assigned the ticket
+    $ticket = Ticketing::open(type: 'support', title: 'someone elses issue', requester: $customer);
+    Ticketing::assign(ticket: $ticket, assignee: $agent); // agent becomes an assignee participant
+    Ticketing::postMessage($ticket, $customer, 'private correspondence');
+
+    // The agent is only an assignee — this is the customer's data, not theirs.
+    expect(Ticketing::exportRequesterData($agent))->toBeEmpty()
+        ->and(Ticketing::anonymiseRequester($agent))->toBe(0)
+        // ...while the customer's own export DOES include it.
+        ->and(Ticketing::exportRequesterData($customer))->toHaveCount(1);
+});
+
 it('anonymises old closed tickets via a retention rule', function (): void {
     config()->set('ticketing.gdpr.retention', [['type' => 'support', 'after_days' => 30, 'action' => 'anonymize']]);
 

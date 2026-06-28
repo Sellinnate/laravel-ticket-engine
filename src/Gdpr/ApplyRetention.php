@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Selli\Ticketing\Models\Ticket;
+use Selli\Ticketing\Models\TicketType;
 use Selli\Ticketing\Support\Ticketing;
 
 /**
@@ -73,7 +74,13 @@ class ApplyRetention
         $query->whereNotNull('closed_at')->where('closed_at', '<=', $cutoff);
 
         if ($type !== '*') {
-            $query->whereHas('type', fn (Builder $relation) => $relation->where('key', $type));
+            // withoutTenancy on the type subquery too: prune runs in the console
+            // with no tenant context, so a tenant-scoped TicketType would
+            // otherwise only match shared types and skip most tickets.
+            $query->whereHas('type', function (Builder $relation) use ($type): void {
+                /** @var Builder<TicketType> $relation */
+                $relation->withoutTenancy()->where('key', $type);
+            });
         }
 
         return $query;
@@ -112,9 +119,11 @@ class ApplyRetention
      */
     protected function delete(Ticket $ticket): void
     {
-        $messageTable = $this->tableFor(Ticketing::ticketMessageModel());
-        $messageMorph = (new (Ticketing::ticketMessageModel()))->getMorphClass();
-        $messageIds = DB::table($messageTable)->where('ticket_id', $ticket->getKey())->pluck('id');
+        $messageModel = new (Ticketing::ticketMessageModel());
+        $messageMorph = $messageModel->getMorphClass();
+        $messageIds = DB::table($messageModel->getTable())
+            ->where('ticket_id', $ticket->getKey())
+            ->pluck($messageModel->getKeyName());
 
         // Polymorphic attachments: on the ticket itself, and on each of its messages.
         DB::table($this->tableFor(Ticketing::ticketAttachmentModel()))

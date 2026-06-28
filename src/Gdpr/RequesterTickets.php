@@ -6,6 +6,7 @@ namespace Selli\Ticketing\Gdpr;
 
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Selli\Ticketing\Enums\ParticipantRole;
 use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Models\TicketParticipant;
 use Selli\Ticketing\Support\Ticketing;
@@ -32,10 +33,14 @@ class RequesterTickets
                         ->where('subject_id', $requester->getKey());
                 })
                 ->orWhereHas('participants', function (Builder $participant) use ($requester): void {
-                    // withoutTenancy on the related query too, or a cross-tenant
-                    // ticket where the requester is only a participant is missed.
+                    // Only the REQUESTER participation counts as "their ticket".
+                    // Matching any role would pull in tickets where this person is
+                    // merely an assignee/watcher — i.e. another customer's
+                    // correspondence — into their GDPR export. withoutTenancy so a
+                    // cross-tenant requester ticket isn't missed.
                     /** @var Builder<TicketParticipant> $participant */
                     $participant->withoutTenancy()
+                        ->where('role', ParticipantRole::Requester->value)
                         ->where('participant_type', $requester->getMorphClass())
                         ->where('participant_id', $requester->getKey());
                 });
