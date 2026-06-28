@@ -1,0 +1,61 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Selli\Ticketing\Actions;
+
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
+use Selli\Ticketing\Enums\MessageVisibility;
+use Selli\Ticketing\Models\Macro;
+use Selli\Ticketing\Models\Team;
+use Selli\Ticketing\Models\Ticket;
+use Selli\Ticketing\Support\AuditLogger;
+use Selli\Ticketing\Support\Ticketing;
+
+/**
+ * Applies a macro's set of operations to a ticket in one transaction: an
+ * optional reply, team assignment, workflow transition and tags.
+ */
+class ApplyMacro
+{
+    public function __construct(
+        protected Ticketing $manager,
+        protected AuditLogger $audit,
+    ) {}
+
+    public function handle(Ticket $ticket, Macro $macro, ?Model $actor = null): Ticket
+    {
+        $actions = $macro->actions;
+
+        DB::transaction(function () use ($ticket, $macro, $actor, $actions): void {
+            if (! empty($actions['reply']['body'])) {
+                $visibility = ($actions['reply']['visibility'] ?? 'public') === 'internal'
+                    ? MessageVisibility::Internal
+                    : MessageVisibility::Public;
+
+                $this->manager->postMessage($ticket, $actor, (string) $actions['reply']['body'], $visibility);
+            }
+
+            if (! empty($actions['assign_team_id'])) {
+                $team = Ticketing::teamModel()::query()->withoutTenancy()->find($actions['assign_team_id']);
+
+                if ($team instanceof Team) {
+                    $this->manager->assign($ticket, team: $team, strategy: $actions['strategy'] ?? null, actor: $actor);
+                }
+            }
+
+            if (! empty($actions['transition'])) {
+                $this->manager->transition($ticket, (string) $actions['transition'], $actor, $actions['note'] ?? null);
+            }
+
+            if (! empty($actions['tags'])) {
+                $this->manager->tag($ticket, array_values((array) $actions['tags']));
+            }
+
+            $this->audit->record($ticket, 'macro.applied', $actor, context: ['macro' => $macro->key]);
+        });
+
+        return $ticket->fresh() ?? $ticket;
+    }
+}

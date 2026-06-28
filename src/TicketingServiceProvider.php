@@ -6,10 +6,13 @@ namespace Selli\Ticketing;
 
 use Illuminate\Contracts\Auth\Factory;
 use Illuminate\Support\Facades\Event;
+use Selli\Ticketing\Collaboration\NullMentionResolver;
 use Selli\Ticketing\Commands\EscalateCommand;
 use Selli\Ticketing\Commands\RecalculateSlaCommand;
+use Selli\Ticketing\Contracts\MentionResolver;
 use Selli\Ticketing\Contracts\TenantResolver;
 use Selli\Ticketing\Contracts\WorkflowDriver;
+use Selli\Ticketing\Listeners\CollaborationSubscriber;
 use Selli\Ticketing\Listeners\RoutingSubscriber;
 use Selli\Ticketing\Listeners\SlaSubscriber;
 use Selli\Ticketing\Routing\AssignmentManager;
@@ -67,6 +70,13 @@ class TicketingServiceProvider extends PackageServiceProvider
         $this->app->singleton(SlaManager::class);
 
         $this->app->singleton(AssignmentManager::class, fn (): AssignmentManager => new AssignmentManager($this->app));
+
+        $this->app->bind(MentionResolver::class, function (): MentionResolver {
+            /** @var class-string<MentionResolver> $class */
+            $class = config('ticketing.collaboration.mentions.resolver', NullMentionResolver::class);
+
+            return $this->app->make($class);
+        });
     }
 
     public function packageBooted(): void
@@ -87,6 +97,10 @@ class TicketingServiceProvider extends PackageServiceProvider
 
         if (config('ticketing.routing.enabled', true) !== false) {
             $this->subscribe($this->app->make(RoutingSubscriber::class));
+        }
+
+        if (config('ticketing.collaboration.mentions.enabled', true) !== false) {
+            $this->subscribe($this->app->make(CollaborationSubscriber::class));
         }
     }
 

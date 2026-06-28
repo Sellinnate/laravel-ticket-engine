@@ -5,10 +5,13 @@ declare(strict_types=1);
 namespace Selli\Ticketing\Support;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Http\UploadedFile;
 use Selli\Ticketing\Enums\MessageVisibility;
 use Selli\Ticketing\Enums\Priority;
+use Selli\Ticketing\Models\Macro;
 use Selli\Ticketing\Models\Team;
 use Selli\Ticketing\Models\Ticket;
+use Selli\Ticketing\Models\TicketAttachment;
 use Selli\Ticketing\Models\TicketMessage;
 
 /**
@@ -103,6 +106,62 @@ class PendingTicket
     public function assignToTeam(Team $team, ?string $strategy = null, ?Model $actor = null): Ticket
     {
         return $this->manager->assign(ticket: $this->ticket(), team: $team, strategy: $strategy, actor: $actor);
+    }
+
+    /**
+     * Tag the bound ticket.
+     *
+     * @param  list<string>|string  $names
+     */
+    public function tag(array|string $names): Ticket
+    {
+        return $this->manager->tag($this->ticket(), is_array($names) ? $names : [$names]);
+    }
+
+    /**
+     * Remove tags from the bound ticket.
+     *
+     * @param  list<string>|string  $names
+     */
+    public function untag(array|string $names): Ticket
+    {
+        return $this->manager->untag($this->ticket(), is_array($names) ? $names : [$names]);
+    }
+
+    /**
+     * Attach an uploaded file to the bound ticket.
+     */
+    public function attach(UploadedFile $file, ?string $disk = null, ?Model $uploadedBy = null): TicketAttachment
+    {
+        return $this->manager->addAttachment($this->ticket(), $file, $disk, $uploadedBy);
+    }
+
+    /**
+     * Apply a macro to the bound ticket.
+     */
+    public function applyMacro(Macro $macro, ?Model $actor = null): Ticket
+    {
+        return $this->manager->applyMacro($this->ticket(), $macro, $actor);
+    }
+
+    /**
+     * Split messages out of the bound ticket into a new one.
+     *
+     * @param  list<int|string>  $messageIds
+     */
+    public function split(array $messageIds, ?string $title = null, ?Model $actor = null): Ticket
+    {
+        return $this->manager->split($this->ticket(), $messageIds, $title, $actor);
+    }
+
+    /**
+     * Merge the given source tickets into the bound ticket.
+     *
+     * @param  iterable<Ticket>  $sources
+     */
+    public function mergeFrom(iterable $sources, ?Model $actor = null): Ticket
+    {
+        return $this->manager->merge($this->ticket(), $sources, $actor);
     }
 
     protected function ticket(): Ticket

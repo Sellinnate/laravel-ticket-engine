@@ -6,10 +6,17 @@ namespace Selli\Ticketing\Support;
 
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Str;
+use Selli\Ticketing\Actions\AddAttachment;
+use Selli\Ticketing\Actions\ApplyMacro;
 use Selli\Ticketing\Actions\AssignTicket;
+use Selli\Ticketing\Actions\MergeTickets;
 use Selli\Ticketing\Actions\OpenTicket;
 use Selli\Ticketing\Actions\PostMessage;
+use Selli\Ticketing\Actions\SplitTicket;
 use Selli\Ticketing\Actions\TransitionTicket;
+use Selli\Ticketing\Data\AddAttachmentData;
 use Selli\Ticketing\Data\AssignTicketData;
 use Selli\Ticketing\Data\OpenTicketData;
 use Selli\Ticketing\Data\PostMessageData;
@@ -17,14 +24,19 @@ use Selli\Ticketing\Data\TransitionData;
 use Selli\Ticketing\Enums\MessageVisibility;
 use Selli\Ticketing\Enums\Priority;
 use Selli\Ticketing\Models\BusinessHours;
+use Selli\Ticketing\Models\CannedResponse;
 use Selli\Ticketing\Models\Holiday;
+use Selli\Ticketing\Models\Macro;
 use Selli\Ticketing\Models\RoutingRule;
 use Selli\Ticketing\Models\SlaClock;
 use Selli\Ticketing\Models\SlaPolicy;
+use Selli\Ticketing\Models\Tag;
 use Selli\Ticketing\Models\Team;
 use Selli\Ticketing\Models\TeamMember;
 use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Models\TicketActivity;
+use Selli\Ticketing\Models\TicketAttachment;
+use Selli\Ticketing\Models\TicketLink;
 use Selli\Ticketing\Models\TicketMessage;
 use Selli\Ticketing\Models\TicketParticipant;
 use Selli\Ticketing\Models\TicketType;
@@ -137,6 +149,96 @@ class Ticketing
             strategy: $strategy,
             actor: $actor,
         ));
+    }
+
+    /**
+     * Add an attachment (uploaded file) to a ticket or message.
+     */
+    public function addAttachment(
+        Model $attachable,
+        UploadedFile $file,
+        ?string $disk = null,
+        ?Model $uploadedBy = null,
+    ): TicketAttachment {
+        return $this->container->make(AddAttachment::class)->handle(
+            new AddAttachmentData($attachable, $file, $disk, $uploadedBy),
+        );
+    }
+
+    /**
+     * Tag a ticket, creating the tags (per-tenant) as needed.
+     *
+     * @param  list<string>  $names
+     */
+    public function tag(Ticket $ticket, array $names): Ticket
+    {
+        $tagModel = static::tagModel();
+        $ids = [];
+
+        foreach ($names as $name) {
+            $slug = Str::slug($name);
+            $tenantColumn = $ticket->getTenantColumn();
+
+            $tag = $tagModel::query()->withoutTenancy()
+                ->where('slug', $slug)
+                ->where($tenantColumn, $ticket->getAttribute($tenantColumn))
+                ->first()
+                ?? $tagModel::query()->create(array_merge($ticket->tenantAttributes(), ['name' => $name, 'slug' => $slug]));
+
+            $ids[] = $tag->getKey();
+        }
+
+        $ticket->tags()->syncWithoutDetaching($ids);
+
+        return $ticket;
+    }
+
+    /**
+     * Remove tags from a ticket by name.
+     *
+     * @param  list<string>  $names
+     */
+    public function untag(Ticket $ticket, array $names): Ticket
+    {
+        $slugs = array_map(fn (string $name): string => Str::slug($name), $names);
+
+        $ids = static::tagModel()::query()->withoutTenancy()
+            ->whereIn('slug', $slugs)
+            ->where($ticket->getTenantColumn(), $ticket->getAttribute($ticket->getTenantColumn()))
+            ->pluck((new (static::tagModel()))->getKeyName())
+            ->all();
+
+        $ticket->tags()->detach($ids);
+
+        return $ticket;
+    }
+
+    /**
+     * Apply a macro (transition + assignment + reply + tags) to a ticket.
+     */
+    public function applyMacro(Ticket $ticket, Macro $macro, ?Model $actor = null): Ticket
+    {
+        return $this->container->make(ApplyMacro::class)->handle($ticket, $macro, $actor);
+    }
+
+    /**
+     * Merge source tickets into a target.
+     *
+     * @param  iterable<Ticket>  $sources
+     */
+    public function merge(Ticket $target, iterable $sources, ?Model $actor = null): Ticket
+    {
+        return $this->container->make(MergeTickets::class)->handle($target, $sources, $actor);
+    }
+
+    /**
+     * Split messages out of a ticket into a new one.
+     *
+     * @param  list<int|string>  $messageIds
+     */
+    public function split(Ticket $source, array $messageIds, ?string $title = null, ?Model $actor = null): Ticket
+    {
+        return $this->container->make(SplitTicket::class)->handle($source, $messageIds, $title, $actor);
     }
 
     // --- Model binding -----------------------------------------------------
@@ -323,6 +425,51 @@ class Ticketing
     {
         /** @var class-string<RoutingRule> */
         return static::$models['routing_rule'] ?? config('ticketing.models.routing_rule', RoutingRule::class);
+    }
+
+    /**
+     * @return class-string<TicketAttachment>
+     */
+    public static function ticketAttachmentModel(): string
+    {
+        /** @var class-string<TicketAttachment> */
+        return static::$models['ticket_attachment'] ?? config('ticketing.models.ticket_attachment', TicketAttachment::class);
+    }
+
+    /**
+     * @return class-string<CannedResponse>
+     */
+    public static function cannedResponseModel(): string
+    {
+        /** @var class-string<CannedResponse> */
+        return static::$models['canned_response'] ?? config('ticketing.models.canned_response', CannedResponse::class);
+    }
+
+    /**
+     * @return class-string<Macro>
+     */
+    public static function macroModel(): string
+    {
+        /** @var class-string<Macro> */
+        return static::$models['macro'] ?? config('ticketing.models.macro', Macro::class);
+    }
+
+    /**
+     * @return class-string<Tag>
+     */
+    public static function tagModel(): string
+    {
+        /** @var class-string<Tag> */
+        return static::$models['tag'] ?? config('ticketing.models.tag', Tag::class);
+    }
+
+    /**
+     * @return class-string<TicketLink>
+     */
+    public static function ticketLinkModel(): string
+    {
+        /** @var class-string<TicketLink> */
+        return static::$models['ticket_link'] ?? config('ticketing.models.ticket_link', TicketLink::class);
     }
 
     /**
