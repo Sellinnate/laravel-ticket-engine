@@ -20,6 +20,8 @@ use Selli\Ticketing\Enums\Priority;
  * @method static \Selli\Ticketing\Models\SatisfactionRating submitCsatByToken(string $token, int $rating, ?string $comment = null, ?\Illuminate\Database\Eloquent\Model $submittedBy = null)
  * @method static \Selli\Ticketing\Models\TicketMessage|null receiveEmail(\Selli\Ticketing\Mail\InboundEmail $email)
  * @method static string|null replyAddressFor(\Selli\Ticketing\Models\Ticket $ticket)
+ * @method static int anonymiseRequester(\Illuminate\Database\Eloquent\Model $requester)
+ * @method static array<int, array<string, mixed>> exportRequesterData(\Illuminate\Database\Eloquent\Model $requester)
  *
  * @see \Selli\Ticketing\Support\Ticketing
  */

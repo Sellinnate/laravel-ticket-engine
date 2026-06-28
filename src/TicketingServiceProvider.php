@@ -15,6 +15,7 @@ use Selli\Ticketing\Broadcasting\Channels;
 use Selli\Ticketing\Broadcasting\DefaultChannelAuthorizer;
 use Selli\Ticketing\Collaboration\NullMentionResolver;
 use Selli\Ticketing\Commands\EscalateCommand;
+use Selli\Ticketing\Commands\PruneCommand;
 use Selli\Ticketing\Commands\RecalculateSlaCommand;
 use Selli\Ticketing\Contracts\ChannelAuthorizer;
 use Selli\Ticketing\Contracts\InboundMailRouter;
@@ -54,6 +55,7 @@ class TicketingServiceProvider extends PackageServiceProvider
             ->hasCommands([
                 EscalateCommand::class,
                 RecalculateSlaCommand::class,
+                PruneCommand::class,
             ]);
     }
 

@@ -28,6 +28,8 @@ use Selli\Ticketing\Enums\MessageVisibility;
 use Selli\Ticketing\Enums\Priority;
 use Selli\Ticketing\Exceptions\CsatException;
 use Selli\Ticketing\Exceptions\InvalidConfigurationException;
+use Selli\Ticketing\Gdpr\AnonymizeRequester;
+use Selli\Ticketing\Gdpr\ExportRequesterData;
 use Selli\Ticketing\Mail\InboundEmail;
 use Selli\Ticketing\Mail\ProcessInboundEmail;
 use Selli\Ticketing\Models\AutomationRule;
@@ -388,6 +390,27 @@ class Ticketing
         }
 
         return MailThreadToken::tagAddress($base, $token);
+    }
+
+    /**
+     * Scrub the personal data the package stores for a requester (GDPR §17.4),
+     * keeping the tickets for statistics. Returns the number of tickets touched
+     * and emits RequesterAnonymized for the host to anonymise its own model.
+     */
+    public function anonymiseRequester(Model $requester): int
+    {
+        return $this->container->make(AnonymizeRequester::class)->handle($requester);
+    }
+
+    /**
+     * A data-subject export for a requester: their tickets, public conversation
+     * and satisfaction ratings.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function exportRequesterData(Model $requester): array
+    {
+        return $this->container->make(ExportRequesterData::class)->handle($requester);
     }
 
     // --- Model binding -----------------------------------------------------
