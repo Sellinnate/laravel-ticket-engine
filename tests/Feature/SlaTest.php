@@ -107,6 +107,56 @@ it('emits SlaThresholdReached before breaching', function (): void {
     Event::assertDispatched(SlaThresholdReached::class);
 });
 
+it('does not emit a threshold warning after a breach', function (): void {
+    SlaPolicy::factory()->create(['first_response_minutes' => null, 'resolution_minutes' => 480]);
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+
+    // First sweep well past the deadline → breach (skips the 75% window).
+    Carbon::setTestNow(Carbon::parse('2026-06-29 19:00:00', 'UTC'));
+    app(SlaManager::class)->sweep(75);
+
+    Event::fake([SlaThresholdReached::class]);
+    app(SlaManager::class)->sweep(75); // second sweep
+
+    Event::assertNotDispatched(SlaThresholdReached::class);
+    expect(clockFor($ticket->getKey(), SlaTarget::Resolution)->threshold_notified)->toBeFalse();
+});
+
+it('clears the breach flag and skips paused clocks on recalculate', function (): void {
+    $policy = SlaPolicy::factory()->create(['first_response_minutes' => null, 'resolution_minutes' => 60]);
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+
+    // Breach it.
+    Carbon::setTestNow(Carbon::parse('2026-06-29 12:00:00', 'UTC'));
+    app(SlaManager::class)->sweep();
+    expect(clockFor($ticket->getKey(), SlaTarget::Resolution)->breached_at)->not->toBeNull();
+
+    // Extend the policy and recalculate: the breach flag clears, deadline moves.
+    $policy->update(['resolution_minutes' => 600]);
+    app(SlaManager::class)->recalculate($ticket->fresh());
+
+    $clock = clockFor($ticket->getKey(), SlaTarget::Resolution);
+    expect($clock->breached_at)->toBeNull()
+        ->and($clock->due_at->equalTo(Carbon::parse('2026-06-29 20:00:00', 'UTC')))->toBeTrue();
+});
+
+it('leaves paused clocks untouched on recalculate', function (): void {
+    $policy = SlaPolicy::factory()->create(['first_response_minutes' => null, 'resolution_minutes' => 480]);
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+
+    Carbon::setTestNow(Carbon::parse('2026-06-29 11:00:00', 'UTC'));
+    Ticketing::for($ticket)->transition('wait'); // pause
+
+    $pausedDue = clockFor($ticket->getKey(), SlaTarget::Resolution)->due_at->copy();
+
+    $policy->update(['resolution_minutes' => 60]);
+    app(SlaManager::class)->recalculate($ticket->fresh());
+
+    $clock = clockFor($ticket->getKey(), SlaTarget::Resolution);
+    expect($clock->isPaused())->toBeTrue()
+        ->and($clock->due_at->equalTo($pausedDue))->toBeTrue(); // unchanged
+});
+
 it('restarts the resolution clock on reopen', function (): void {
     SlaPolicy::factory()->create(['resolution_minutes' => 480]);
     $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());

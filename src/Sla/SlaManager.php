@@ -160,10 +160,14 @@ class SlaManager
         $calendar = $this->calendars->forPolicy($policy);
         $model = Ticketing::slaClockModel();
 
+        // Only running clocks are recalculated: paused clocks are frozen and are
+        // recomputed from their captured budget on resume, so overwriting their
+        // due_at here would desync them from remaining_minutes.
         $clocks = $model::query()
             ->withoutTenancy()
             ->where('ticket_id', $ticket->getKey())
             ->whereNull('completed_at')
+            ->whereNull('paused_at')
             ->get();
 
         foreach ($clocks as $clock) {
@@ -173,7 +177,13 @@ class SlaManager
                 continue;
             }
 
-            $clock->forceFill(['due_at' => $calendar->addMinutes($clock->started_at, $minutes)])->save();
+            // Recompute the deadline and clear stale alert state so the next
+            // sweep re-evaluates against the new deadline.
+            $clock->forceFill([
+                'due_at' => $calendar->addMinutes($clock->started_at, $minutes),
+                'breached_at' => null,
+                'threshold_notified' => false,
+            ])->save();
         }
     }
 
@@ -192,7 +202,9 @@ class SlaManager
             return;
         }
 
-        if (! $clock->threshold_notified && $this->fractionConsumed($clock, $now) >= $thresholdPercent / 100) {
+        // Don't emit a threshold warning once the clock has already breached.
+        if (! $clock->threshold_notified && $clock->breached_at === null
+            && $this->fractionConsumed($clock, $now) >= $thresholdPercent / 100) {
             $clock->forceFill(['threshold_notified' => true])->save();
             SlaThresholdReached::dispatch($ticket, $clock, $thresholdPercent);
         }
