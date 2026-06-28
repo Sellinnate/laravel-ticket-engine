@@ -31,7 +31,7 @@ class RoutingEngine
             return null;
         }
 
-        $team = $rule->team_id !== null ? $this->team($rule->team_id) : null;
+        $team = $rule->team_id !== null ? $this->team($rule->team_id, $ticket) : null;
         $assignee = $this->ruleAssignee($rule);
 
         if ($team === null && $assignee === null) {
@@ -64,9 +64,15 @@ class RoutingEngine
                     $query->orWhereNull($tenantColumn);
                 }
             })
-            ->orderBy('position')
-            ->orderBy((new $model)->getKeyName())
-            ->get();
+            ->get()
+            // Order by position, then prefer tenant-owned rules over shared ones
+            // at the same position, then key — so a shared rule never wins a tie
+            // against an equally-positioned tenant rule.
+            ->sort(function (RoutingRule $a, RoutingRule $b) use ($tenantColumn): int {
+                return [$a->position, $a->getAttribute($tenantColumn) !== null ? 0 : 1, $a->getKey()]
+                    <=> [$b->position, $b->getAttribute($tenantColumn) !== null ? 0 : 1, $b->getKey()];
+            })
+            ->values();
 
         foreach ($rules as $rule) {
             if ($this->matches($ticket, $rule->conditions ?? [])) {
@@ -142,13 +148,32 @@ class RoutingEngine
         return $type?->key;
     }
 
-    protected function team(int|string $id): ?Team
+    protected function team(int|string $id, Ticket $ticket): ?Team
     {
         $model = Ticketing::teamModel();
 
         $team = $model::query()->withoutTenancy()->find($id);
 
-        return $team instanceof Team ? $team : null;
+        if (! $team instanceof Team) {
+            return null;
+        }
+
+        // Never route to another tenant's team. Only the ticket's own tenant
+        // (or a shared null-tenant team, when allow_shared is on) is acceptable.
+        $tenantColumn = $ticket->getTenantColumn();
+        $teamTenant = $team->getAttribute($tenantColumn);
+        $ticketTenant = $ticket->getAttribute($tenantColumn);
+        $allowShared = config('ticketing.tenancy.allow_shared', true) !== false;
+
+        if ($teamTenant === $ticketTenant) {
+            return $team;
+        }
+
+        if ($teamTenant === null && $allowShared) {
+            return $team;
+        }
+
+        return null;
     }
 
     protected function ruleAssignee(RoutingRule $rule): ?Model

@@ -31,6 +31,11 @@ class AssignTicket
 
     public function handle(AssignTicketData $data): Ticket
     {
+        // Nothing requested → no-op (don't touch the current assignment).
+        if ($data->team === null && $data->assignee === null) {
+            return $data->ticket;
+        }
+
         $model = Ticketing::ticketModel();
 
         $result = DB::transaction(function () use ($data, $model): array {
@@ -45,6 +50,10 @@ class AssignTicket
                 $assignee = $strategy->assign($ticket, $team);
             }
 
+            // A team assignment that resolved no agent leaves the ticket
+            // team-owned but unassigned (clearing any prior assignee).
+            $clearAssignee = $assignee === null && $team !== null;
+
             if ($team !== null) {
                 $ticket->team_id = $team->getKey();
             }
@@ -52,6 +61,9 @@ class AssignTicket
             if ($assignee !== null) {
                 $ticket->assignee_type = $assignee->getMorphClass();
                 $ticket->assignee_id = $assignee->getKey();
+            } elseif ($clearAssignee) {
+                $ticket->assignee_type = null;
+                $ticket->assignee_id = null;
             }
 
             $ticket->save();
@@ -61,6 +73,8 @@ class AssignTicket
             if ($assignee !== null) {
                 $participant = $this->syncAssigneeParticipant($ticket, $assignee);
                 $this->stampLastAssigned($ticket, $team, $assignee);
+            } elseif ($clearAssignee) {
+                $this->removeAssigneeParticipant($ticket);
             }
 
             $this->audit->record(
@@ -107,6 +121,17 @@ class AssignTicket
         );
 
         return $participant;
+    }
+
+    protected function removeAssigneeParticipant(Ticket $ticket): void
+    {
+        $model = Ticketing::ticketParticipantModel();
+
+        $model::query()
+            ->withoutTenancy()
+            ->where('ticket_id', $ticket->getKey())
+            ->where('role', ParticipantRole::Assignee->value)
+            ->delete();
     }
 
     protected function stampLastAssigned(Ticket $ticket, ?Team $team, Model $assignee): void

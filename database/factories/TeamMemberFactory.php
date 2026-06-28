@@ -6,8 +6,8 @@ namespace Selli\Ticketing\Database\Factories;
 
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Database\Eloquent\Model;
-use Selli\Ticketing\Models\Team;
 use Selli\Ticketing\Models\TeamMember;
+use Selli\Ticketing\Support\Ticketing;
 
 /**
  * @extends Factory<TeamMember>
@@ -22,7 +22,7 @@ class TeamMemberFactory extends Factory
     public function definition(): array
     {
         return [
-            'team_id' => Team::factory(),
+            'team_id' => Ticketing::teamModel()::factory(),
             'member_type' => 'tickets.agent',
             'member_id' => (string) fake()->unique()->numberBetween(1, 1_000_000),
             'skills' => null,

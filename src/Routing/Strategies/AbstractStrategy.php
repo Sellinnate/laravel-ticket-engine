@@ -42,18 +42,26 @@ abstract class AbstractStrategy implements AssignmentStrategy
     {
         $agent = $member->member;
 
+        // A membership whose agent no longer exists is not assignable.
+        if ($agent === null) {
+            return false;
+        }
+
         return ! $agent instanceof ReportsAvailability || $agent->isAvailableForTickets();
     }
 
     /**
-     * Number of unresolved tickets currently assigned to a member's agent.
+     * Number of unresolved tickets assigned to a member's agent within the
+     * ticket's tenant (so least-busy/skill-based aren't skewed by other tenants).
      */
-    protected function openTicketCount(TeamMember $member): int
+    protected function openTicketCount(TeamMember $member, Ticket $ticket): int
     {
         $model = Ticketing::ticketModel();
+        $tenantColumn = $ticket->getTenantColumn();
 
         return $model::query()
             ->withoutTenancy()
+            ->where($tenantColumn, $ticket->getAttribute($tenantColumn))
             ->where('assignee_type', $member->member_type)
             ->where('assignee_id', $member->member_id)
             ->whereNull('resolved_at')

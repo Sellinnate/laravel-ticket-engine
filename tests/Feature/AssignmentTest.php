@@ -91,6 +91,35 @@ it('skips unavailable agents', function (): void {
     expect((string) $ticket->fresh()->assignee_id)->toBe((string) $here->getKey());
 });
 
+it('clears a prior assignee when a team assignment resolves no agent', function (): void {
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+    $agent = makeUser();
+    Ticketing::for($ticket)->assignTo($agent);
+    expect($ticket->fresh()->assignee_id)->not->toBeNull();
+
+    $team = Team::factory()->create();
+    TeamMember::factory()->member(makeUser())->create(['team_id' => $team->getKey()]);
+
+    Ticketing::for($ticket)->assignToTeam($team, 'manual');
+
+    $ticket = $ticket->fresh();
+    expect($ticket->assignee_id)->toBeNull()
+        ->and((string) $ticket->team_id)->toBe((string) $team->getKey())
+        ->and(TicketParticipant::query()->where('ticket_id', $ticket->getKey())->where('role', ParticipantRole::Assignee->value)->count())->toBe(0);
+});
+
+it('skips a member whose agent no longer exists', function (): void {
+    $team = Team::factory()->create();
+    $gone = makeUser();
+    TeamMember::factory()->member($gone)->create(['team_id' => $team->getKey()]);
+    $gone->delete();
+
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+    Ticketing::for($ticket)->assignToTeam($team, 'round-robin');
+
+    expect($ticket->fresh()->assignee_id)->toBeNull();
+});
+
 it('leaves the ticket unassigned with the manual strategy', function (): void {
     $team = Team::factory()->create();
     TeamMember::factory()->member(makeUser())->create(['team_id' => $team->getKey()]);

@@ -21,10 +21,8 @@ class SkillBasedStrategy extends AbstractStrategy
 
         $member = $this->eligibleMembers($team)
             ->filter(fn (TeamMember $member): bool => $this->hasSkills($member, $required))
-            ->sortBy([
-                fn (TeamMember $member): int => $this->openTicketCount($member),
-                fn (TeamMember $member): string => (string) $member->getKey(),
-            ])
+            ->sort(fn (TeamMember $a, TeamMember $b): int => [$this->openTicketCount($a, $ticket), $a->getKey()]
+                <=> [$this->openTicketCount($b, $ticket), $b->getKey()])
             ->first();
 
         return $this->agentFor($member);

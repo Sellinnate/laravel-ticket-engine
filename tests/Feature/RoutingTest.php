@@ -6,6 +6,8 @@ use Selli\Ticketing\Facades\Ticketing;
 use Selli\Ticketing\Models\RoutingRule;
 use Selli\Ticketing\Models\Team;
 use Selli\Ticketing\Models\TeamMember;
+use Selli\Ticketing\Models\Ticket;
+use Selli\Ticketing\Tenancy\TenantContext;
 
 it('routes a ticket to a team via a matching rule on open', function (): void {
     $team = Team::factory()->create();
@@ -110,6 +112,53 @@ it('ignores a matching rule with no team or assignee', function (): void {
 
     expect($ticket->fresh()->team_id)->toBeNull()
         ->and($ticket->fresh()->assignee_id)->toBeNull();
+});
+
+it('never routes to another tenant team', function (): void {
+    $context = app(TenantContext::class);
+    $otherTeam = $context->forTenant(99, fn () => Team::factory()->create(['tenant_id' => 99]));
+
+    // A shared rule pointing at tenant 99's team.
+    RoutingRule::factory()->create([
+        'tenant_id' => null,
+        'conditions' => [['field' => 'type', 'operator' => '=', 'value' => 'support']],
+        'team_id' => $otherTeam->getKey(),
+        'strategy' => 'manual',
+    ]);
+
+    $ticket = $context->forTenant(5, fn () => Ticketing::open(type: 'support', title: 'x', requester: makeUser(['tenant_id' => 5])));
+
+    expect(Ticket::query()->withoutTenancy()->find($ticket->getKey())->team_id)->toBeNull();
+});
+
+it('prefers a tenant-owned rule over a shared rule at the same position', function (): void {
+    $context = app(TenantContext::class);
+
+    $teamShared = Team::factory()->create(['tenant_id' => null]);
+    RoutingRule::factory()->create([
+        'tenant_id' => null,
+        'conditions' => [['field' => 'type', 'operator' => '=', 'value' => 'support']],
+        'team_id' => $teamShared->getKey(),
+        'strategy' => 'manual',
+        'position' => 0,
+    ]);
+
+    [$ticket, $teamOwned] = $context->forTenant(7, function () {
+        $teamOwned = Team::factory()->create(['tenant_id' => 7]);
+        RoutingRule::factory()->create([
+            'tenant_id' => 7,
+            'conditions' => [['field' => 'type', 'operator' => '=', 'value' => 'support']],
+            'team_id' => $teamOwned->getKey(),
+            'strategy' => 'manual',
+            'position' => 0,
+        ]);
+
+        $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser(['tenant_id' => 7]));
+
+        return [Ticket::query()->withoutTenancy()->find($ticket->getKey()), $teamOwned];
+    });
+
+    expect((string) $ticket->team_id)->toBe((string) $teamOwned->getKey());
 });
 
 it('exposes the routing rule team relation', function (): void {
