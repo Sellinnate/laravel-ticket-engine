@@ -36,11 +36,14 @@ class RequestCsat
 
         // Resolve the token (TTL + secret) BEFORE persisting, so a misconfigured
         // TTL/secret fails the whole request rather than leaving a "requested"
-        // row whose CsatRequested event never fires.
-        $expiresAt = Carbon::now()->addSeconds(Csat::tokenTtl());
-        $token = CsatToken::issue($ticket->getKey(), $expiresAt);
+        // row whose CsatRequested event never fires. The request timestamp is the
+        // CSAT cycle marker: it is stamped on the row AND signed into the token,
+        // so a stale link from an earlier cycle can't rate a re-armed request.
+        $requestedAt = Carbon::now();
+        $expiresAt = $requestedAt->copy()->addSeconds(Csat::tokenTtl());
+        $token = CsatToken::issue($ticket->getKey(), $expiresAt, $requestedAt->getTimestamp());
 
-        $rating = DB::transaction(function () use ($ticket, $scale, $actor): SatisfactionRating {
+        $rating = DB::transaction(function () use ($ticket, $scale, $actor, $requestedAt): SatisfactionRating {
             // Serialise concurrent CSAT operations for this ticket on the ticket
             // row, so two requests can't both miss the rating and race to create
             // it (which the one-per-ticket constraint would reject).
@@ -64,7 +67,7 @@ class RequestCsat
                 'submitted_by_type' => null,
                 'submitted_by_id' => null,
                 'submitted_at' => null,
-                'requested_at' => now(),
+                'requested_at' => $requestedAt,
             ]);
 
             if ($existing instanceof SatisfactionRating) {

@@ -90,7 +90,23 @@ it('submits via a signed token', function (): void {
     $rating = Ticketing::submitCsatByToken($token, 5);
 
     expect($rating->rating)->toBe(5)
-        ->and(CsatToken::verify($token))->toBe((string) $ticket->getKey());
+        ->and(CsatToken::verify($token)['ticket'])->toBe((string) $ticket->getKey());
+});
+
+it('rejects a stale token from a previous CSAT cycle', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-06-29 10:00:00', 'UTC'));
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+    Ticketing::for($ticket)->transition('resolve'); // requests CSAT, cycle 1
+    $stale = Ticketing::csatToken($ticket);          // bound to cycle 1
+
+    Carbon::setTestNow(Carbon::parse('2026-06-29 11:00:00', 'UTC'));
+    Ticketing::for($ticket->fresh())->transition('reopen');
+    Ticketing::for($ticket->fresh())->transition('resolve'); // re-arm, cycle 2
+
+    // The current token works; the stale one (cycle 1) is rejected.
+    $current = Ticketing::csatToken($ticket->fresh());
+    expect(fn () => Ticketing::submitCsatByToken($stale, 5))->toThrow(CsatException::class);
+    expect(Ticketing::submitCsatByToken($current, 4)->rating)->toBe(4);
 });
 
 it('does not overwrite an already-submitted rating via the token', function (): void {

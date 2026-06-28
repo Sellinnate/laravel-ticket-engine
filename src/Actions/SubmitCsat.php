@@ -90,10 +90,9 @@ class SubmitCsat
                 $existing->forceFill($attributes)->save();
                 $row = $existing;
             } else {
-                // A direct submit with no prior request: stamp requested_at too so
-                // the "requested before submitted" semantics hold for these rows.
-                $attributes['requested_at'] = now();
-
+                // A direct submit with no prior request leaves requested_at null
+                // (it genuinely was never requested), which also keeps the CSAT
+                // cycle marker unset so a token-direct submit stays idempotent.
                 /** @var SatisfactionRating $row */
                 $row = $model::query()->create($attributes);
             }

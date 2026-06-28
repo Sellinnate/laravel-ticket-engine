@@ -17,23 +17,28 @@ use Selli\Ticketing\Exceptions\InvalidConfigurationException;
 class CsatToken
 {
     /**
-     * Build a token for a ticket, valid until $expiresAt.
+     * Build a token for a ticket, valid until $expiresAt and bound to a CSAT
+     * cycle marker (the rating's requested_at timestamp, 0 if none). The marker
+     * lets a verifier reject a link issued for an earlier request cycle.
      */
-    public static function issue(int|string $ticketId, Carbon $expiresAt): string
+    public static function issue(int|string $ticketId, Carbon $expiresAt, int $cycle = 0): string
     {
         $payload = self::encode([
             't' => (string) $ticketId,
             'e' => $expiresAt->getTimestamp(),
+            'c' => $cycle,
         ]);
 
         return $payload.'.'.self::sign($payload);
     }
 
     /**
-     * Return the ticket id a valid, unexpired token names, or null if the token
-     * is malformed, tampered with, or expired.
+     * Return the claims of a valid, unexpired token (ticket id + cycle marker),
+     * or null if the token is malformed, tampered with, or expired.
+     *
+     * @return array{ticket: string, cycle: int}|null
      */
-    public static function verify(string $token, ?Carbon $now = null): ?string
+    public static function verify(string $token, ?Carbon $now = null): ?array
     {
         $parts = explode('.', $token);
 
@@ -60,7 +65,10 @@ class CsatToken
             return null;
         }
 
-        return (string) $data['t'];
+        return [
+            'ticket' => (string) $data['t'],
+            'cycle' => isset($data['c']) && is_int($data['c']) ? $data['c'] : 0,
+        ];
     }
 
     protected static function sign(string $payload): string

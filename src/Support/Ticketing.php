@@ -295,17 +295,29 @@ class Ticketing
      */
     public function submitCsatByToken(string $token, int $rating, ?string $comment = null, ?Model $submittedBy = null): SatisfactionRating
     {
-        $ticketId = CsatToken::verify($token);
+        $claims = CsatToken::verify($token);
 
-        if ($ticketId === null) {
+        if ($claims === null) {
             throw CsatException::invalidToken();
         }
 
-        $ticket = static::ticketModel()::query()->withoutTenancy()->find($ticketId);
+        $ticket = static::ticketModel()::query()->withoutTenancy()->find($claims['ticket']);
 
         if (! $ticket instanceof Ticket) {
             // An orphaned link (ticket deleted) is just an invalid token, not a
             // 404 — keep the fail-closed contract consistent.
+            throw CsatException::invalidToken();
+        }
+
+        // Reject a link issued for an earlier CSAT cycle: if a rating row exists
+        // its requested_at is the live cycle marker, and the token's must match.
+        $existing = static::satisfactionRatingModel()::query()->withoutTenancy()
+            ->where('ticket_id', $ticket->getKey())
+            ->first();
+
+        if ($existing instanceof SatisfactionRating
+            && $existing->requested_at !== null
+            && $existing->requested_at->getTimestamp() !== $claims['cycle']) {
             throw CsatException::invalidToken();
         }
 
@@ -316,11 +328,20 @@ class Ticketing
     }
 
     /**
-     * Issue a fresh signed CSAT token for a ticket (e.g. to embed in a host URL).
+     * Issue a fresh signed CSAT token for a ticket (e.g. to embed in a host URL),
+     * bound to the ticket's current request cycle when a rating row exists.
      */
     public function csatToken(Ticket $ticket, ?int $ttl = null): string
     {
-        return CsatToken::issue($ticket->getKey(), now()->addSeconds($ttl ?? Csat::tokenTtl()));
+        $existing = static::satisfactionRatingModel()::query()->withoutTenancy()
+            ->where('ticket_id', $ticket->getKey())
+            ->first();
+
+        $cycle = $existing instanceof SatisfactionRating && $existing->requested_at !== null
+            ? $existing->requested_at->getTimestamp()
+            : 0;
+
+        return CsatToken::issue($ticket->getKey(), now()->addSeconds($ttl ?? Csat::tokenTtl()), $cycle);
     }
 
     // --- Model binding -----------------------------------------------------
