@@ -27,6 +27,9 @@ use Selli\Ticketing\Data\TransitionData;
 use Selli\Ticketing\Enums\MessageVisibility;
 use Selli\Ticketing\Enums\Priority;
 use Selli\Ticketing\Exceptions\CsatException;
+use Selli\Ticketing\Exceptions\InvalidConfigurationException;
+use Selli\Ticketing\Mail\InboundEmail;
+use Selli\Ticketing\Mail\ProcessInboundEmail;
 use Selli\Ticketing\Models\AutomationRule;
 use Selli\Ticketing\Models\BusinessHours;
 use Selli\Ticketing\Models\CannedResponse;
@@ -346,6 +349,45 @@ class Ticketing
         $cycle = $existing instanceof SatisfactionRating ? (string) $existing->cycle : '';
 
         return CsatToken::issue($ticket->getKey(), now()->addSeconds($ttl ?? Csat::tokenTtl()), $cycle);
+    }
+
+    /**
+     * Ingest a normalised inbound email — open a ticket or thread a reply. Loop-
+     * and duplicate-safe; returns the created message, or null when the email is
+     * dropped (disabled, auto-reply, rate limited, duplicate, or unroutable).
+     */
+    public function receiveEmail(InboundEmail $email): ?TicketMessage
+    {
+        return $this->container->make(ProcessInboundEmail::class)->handle($email);
+    }
+
+    /**
+     * The tagged Reply-To address for a ticket (support+t_<token>@…), so a
+     * customer's reply threads straight back to it. Null when no reply-to base
+     * is configured.
+     */
+    public function replyAddressFor(Ticket $ticket): ?string
+    {
+        $base = config('ticketing.mail.outbound.reply_to_base');
+
+        // Require a real address (with an @): tagAddress() returns its input
+        // unchanged when there's no @, so a base like "support" or a stray space
+        // would otherwise yield a broken Reply-To instead of disabling the tag.
+        if (! is_string($base) || ! str_contains($base = trim($base), '@')) {
+            return null;
+        }
+
+        try {
+            $token = MailThreadToken::issue($ticket->getKey());
+        } catch (InvalidConfigurationException $exception) {
+            // No token secret configured: degrade to no tagged Reply-To rather
+            // than crashing a (possibly queued) outbound notification.
+            report($exception);
+
+            return null;
+        }
+
+        return MailThreadToken::tagAddress($base, $token);
     }
 
     // --- Model binding -----------------------------------------------------

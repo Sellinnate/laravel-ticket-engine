@@ -13,6 +13,7 @@ use Illuminate\Queue\SerializesModels;
 use Selli\Ticketing\Contracts\NotificationPreferences;
 use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Notifications\Channels\SlackWebhookChannel;
+use Selli\Ticketing\Support\Ticketing;
 
 /**
  * Base class for the package's ticket notifications. Channel selection is
@@ -87,10 +88,20 @@ abstract class TicketNotification extends Notification implements ShouldQueue
 
     public function toMail(object $notifiable): MailMessage
     {
-        return (new MailMessage)
+        $mail = (new MailMessage)
             ->subject($this->title())
             ->line($this->body())
             ->line('Reference: '.$this->ticket->reference);
+
+        // Tag the Reply-To so a recipient's reply threads straight back to this
+        // ticket (the +t_<token> address the inbound channel understands).
+        $replyTo = app(Ticketing::class)->replyAddressFor($this->ticket);
+
+        if ($replyTo !== null) {
+            $mail->replyTo($replyTo);
+        }
+
+        return $mail;
     }
 
     /**
