@@ -151,7 +151,9 @@ it('exposes scale semantics for aggregation', function (): void {
         ->and(CsatScale::Nps->accepts(10))->toBeTrue()
         ->and(CsatScale::Nps->isPositive(9))->toBeTrue()   // promoter
         ->and(CsatScale::Nps->isPositive(8))->toBeFalse()  // passive, not positive
-        ->and(CsatScale::Nps->isPositive(6))->toBeFalse(); // detractor
+        ->and(CsatScale::Nps->isPositive(6))->toBeFalse()  // detractor
+        ->and(CsatScale::Nps->isPositive(11))->toBeFalse() // out of scale
+        ->and(CsatScale::FiveStar->isPositive(6))->toBeFalse(); // out of scale
 });
 
 it('fails closed on a non-positive token ttl', function (): void {
@@ -160,6 +162,16 @@ it('fails closed on a non-positive token ttl', function (): void {
 
     Ticketing::csatToken($ticket);
 })->throws(InvalidConfigurationException::class);
+
+it('does not persist a rating when the token config is invalid', function (): void {
+    config()->set('ticketing.csat.token.ttl', 0); // invalid → token resolution throws
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+
+    expect(fn () => Ticketing::requestCsat($ticket))->toThrow(InvalidConfigurationException::class);
+
+    // The row must not exist: the config error aborts before any persistence.
+    expect(SatisfactionRating::query()->where('ticket_id', $ticket->getKey())->exists())->toBeFalse();
+});
 
 it('fails closed when no token secret is available', function (): void {
     config()->set('ticketing.csat.token.secret', null);

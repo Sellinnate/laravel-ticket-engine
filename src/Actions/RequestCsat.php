@@ -34,6 +34,12 @@ class RequestCsat
 
         $scale = Csat::scale();
 
+        // Resolve the token (TTL + secret) BEFORE persisting, so a misconfigured
+        // TTL/secret fails the whole request rather than leaving a "requested"
+        // row whose CsatRequested event never fires.
+        $expiresAt = Carbon::now()->addSeconds(Csat::tokenTtl());
+        $token = CsatToken::issue($ticket->getKey(), $expiresAt);
+
         $rating = DB::transaction(function () use ($ticket, $scale, $actor): SatisfactionRating {
             // Serialise concurrent CSAT operations for this ticket on the ticket
             // row, so two requests can't both miss the rating and race to create
@@ -43,11 +49,11 @@ class RequestCsat
                 ->find($ticket->getKey());
 
             $model = Ticketing::satisfactionRatingModel();
-            $tenantColumn = $ticket->getTenantColumn();
 
+            // Look up by ticket_id alone — it's the unique key, so a tenant drift
+            // on the existing row can't make us miss it and hit the constraint.
             $existing = $model::query()->withoutTenancy()
                 ->where('ticket_id', $ticket->getKey())
-                ->where($tenantColumn, $ticket->getAttribute($tenantColumn))
                 ->first();
 
             $attributes = array_merge($ticket->tenantAttributes(), [
@@ -73,9 +79,6 @@ class RequestCsat
 
             return $row;
         });
-
-        $expiresAt = Carbon::now()->addSeconds(Csat::tokenTtl());
-        $token = CsatToken::issue($ticket->getKey(), $expiresAt);
 
         CsatRequested::dispatch($ticket, $rating, $token, $expiresAt);
 

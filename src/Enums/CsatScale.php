@@ -59,6 +59,10 @@ enum CsatScale: string
      */
     public function isPositive(int $rating): bool
     {
+        if (! $this->accepts($rating)) {
+            return false;
+        }
+
         return match ($this) {
             self::Nps => $rating >= 9,
             default => $this->fraction($rating) >= 0.6,

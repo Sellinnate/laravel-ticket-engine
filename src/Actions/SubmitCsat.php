@@ -48,11 +48,11 @@ class SubmitCsat
                 ->find($ticket->getKey());
 
             $model = Ticketing::satisfactionRatingModel();
-            $tenantColumn = $ticket->getTenantColumn();
 
+            // Look up by ticket_id alone — it's the unique key, so a tenant drift
+            // on the existing row can't make us miss it and hit the constraint.
             $existing = $model::query()->withoutTenancy()
                 ->where('ticket_id', $ticket->getKey())
-                ->where($tenantColumn, $ticket->getAttribute($tenantColumn))
                 ->first();
 
             // Honour the scale the rating was requested with so a config change
