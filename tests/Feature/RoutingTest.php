@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use Selli\Ticketing\Enums\Priority;
+use Selli\Ticketing\Exceptions\InvalidConfigurationException;
 use Selli\Ticketing\Facades\Ticketing;
 use Selli\Ticketing\Models\RoutingRule;
 use Selli\Ticketing\Models\Team;
@@ -58,10 +60,51 @@ it('applies rules in position order and stops at the first match', function (): 
         'position' => 1,
     ]);
 
-    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser(), priority: Priority::Normal);
 
     expect((string) $ticket->fresh()->team_id)->toBe((string) $teamA->getKey()); // first match wins
 });
+
+it('falls through to a backup rule when the first match has no valid target', function (): void {
+    $context = app(TenantContext::class);
+    $otherTeam = $context->forTenant(99, fn () => Team::factory()->create(['tenant_id' => 99]));
+
+    // Position 0: shared rule pointing at a cross-tenant team (invalid target).
+    RoutingRule::factory()->create([
+        'tenant_id' => null,
+        'conditions' => [['field' => 'type', 'operator' => '=', 'value' => 'support']],
+        'team_id' => $otherTeam->getKey(),
+        'strategy' => 'manual',
+        'position' => 0,
+    ]);
+
+    [$ticket, $teamOk] = $context->forTenant(5, function () {
+        $teamOk = Team::factory()->create(['tenant_id' => 5]);
+        RoutingRule::factory()->create([
+            'tenant_id' => 5,
+            'conditions' => [['field' => 'type', 'operator' => '=', 'value' => 'support']],
+            'team_id' => $teamOk->getKey(),
+            'strategy' => 'manual',
+            'position' => 1,
+        ]);
+
+        $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser(['tenant_id' => 5]));
+
+        return [Ticket::query()->withoutTenancy()->find($ticket->getKey()), $teamOk];
+    });
+
+    expect((string) $ticket->team_id)->toBe((string) $teamOk->getKey());
+});
+
+it('throws on an unknown routing field', function (): void {
+    RoutingRule::factory()->create([
+        'conditions' => [['field' => 'bogus', 'operator' => '=', 'value' => 'x']],
+        'team_id' => Team::factory()->create()->getKey(),
+        'strategy' => 'manual',
+    ]);
+
+    Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+})->throws(InvalidConfigurationException::class);
 
 it('routes to an explicit assignee declared on a rule', function (): void {
     $agent = makeUser();
@@ -95,6 +138,7 @@ it('supports a range of condition operators', function (): void {
         title: 'x',
         requester: makeUser(),
         category: 'support',
+        priority: Priority::Normal,
         attributes: ['custom_fields' => ['tags' => ['vip', 'eu']]],
     );
 

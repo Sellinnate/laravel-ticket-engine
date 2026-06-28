@@ -17,7 +17,7 @@ class RoundRobinStrategy extends AbstractStrategy
 {
     public function assign(Ticket $ticket, Team $team): ?Model
     {
-        $member = $this->eligibleMembers($team)
+        $member = $this->eligibleMembers($ticket, $team)
             ->sort(function (TeamMember $a, TeamMember $b): int {
                 $at = $a->last_assigned_at?->getTimestamp();
                 $bt = $b->last_assigned_at?->getTimestamp();

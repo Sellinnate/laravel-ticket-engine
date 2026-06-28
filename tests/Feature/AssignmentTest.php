@@ -5,11 +5,13 @@ declare(strict_types=1);
 use Illuminate\Support\Facades\Event;
 use Selli\Ticketing\Enums\ParticipantRole;
 use Selli\Ticketing\Events\TicketAssigned;
+use Selli\Ticketing\Exceptions\CrossTenantException;
 use Selli\Ticketing\Facades\Ticketing;
 use Selli\Ticketing\Models\Team;
 use Selli\Ticketing\Models\TeamMember;
 use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Models\TicketParticipant;
+use Selli\Ticketing\Tenancy\TenantContext;
 
 it('assigns a ticket to a specific agent', function (): void {
     Event::fake([TicketAssigned::class]);
@@ -89,6 +91,28 @@ it('skips unavailable agents', function (): void {
     Ticketing::for($ticket)->assignToTeam($team, 'round-robin');
 
     expect((string) $ticket->fresh()->assignee_id)->toBe((string) $here->getKey());
+});
+
+it('rejects assigning an agent from another tenant', function (): void {
+    $context = app(TenantContext::class);
+    $otherAgent = $context->forTenant(99, fn () => makeUser(['tenant_id' => 99]));
+
+    $context->forTenant(5, function () use ($otherAgent): void {
+        $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser(['tenant_id' => 5]));
+        Ticketing::for($ticket)->assignTo($otherAgent);
+    });
+})->throws(CrossTenantException::class);
+
+it('stamps round-robin state when assigning to an agent already on the ticket team', function (): void {
+    $team = Team::factory()->create();
+    $agent = makeUser();
+    $membership = TeamMember::factory()->member($agent)->create(['team_id' => $team->getKey()]);
+
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+    Ticketing::for($ticket)->assignToTeam($team, 'manual'); // team set, no agent
+    Ticketing::for($ticket)->assignTo($agent);               // explicit agent on the existing team
+
+    expect($membership->fresh()->last_assigned_at)->not->toBeNull();
 });
 
 it('clears a prior assignee when a team assignment resolves no agent', function (): void {

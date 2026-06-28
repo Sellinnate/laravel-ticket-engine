@@ -5,55 +5,69 @@ declare(strict_types=1);
 namespace Selli\Ticketing\Routing;
 
 use Illuminate\Contracts\Container\Container;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Selli\Ticketing\Actions\AssignTicket;
 use Selli\Ticketing\Data\AssignTicketData;
+use Selli\Ticketing\Exceptions\InvalidConfigurationException;
 use Selli\Ticketing\Models\RoutingRule;
 use Selli\Ticketing\Models\Team;
 use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Support\Ticketing;
+use Selli\Ticketing\Tenancy\TenantGuard;
 
 /**
  * Evaluates the ordered, data-driven routing rules for a ticket and routes the
- * first match to its team/assignee/strategy. Conditions are versionable data,
- * not `if` statements in code.
+ * first match (that yields a valid target) to its team/assignee/strategy.
+ * Conditions are versionable data, not `if` statements in code.
  */
 class RoutingEngine
 {
-    public function __construct(protected Container $container) {}
+    public function __construct(
+        protected Container $container,
+        protected TenantGuard $tenant,
+    ) {}
 
     public function route(Ticket $ticket, ?Model $actor = null): ?Ticket
     {
-        $rule = $this->match($ticket);
+        foreach ($this->orderedRules($ticket) as $rule) {
+            if (! $this->matches($ticket, $rule->conditions ?? [])) {
+                continue;
+            }
 
-        if ($rule === null) {
-            return null;
+            $team = $rule->team_id !== null ? $this->team($rule->team_id, $ticket) : null;
+            $assignee = $this->ruleAssignee($rule, $ticket);
+
+            // A rule matched but yielded no valid (tenant-safe) target — fall
+            // through to the next rule instead of leaving the ticket unrouted.
+            if ($team === null && $assignee === null) {
+                continue;
+            }
+
+            return $this->container->make(AssignTicket::class)->handle(new AssignTicketData(
+                ticket: $ticket,
+                assignee: $assignee,
+                team: $team,
+                strategy: $rule->strategy,
+                actor: $actor,
+            ));
         }
 
-        $team = $rule->team_id !== null ? $this->team($rule->team_id, $ticket) : null;
-        $assignee = $this->ruleAssignee($rule, $ticket);
-
-        if ($team === null && $assignee === null) {
-            return null;
-        }
-
-        return $this->container->make(AssignTicket::class)->handle(new AssignTicketData(
-            ticket: $ticket,
-            assignee: $assignee,
-            team: $team,
-            strategy: $rule->strategy,
-            actor: $actor,
-        ));
+        return null;
     }
 
-    protected function match(Ticket $ticket): ?RoutingRule
+    /**
+     * @return Collection<int, RoutingRule>
+     */
+    protected function orderedRules(Ticket $ticket): Collection
     {
         $model = Ticketing::routingRuleModel();
         $tenantColumn = $ticket->getTenantColumn();
         $tenantValue = $ticket->getAttribute($tenantColumn);
         $allowShared = config('ticketing.tenancy.allow_shared', true) !== false;
 
+        /** @var Collection<int, RoutingRule> $rules */
         $rules = $model::query()
             ->withoutTenancy()
             ->where('is_active', true)
@@ -74,13 +88,7 @@ class RoutingEngine
             })
             ->values();
 
-        foreach ($rules as $rule) {
-            if ($this->matches($ticket, $rule->conditions ?? [])) {
-                return $rule;
-            }
-        }
-
-        return null;
+        return $rules;
     }
 
     /**
@@ -111,7 +119,9 @@ class RoutingEngine
             'priority' => $ticket->priority->value,
             'subject_type' => $ticket->subject_type,
             'status' => $ticket->status,
-            default => null,
+            // Fail closed: an unknown field is a misconfigured rule, not a
+            // silent non-match that could change routing on a typo.
+            default => throw new InvalidConfigurationException("Unknown routing rule field [{$field}]."),
         };
     }
 
@@ -158,22 +168,8 @@ class RoutingEngine
             return null;
         }
 
-        // Never route to another tenant's team. Only the ticket's own tenant
-        // (or a shared null-tenant team, when allow_shared is on) is acceptable.
-        $tenantColumn = $ticket->getTenantColumn();
-        $teamTenant = $team->getAttribute($tenantColumn);
-        $ticketTenant = $ticket->getAttribute($tenantColumn);
-        $allowShared = config('ticketing.tenancy.allow_shared', true) !== false;
-
-        if ($teamTenant === $ticketTenant) {
-            return $team;
-        }
-
-        if ($teamTenant === null && $allowShared) {
-            return $team;
-        }
-
-        return null;
+        // Never route to another tenant's team.
+        return $this->tenant->belongsToTicketTenant($team, $ticket) ? $team : null;
     }
 
     protected function ruleAssignee(RoutingRule $rule, Ticket $ticket): ?Model
@@ -191,30 +187,10 @@ class RoutingEngine
 
         $assignee = $class::query()->find($rule->assignee_id);
 
-        if (! $assignee instanceof Model || ! $this->belongsToTicketTenant($assignee, $ticket)) {
+        if (! $assignee instanceof Model || ! $this->tenant->belongsToTicketTenant($assignee, $ticket)) {
             return null;
         }
 
         return $assignee;
-    }
-
-    /**
-     * Whether an agent may serve the ticket's tenant. Agent models that do not
-     * carry the tenant column are not scoped by us (single user pool); those
-     * that do must match the ticket's tenant or be shared (when allowed).
-     */
-    protected function belongsToTicketTenant(Model $assignee, Ticket $ticket): bool
-    {
-        $column = $ticket->getTenantColumn();
-
-        if (! array_key_exists($column, $assignee->getAttributes())) {
-            return true;
-        }
-
-        $agentTenant = $assignee->getAttribute($column);
-        $ticketTenant = $ticket->getAttribute($column);
-        $allowShared = config('ticketing.tenancy.allow_shared', true) !== false;
-
-        return $agentTenant == $ticketTenant || ($agentTenant === null && $allowShared);
     }
 }

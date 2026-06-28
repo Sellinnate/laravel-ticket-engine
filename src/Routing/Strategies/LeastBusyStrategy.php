@@ -17,9 +17,12 @@ class LeastBusyStrategy extends AbstractStrategy
 {
     public function assign(Ticket $ticket, Team $team): ?Model
     {
-        $member = $this->eligibleMembers($team)
-            ->sort(fn (TeamMember $a, TeamMember $b): int => [$this->openTicketCount($a, $ticket), $a->last_assigned_at?->getTimestamp() ?? 0, $a->getKey()]
-                <=> [$this->openTicketCount($b, $ticket), $b->last_assigned_at?->getTimestamp() ?? 0, $b->getKey()])
+        $members = $this->eligibleMembers($ticket, $team);
+        $counts = $this->loadCounts($members, $ticket);
+
+        $member = $members
+            ->sort(fn (TeamMember $a, TeamMember $b): int => [$counts[$a->getKey()], $a->last_assigned_at?->getTimestamp() ?? 0, $a->getKey()]
+                <=> [$counts[$b->getKey()], $b->last_assigned_at?->getTimestamp() ?? 0, $b->getKey()])
             ->first();
 
         return $this->agentFor($member);
