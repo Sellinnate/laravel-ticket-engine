@@ -103,37 +103,28 @@ class SlaManager
     }
 
     /**
-     * After messages are reparented between tickets (split/merge), stamp the
-     * destination's first_response_at from the earliest qualifying public agent
-     * reply already in its conversation — so its first-response SLA reflects the
-     * transferred history instead of restarting as if no agent had answered.
+     * After messages are reparented between tickets (split/merge), recompute
+     * first_response_at AUTHORITATIVELY from the ticket's currently-attached
+     * conversation: the earliest qualifying public agent reply, or null when none
+     * remain. So a destination reflects transferred history, AND a source whose
+     * only agent reply was split away stops looking answered.
      */
     public function reconcileFirstResponse(Ticket $ticket): void
     {
         $earliest = $this->earliestAgentReplyAt($ticket);
 
-        if ($earliest === null) {
-            // No qualifying reply in the combined thread; if a stamp already
-            // exists just make sure the clock is closed out.
-            if ($ticket->first_response_at !== null) {
-                $this->completeFirstResponseClock($ticket);
-            }
-
-            return;
-        }
-
         // Never record a first response before the ticket itself existed: a
         // split/merge can inherit an older reply, and a first_response_at that
         // predates created_at would make "time to first response" go negative.
-        $stamp = $ticket->created_at !== null && $earliest->lessThan($ticket->created_at)
-            ? $ticket->created_at
-            : $earliest;
+        $stamp = null;
 
-        $current = $ticket->first_response_at;
+        if ($earliest !== null) {
+            $stamp = $ticket->created_at !== null && $earliest->lessThan($ticket->created_at)
+                ? $ticket->created_at
+                : $earliest;
+        }
 
-        // Adopt the earliest qualifying reply: set it when unset, or pull it
-        // earlier when merged-in history answered sooner than the current stamp.
-        if ($current === null || $stamp->lessThan($current)) {
+        if (! $this->sameInstant($stamp, $ticket->first_response_at)) {
             Ticketing::ticketModel()::query()->withoutTenancy()
                 ->whereKey($ticket->getKey())
                 ->update(['first_response_at' => $stamp]);
@@ -141,7 +132,57 @@ class SlaManager
             $ticket->first_response_at = $stamp;
         }
 
-        $this->completeFirstResponseClock($ticket);
+        if ($stamp !== null) {
+            $this->completeFirstResponseClock($ticket);
+        } else {
+            // Every qualifying reply was moved away — restart the first-response
+            // timer so the now-unanswered ticket is measured again from open.
+            $this->reopenFirstResponseClock($ticket);
+        }
+    }
+
+    protected function sameInstant(?Carbon $a, ?Carbon $b): bool
+    {
+        if ($a === null || $b === null) {
+            return $a === $b;
+        }
+
+        return $a->equalTo($b);
+    }
+
+    /**
+     * Restart a completed first-response clock (no qualifying reply remains),
+     * recomputing its deadline from the original start and clearing alert state.
+     */
+    protected function reopenFirstResponseClock(Ticket $ticket): void
+    {
+        $clock = $this->clock($ticket, SlaTarget::FirstResponse);
+
+        if ($clock === null || ! $clock->isCompleted()) {
+            return;
+        }
+
+        $policy = $this->policies->resolve($ticket);
+        $minutes = $policy !== null ? $this->minutesFor($policy, SlaTarget::FirstResponse) : null;
+
+        if ($policy === null || $minutes === null) {
+            // No first-response coverage anymore — just drop the completion.
+            $clock->forceFill(['completed_at' => null])->save();
+
+            return;
+        }
+
+        $calendar = $this->calendars->forPolicy($policy);
+
+        $clock->forceFill([
+            'completed_at' => null,
+            'breached_at' => null,
+            'threshold_notified' => false,
+            'paused_at' => null,
+            'budget_minutes' => $minutes,
+            'business_hours_id' => $policy->business_hours_id,
+            'due_at' => $calendar->addMinutes($clock->started_at, $minutes),
+        ])->save();
     }
 
     /**

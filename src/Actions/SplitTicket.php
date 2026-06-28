@@ -135,11 +135,12 @@ class SplitTicket
             $this->audit->record($source, 'ticket.split', $actor, context: ['created_id' => $created->getKey(), 'messages' => $messageIds]);
             $this->audit->record($created, 'ticket.split_from', $actor, context: ['source_id' => $source->getKey()]);
 
-            // Stamp first_response_at from the moved thread INSIDE the transaction
-            // (before the post-commit TicketOpened) so the split is atomic: if it
-            // throws, the whole move rolls back rather than leaving a moved
-            // conversation whose SLA bootstrap never ran.
+            // Reconcile first_response_at for BOTH sides INSIDE the transaction
+            // (before the post-commit TicketOpened) so the split is atomic. The
+            // created ticket inherits the moved reply; the source is recomputed
+            // so it stops looking answered if its only agent reply moved away.
             $this->sla->reconcileFirstResponse($created);
+            $this->sla->reconcileFirstResponse($source);
 
             return [$created, $source];
         });

@@ -105,6 +105,23 @@ it('creates a completed first-response clock when the target is enabled after th
         ->and($clock->isCompleted())->toBeTrue();
 });
 
+it('reopens the source first-response clock when its only agent reply is split away', function (): void {
+    SlaPolicy::factory()->create(['first_response_minutes' => 60]);
+    $source = Ticketing::open(type: 'support', title: 'src', requester: makeUser());
+    $reply = Ticketing::for($source)->postMessage(makeUser(['name' => 'Agent']), 'on it');
+
+    expect(clockFor($source->getKey(), SlaTarget::FirstResponse)->isCompleted())->toBeTrue();
+
+    Ticketing::for($source)->split([$reply->getKey()]);
+
+    $source = $source->fresh();
+    $clock = clockFor($source->getKey(), SlaTarget::FirstResponse);
+
+    expect($source->first_response_at)->toBeNull() // no longer looks answered
+        ->and($clock->isCompleted())->toBeFalse()
+        ->and($clock->isRunning())->toBeTrue();
+});
+
 it('completes the resolution clock on resolution', function (): void {
     SlaPolicy::factory()->create(['resolution_minutes' => 480]);
     $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
