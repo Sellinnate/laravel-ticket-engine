@@ -5,8 +5,13 @@ declare(strict_types=1);
 namespace Selli\Ticketing;
 
 use Illuminate\Contracts\Auth\Factory;
+use Illuminate\Support\Facades\Event;
+use Selli\Ticketing\Commands\EscalateCommand;
+use Selli\Ticketing\Commands\RecalculateSlaCommand;
 use Selli\Ticketing\Contracts\TenantResolver;
 use Selli\Ticketing\Contracts\WorkflowDriver;
+use Selli\Ticketing\Listeners\SlaSubscriber;
+use Selli\Ticketing\Sla\SlaManager;
 use Selli\Ticketing\Support\Ticketing;
 use Selli\Ticketing\Tenancy\DefaultTenantResolver;
 use Selli\Ticketing\Tenancy\TenantContext;
@@ -21,7 +26,11 @@ class TicketingServiceProvider extends PackageServiceProvider
     {
         $package
             ->name('ticketing')
-            ->hasConfigFile();
+            ->hasConfigFile()
+            ->hasCommands([
+                EscalateCommand::class,
+                RecalculateSlaCommand::class,
+            ]);
     }
 
     public function packageRegistered(): void
@@ -52,6 +61,8 @@ class TicketingServiceProvider extends PackageServiceProvider
         $this->app->singleton(WorkflowManager::class, fn (): WorkflowManager => new WorkflowManager($this->app));
 
         $this->app->bind(WorkflowDriver::class, fn (): WorkflowDriver => $this->app->make(WorkflowManager::class)->driver());
+
+        $this->app->singleton(SlaManager::class);
     }
 
     public function packageBooted(): void
@@ -64,6 +75,14 @@ class TicketingServiceProvider extends PackageServiceProvider
 
         if (config('ticketing.workflow.validate_on_boot', true) !== false) {
             $this->app->make(ConfigValidator::class)->validate();
+        }
+
+        if (config('ticketing.sla.enabled', true) !== false) {
+            $subscriber = $this->app->make(SlaSubscriber::class);
+
+            foreach ($subscriber->subscribe() as $event => $method) {
+                Event::listen($event, [$subscriber, $method]);
+            }
         }
     }
 }
