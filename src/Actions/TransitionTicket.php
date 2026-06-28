@@ -37,47 +37,48 @@ class TransitionTicket
 
     public function handle(TransitionData $data): Ticket
     {
-        $ticket = $data->ticket;
-        $workflow = $this->resolveWorkflow($ticket);
+        $workflow = $this->resolveWorkflow($data->ticket);
         $driver = $this->workflow->driver();
-        $from = $ticket->status;
 
-        if (! $driver->hasTransition($workflow, $data->transition)) {
-            throw UnknownTransitionException::make($workflow, $data->transition);
-        }
+        // Validate, lock and apply atomically. Locking and re-reading the row
+        // inside the transaction closes the check-then-act race: a concurrent
+        // transition cannot pass its checks against a now-stale status.
+        $result = DB::transaction(function () use ($data, $workflow, $driver): array {
+            $ticket = $this->lockTicket($data->ticket->getKey());
+            $from = $ticket->status;
 
-        if (! $driver->canApply($workflow, $from, $data->transition)) {
-            throw TransitionNotAllowedException::invalidFromState($data->transition, $from);
-        }
+            if (! $driver->hasTransition($workflow, $data->transition)) {
+                throw UnknownTransitionException::make($workflow, $data->transition);
+            }
 
-        $transition = $driver->resolveTransition($workflow, $data->transition);
-        $to = $transition->to;
+            if (! $driver->canApply($workflow, $from, $data->transition)) {
+                throw TransitionNotAllowedException::invalidFromState($data->transition, $from);
+            }
 
-        $context = new TransitionContext(
-            ticket: $ticket,
-            transition: $data->transition,
-            from: $from,
-            to: $to,
-            actor: $data->actor,
-            note: $data->note,
-            params: $data->params,
-        );
+            $transition = $driver->resolveTransition($workflow, $data->transition);
+            $to = $transition->to;
 
-        $this->runGuards($transition->guards, $context);
+            $this->runGuards($transition->guards, new TransitionContext(
+                ticket: $ticket,
+                transition: $data->transition,
+                from: $from,
+                to: $to,
+                actor: $data->actor,
+                note: $data->note,
+                params: $data->params,
+            ));
 
-        $wasClosed = $driver->matchesSemantic($workflow, $from, 'closed');
-        $isClosed = $driver->matchesSemantic($workflow, $to, 'closed');
-        $isOpen = $driver->matchesSemantic($workflow, $to, 'open');
-        $isTerminal = $driver->isTerminal($workflow, $to);
+            $wasClosed = $driver->matchesSemantic($workflow, $from, 'closed');
+            $isClosed = $driver->matchesSemantic($workflow, $to, 'closed');
+            $isOpen = $driver->matchesSemantic($workflow, $to, 'open');
+            $isTerminal = $driver->isTerminal($workflow, $to);
 
-        // A reopen is specifically leaving a resolved/closed state back into an
-        // open one — not, say, closed -> paused.
-        $reopening = $wasClosed && $isOpen;
+            // A reopen is specifically leaving a resolved/closed state back into
+            // an open one — not, say, closed -> paused.
+            $reopening = $wasClosed && $isOpen;
+            $justResolved = false;
+            $justClosed = false;
 
-        $justResolved = false;
-        $justClosed = false;
-
-        DB::transaction(function () use ($ticket, $from, $to, $data, $isClosed, $isTerminal, $reopening, &$justResolved, &$justClosed): void {
             $ticket->status = $to;
 
             if ($reopening) {
@@ -108,21 +109,43 @@ class TransitionTicket
                     'note' => $data->note,
                 ], fn ($value): bool => $value !== null),
             );
+
+            return compact('ticket', 'from', 'to', 'reopening', 'justResolved', 'justClosed');
         });
 
-        StateTransitioned::dispatch($ticket, $data->transition, $from, $to, $data->actor, $data->note);
+        /** @var Ticket $ticket */
+        $ticket = $result['ticket'];
 
-        if ($reopening) {
-            TicketReopened::dispatch($ticket, $from, $to, $data->actor);
+        StateTransitioned::dispatch($ticket, $data->transition, $result['from'], $result['to'], $data->actor, $data->note);
+
+        if ($result['reopening']) {
+            TicketReopened::dispatch($ticket, $result['from'], $result['to'], $data->actor);
         }
 
-        if ($justResolved) {
+        if ($result['justResolved']) {
             TicketResolved::dispatch($ticket, $data->actor);
         }
 
-        if ($justClosed) {
+        if ($result['justClosed']) {
             TicketClosed::dispatch($ticket, $data->actor);
         }
+
+        return $ticket;
+    }
+
+    /**
+     * Fetch the ticket for update under a row lock (scope-independent — the key
+     * already identifies the row).
+     */
+    protected function lockTicket(int|string $key): Ticket
+    {
+        $model = Ticketing::ticketModel();
+
+        /** @var Ticket $ticket */
+        $ticket = $model::query()
+            ->withoutTenancy()
+            ->lockForUpdate()
+            ->findOrFail($key);
 
         return $ticket;
     }
