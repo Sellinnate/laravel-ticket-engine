@@ -4,10 +4,9 @@ declare(strict_types=1);
 
 namespace Selli\Ticketing\Mail;
 
-use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\UploadedFile;
-use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\RateLimiter;
 use Selli\Ticketing\Actions\AddAttachment;
 use Selli\Ticketing\Actions\PostMessage;
@@ -17,6 +16,7 @@ use Selli\Ticketing\Data\AddAttachmentData;
 use Selli\Ticketing\Data\PostMessageData;
 use Selli\Ticketing\Enums\MessageSource;
 use Selli\Ticketing\Enums\MessageVisibility;
+use Selli\Ticketing\Exceptions\InvalidConfigurationException;
 use Selli\Ticketing\Exceptions\TicketingException;
 use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Models\TicketMessage;
@@ -54,40 +54,57 @@ class ProcessInboundEmail
             return null;
         }
 
+        // Atomic, DB-level idempotency. The first delivery of a Message-ID wins
+        // the unique insert; a concurrent or duplicate delivery is a no-op insert
+        // and is dropped — no lock, no read-then-write race. Done BEFORE rate
+        // limiting so a redelivery never burns a sender's flood-control slot.
+        // (An absent / angle-brackets-only id is un-dedupable, so it just falls
+        // through to processing.)
+        $messageId = $email->messageId === null ? '' : $this->normaliseId($email->messageId);
+
+        if ($messageId !== '' && ! $this->claim($messageId)) {
+            return null;
+        }
+
         if ($this->rateLimited($email)) {
             return null;
         }
 
-        // Without a usable Message-ID (absent, or angle-brackets/whitespace only)
-        // there's nothing to deduplicate on — process plainly rather than enter
-        // the lock/dedupe path that would silently no-op on an empty id.
-        $messageId = $email->messageId === null ? '' : $this->normaliseId($email->messageId);
-
-        if ($messageId === '') {
-            return $this->process($email);
-        }
-
-        // Serialise concurrent deliveries of the SAME Message-ID under an atomic
-        // lock, then re-check inside it: the read-then-write alreadyIngested check
-        // alone races (two webhooks both pass it and double-create). The lock
-        // needs a shared cache store in production, as queues/sessions do.
-        $lock = Cache::lock('ticketing:inbound:'.sha1($messageId), 15);
-        $wait = (int) config('ticketing.mail.inbound.lock_wait_seconds', 8);
-
         try {
-            return $lock->block($wait, function () use ($email, $messageId): ?TicketMessage {
-                if ($this->alreadyIngested($messageId)) {
-                    return null;
-                }
+            return $this->process($email);
+        } catch (\Throwable $exception) {
+            // The message wasn't recorded, so release the claim — a provider
+            // retry (after the transient failure) can then reprocess it.
+            if ($messageId !== '') {
+                $this->releaseClaim($messageId);
+            }
 
-                return $this->process($email);
-            });
-        } catch (LockTimeoutException) {
-            // The holder may have crashed/stalled. Only drop if the message
-            // actually landed; otherwise process without the lock so the mail is
-            // not lost (the holder's lock TTL expires shortly either way).
-            return $this->alreadyIngested($messageId) ? null : $this->process($email);
+            throw $exception;
         }
+    }
+
+    /**
+     * Claim a Message-ID via a unique insert. Returns false when it was already
+     * claimed (duplicate / concurrent delivery) — the atomic dedupe primitive.
+     */
+    protected function claim(string $messageId): bool
+    {
+        return DB::table($this->dedupeTable())->insertOrIgnore([
+            'message_id' => $messageId,
+            'created_at' => now(),
+        ]) > 0;
+    }
+
+    protected function releaseClaim(string $messageId): void
+    {
+        DB::table($this->dedupeTable())->where('message_id', $messageId)->delete();
+    }
+
+    protected function dedupeTable(): string
+    {
+        $prefix = (string) config('ticketing.tables.prefix', '');
+
+        return $prefix.(string) config('ticketing.tables.inbound_emails', 'ticketing_inbound_emails');
     }
 
     protected function process(InboundEmail $email): ?TicketMessage
@@ -155,7 +172,15 @@ class ProcessInboundEmail
 
     protected function threadByToken(InboundEmail $email): ?Ticket
     {
-        $ticketId = MailThreadToken::fromRecipients($email->recipients);
+        try {
+            $ticketId = MailThreadToken::fromRecipients($email->recipients);
+        } catch (InvalidConfigurationException $exception) {
+            // No token secret configured → can't verify tokens. Fail closed to no
+            // token threading (header/routing still apply) instead of 500ing.
+            report($exception);
+
+            return null;
+        }
 
         if ($ticketId === null) {
             return null;
@@ -290,17 +315,6 @@ class ProcessInboundEmail
         RateLimiter::hit($key, 60);
 
         return false;
-    }
-
-    protected function alreadyIngested(string $messageId): bool
-    {
-        if ($messageId === '') {
-            return false;
-        }
-
-        return Ticketing::ticketMessageModel()::withoutTenancy()
-            ->where('meta->message_id', $messageId)
-            ->exists();
     }
 
     protected function normaliseId(string $id): string

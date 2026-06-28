@@ -2,7 +2,6 @@
 
 declare(strict_types=1);
 
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 use Selli\Ticketing\Contracts\InboundMailRouter;
 use Selli\Ticketing\Enums\BodyFormat;
@@ -201,22 +200,19 @@ it('threads via a space-separated References header string', function (): void {
         ->and($ticket->fresh()->messages()->count())->toBe(2);
 });
 
-it('still ingests when the dedupe lock times out but nothing was stored', function (): void {
+it('drops token threading (not 500s) when no token secret is configured', function (): void {
     enableInbound();
-    config()->set('ticketing.mail.inbound.lock_wait_seconds', 0);
+    // No mail-token secret and no app key → MailThreadToken::secret() would throw.
+    config()->set('ticketing.mail.token.secret', null);
+    config()->set('app.key', '');
 
-    $messageId = '<contended@example.test>';
-    $lock = Cache::lock('ticketing:inbound:'.sha1('contended@example.test'), 15);
-    expect($lock->get())->toBeTrue(); // precondition: the lock is actually held
+    // A +t_ tagged recipient must not crash the webhook; it falls back to routing
+    // and opens a new ticket instead.
+    $message = Ticketing::receiveEmail(inbound([
+        'recipients' => ['support+t_anything@example.test'],
+    ]));
 
-    try {
-        // The lock is held and nothing is ingested yet, so the timeout must fall
-        // back to processing rather than silently dropping the mail.
-        $message = Ticketing::receiveEmail(inbound(['message_id' => $messageId]));
-        expect($message)->not->toBeNull();
-    } finally {
-        $lock->release();
-    }
+    expect($message)->not->toBeNull();
 });
 
 it('prefers the In-Reply-To parent over a newer References match', function (): void {
@@ -278,6 +274,23 @@ it('rate limits a flooding sender (fail closed)', function (): void {
 
     expect($first)->not->toBeNull()
         ->and($second)->toBeNull();
+});
+
+it('deduplicates before rate limiting so a redelivery does not burn a slot', function (): void {
+    enableInbound();
+    config()->set('ticketing.mail.inbound.rate_limit.max_per_minute', 2);
+
+    // A consumes slot 1.
+    $a = Ticketing::receiveEmail(inbound(['message_id' => '<a@example.test>']));
+    // A redelivered: dropped by the dedupe claim BEFORE the rate limiter, so no
+    // slot is consumed.
+    $dup = Ticketing::receiveEmail(inbound(['message_id' => '<a@example.test>']));
+    // B is a genuinely new message; it must still get slot 2.
+    $b = Ticketing::receiveEmail(inbound(['message_id' => '<b@example.test>']));
+
+    expect($a)->not->toBeNull()
+        ->and($dup)->toBeNull()
+        ->and($b)->not->toBeNull();
 });
 
 it('imports inbound attachments onto the message', function (): void {

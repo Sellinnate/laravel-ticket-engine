@@ -110,6 +110,7 @@ return [
         'automation_rules' => 'automation_rules',
         'tags' => 'tags',
         'taggables' => 'taggables',
+        'inbound_emails' => 'ticketing_inbound_emails',
     ],
 
     /*
@@ -503,10 +504,6 @@ return [
 
             // Per-sender flood guard; an over-limit sender is dropped (fail closed).
             'rate_limit' => ['max_per_minute' => 30],
-
-            // Seconds to wait on the per-Message-ID dedupe lock before falling
-            // back to processing (a stalled/crashed holder must not lose mail).
-            'lock_wait_seconds' => 8,
         ],
 
         'outbound' => [
