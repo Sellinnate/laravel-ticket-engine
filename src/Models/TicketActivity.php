@@ -8,10 +8,12 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Carbon;
 use Selli\Ticketing\Concerns\BelongsToTenant;
 use Selli\Ticketing\Database\Factories\TicketActivityFactory;
 use Selli\Ticketing\Exceptions\ImmutableAuditException;
+use Selli\Ticketing\Models\Builders\ImmutableBuilder;
 use Selli\Ticketing\Models\Concerns\ConfiguresTicketingTable;
 use Selli\Ticketing\Support\Ticketing;
 
@@ -62,6 +64,21 @@ class TicketActivity extends Model
     protected static function newFactory(): TicketActivityFactory
     {
         return TicketActivityFactory::new();
+    }
+
+    /**
+     * Use the immutable builder so mass update/delete also fail (model events
+     * alone do not cover bulk operations).
+     *
+     * @param  Builder  $query
+     * @return ImmutableBuilder<static>
+     */
+    public function newEloquentBuilder($query): ImmutableBuilder
+    {
+        /** @var ImmutableBuilder<static> $builder */
+        $builder = new ImmutableBuilder($query);
+
+        return $builder;
     }
 
     protected static function booted(): void

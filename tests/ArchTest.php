@@ -24,7 +24,10 @@ arch('every Eloquent model is tenant-scoped')
     ->expect('Selli\Ticketing\Models')
     ->classes()
     ->toUseTrait(BelongsToTenant::class)
-    ->ignoring('Selli\Ticketing\Models\Concerns');
+    ->ignoring([
+        'Selli\Ticketing\Models\Concerns',
+        'Selli\Ticketing\Models\Builders',
+    ]);
 
 arch('actions expose a handle method')
     ->expect('Selli\Ticketing\Actions')

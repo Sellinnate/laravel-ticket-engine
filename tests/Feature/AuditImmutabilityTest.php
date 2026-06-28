@@ -18,6 +18,26 @@ it('forbids deleting an audit record', function (): void {
     $activity->delete();
 })->throws(ImmutableAuditException::class);
 
+it('forbids a mass update that would bypass model events', function (): void {
+    TicketActivity::factory()->create();
+
+    TicketActivity::query()->update(['event' => 'tampered']);
+})->throws(ImmutableAuditException::class);
+
+it('forbids a mass delete that would bypass model events', function (): void {
+    TicketActivity::factory()->create();
+
+    TicketActivity::query()->delete();
+})->throws(ImmutableAuditException::class);
+
+it('forbids an upsert on the audit trail', function (): void {
+    TicketActivity::query()->upsert(
+        [['ticket_id' => 1, 'event' => 'x']],
+        ['id'],
+        ['event'],
+    );
+})->throws(ImmutableAuditException::class);
+
 it('only tracks a created_at timestamp', function (): void {
     $activity = TicketActivity::factory()->create();
 
