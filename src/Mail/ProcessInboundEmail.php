@@ -58,8 +58,12 @@ class ProcessInboundEmail
             return null;
         }
 
-        // Without a Message-ID there's nothing to deduplicate on — process plainly.
-        if ($email->messageId === null) {
+        // Without a usable Message-ID (absent, or angle-brackets/whitespace only)
+        // there's nothing to deduplicate on — process plainly rather than enter
+        // the lock/dedupe path that would silently no-op on an empty id.
+        $messageId = $email->messageId === null ? '' : $this->normaliseId($email->messageId);
+
+        if ($messageId === '') {
             return $this->process($email);
         }
 
@@ -67,7 +71,6 @@ class ProcessInboundEmail
         // lock, then re-check inside it: the read-then-write alreadyIngested check
         // alone races (two webhooks both pass it and double-create). The lock
         // needs a shared cache store in production, as queues/sessions do.
-        $messageId = $this->normaliseId($email->messageId);
         $lock = Cache::lock('ticketing:inbound:'.sha1($messageId), 15);
         $wait = (int) config('ticketing.mail.inbound.lock_wait_seconds', 8);
 

@@ -106,6 +106,17 @@ it('skips a rejected attachment without failing the email', function (): void {
         ->and(TicketAttachment::query()->where('attachable_id', $message->getKey())->where('attachable_type', $message->getMorphClass())->count())->toBe(0);
 });
 
+it('processes an email with a blank Message-ID without entering the dedupe path', function (): void {
+    enableInbound();
+
+    // An angle-brackets-only id normalises to empty: it must still open a ticket
+    // (no usable id to dedupe on) rather than silently no-op in the lock path.
+    $message = Ticketing::receiveEmail(inbound(['message_id' => '<>']));
+
+    expect($message)->not->toBeNull()
+        ->and($message->meta)->not->toHaveKey('message_id');
+});
+
 it('does nothing while the inbound channel is disabled', function (): void {
     config()->set('ticketing.mail.inbound.enabled', false);
 
@@ -196,7 +207,7 @@ it('still ingests when the dedupe lock times out but nothing was stored', functi
 
     $messageId = '<contended@example.test>';
     $lock = Cache::lock('ticketing:inbound:'.sha1('contended@example.test'), 15);
-    $lock->get();
+    expect($lock->get())->toBeTrue(); // precondition: the lock is actually held
 
     try {
         // The lock is held and nothing is ingested yet, so the timeout must fall
