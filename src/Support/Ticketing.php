@@ -309,22 +309,18 @@ class Ticketing
             throw CsatException::invalidToken();
         }
 
-        // Reject a link issued for an earlier CSAT cycle: if a rating row exists
-        // its requested_at is the live cycle marker, and the token's must match.
-        $existing = static::satisfactionRatingModel()::query()->withoutTenancy()
-            ->where('ticket_id', $ticket->getKey())
-            ->first();
-
-        if ($existing instanceof SatisfactionRating
-            && $existing->requested_at !== null
-            && $existing->requested_at->getTimestamp() !== $claims['cycle']) {
-            throw CsatException::invalidToken();
-        }
-
-        // The token is a bearer credential: one valuation per cycle, so a leaked
-        // or re-clicked link can't repeatedly overwrite the rating.
-        return $this->container->make(SubmitCsat::class)
-            ->handle($ticket, $rating, $comment, $submittedBy, allowOverwrite: false);
+        // The token is a bearer credential bound to its request cycle: one
+        // valuation per cycle (allowOverwrite: false) and the cycle is verified
+        // UNDER the ticket lock inside SubmitCsat, so a concurrent re-arm can't
+        // be raced past the stale-token check.
+        return $this->container->make(SubmitCsat::class)->handle(
+            $ticket,
+            $rating,
+            $comment,
+            $submittedBy,
+            allowOverwrite: false,
+            expectedCycle: $claims['cycle'],
+        );
     }
 
     /**

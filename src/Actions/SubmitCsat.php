@@ -34,8 +34,12 @@ class SubmitCsat
      *                                already-submitted rating is returned
      *                                unchanged — one valuation per ticket/cycle,
      *                                so a leaked link can't repeatedly rewrite it.
+     * @param  int|null  $expectedCycle  When set (the token path), the rating's
+     *                                   requested_at must match this CSAT cycle
+     *                                   marker. Checked UNDER the ticket lock so a
+     *                                   concurrent re-arm can't be raced past.
      */
-    public function handle(Ticket $ticket, int $rating, ?string $comment = null, ?Model $submittedBy = null, bool $allowOverwrite = true): SatisfactionRating
+    public function handle(Ticket $ticket, int $rating, ?string $comment = null, ?Model $submittedBy = null, bool $allowOverwrite = true, ?int $expectedCycle = null): SatisfactionRating
     {
         if (! Csat::enabled()) {
             throw CsatException::disabled();
@@ -46,7 +50,7 @@ class SubmitCsat
         }
 
         /** @var array{0: SatisfactionRating, 1: bool} $outcome */
-        $outcome = DB::transaction(function () use ($ticket, $rating, $comment, $submittedBy, $allowOverwrite): array {
+        $outcome = DB::transaction(function () use ($ticket, $rating, $comment, $submittedBy, $allowOverwrite, $expectedCycle): array {
             // Serialise concurrent CSAT operations for this ticket on the ticket
             // row, so two submits can't both miss the rating and race to create
             // it (the one-per-ticket constraint would reject the loser).
@@ -61,6 +65,15 @@ class SubmitCsat
             $existing = $model::query()->withoutTenancy()
                 ->where('ticket_id', $ticket->getKey())
                 ->first();
+
+            // Cycle check UNDER the lock: reject a token from an earlier request
+            // cycle, with no TOCTOU window against a concurrent re-arm.
+            if ($expectedCycle !== null
+                && $existing instanceof SatisfactionRating
+                && $existing->requested_at !== null
+                && $existing->requested_at->getTimestamp() !== $expectedCycle) {
+                throw CsatException::invalidToken();
+            }
 
             if (! $allowOverwrite && $existing instanceof SatisfactionRating && $existing->isSubmitted()) {
                 // Idempotent for the token path: the rating already exists for
