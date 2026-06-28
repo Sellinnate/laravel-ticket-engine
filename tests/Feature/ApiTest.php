@@ -206,15 +206,33 @@ it('rejects an empty or unknown assignment', function (): void {
     $this->postJson(API.'/tickets/'.$ticket->getKey().'/assignment', ['team_id' => 999999])->assertStatus(422);
 });
 
-it('forbids a requester from assigning a ticket (policy)', function (): void {
-    $ticket = Ticketing::open(type: 'support', title: 'x', requester: makeUser());
+it('forbids a requester from assigning their own ticket (policy)', function (): void {
     $requester = TestRequester::query()->create(['name' => 'Req']);
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: $requester);
     $this->actingAs($requester);
 
-    // The assign policy is agent-only, so a requester is denied before the
-    // controller's assign_to_me check is even reached.
+    // assign is agent-only — denied even for the ticket's own requester, before
+    // the controller's assign_to_me check is reached.
     $this->postJson(API.'/tickets/'.$ticket->getKey().'/assignment', ['assign_to_me' => true])
         ->assertForbidden();
+});
+
+it('scopes a requester listing to their own tickets but lists all for an agent', function (): void {
+    $requester = TestRequester::query()->create(['name' => 'Owner']);
+    $mine = Ticketing::open(type: 'support', title: 'Mine', requester: $requester);
+    Ticketing::open(type: 'support', title: 'Someone elses', requester: makeUser());
+
+    // The requester sees only their ticket — not the other's metadata.
+    $this->actingAs($requester);
+    $this->getJson(API.'/tickets')
+        ->assertOk()
+        ->assertJsonCount(1, 'data')
+        ->assertJsonPath('data.0.title', 'Mine');
+
+    // An agent sees both.
+    $this->actingAs(makeUser());
+    $this->getJson(API.'/tickets')->assertOk()->assertJsonCount(2, 'data');
+    expect($mine->getKey())->not->toBeNull();
 });
 
 it('forbids a stranger from viewing or acting on a ticket they are not on', function (): void {
