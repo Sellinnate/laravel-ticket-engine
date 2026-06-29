@@ -14,4 +14,9 @@ class CrossTenantException extends TicketingException
     {
         return new self("Refusing to assign a ticket to a {$what} from another tenant.");
     }
+
+    public static function forWrite(string $model): self
+    {
+        return new self("Refusing to write a [{$model}] row to a tenant other than the resolved one.");
+    }
 }

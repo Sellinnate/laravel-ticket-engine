@@ -94,14 +94,20 @@ class PostMessage
         $now = now();
         $model = Ticketing::ticketModel();
 
-        // Update without the tenant scope so a queue/CLI flow whose ambient
-        // context differs from the ticket's tenant still persists the stamp.
-        $model::query()
+        // Conditional + tenant-unscoped update: whereNull makes the stamp atomic
+        // (the first concurrent public reply wins; a later one matches 0 rows and
+        // can't overwrite the true first-response time). withoutTenancy so a
+        // queue/CLI flow whose ambient context differs from the ticket's tenant
+        // still persists it.
+        $updated = $model::query()
             ->withoutTenancy()
             ->whereKey($data->ticket->getKey())
+            ->whereNull('first_response_at')
             ->update(['first_response_at' => $now]);
 
-        $data->ticket->first_response_at = $now;
+        if ($updated > 0) {
+            $data->ticket->first_response_at = $now;
+        }
     }
 
     /**

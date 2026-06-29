@@ -7,6 +7,7 @@ namespace Selli\Ticketing\Concerns;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Selli\Ticketing\Contracts\TenantScoped;
+use Selli\Ticketing\Exceptions\CrossTenantException;
 use Selli\Ticketing\Exceptions\MissingTenantException;
 use Selli\Ticketing\Tenancy\TenantContext;
 use Selli\Ticketing\Tenancy\TenantScope;
@@ -34,14 +35,22 @@ trait BelongsToTenant
             /** @var Model&TenantScoped $model */
             $column = $model->getTenantColumn();
 
+            $current = $context->current();
+
             // Only auto-assign when the column was not provided at all. An
-            // explicit null is a deliberate "shared" record and must be kept,
-            // even while a tenant is resolved (honours allow_shared).
+            // explicit value is honoured EXCEPT a non-null value targeting a
+            // different tenant than the resolved one — that is a cross-tenant
+            // write and is refused (the global scope guards reads; this guards
+            // writes). An explicit null (a deliberate "shared" record) is kept.
             if (array_key_exists($column, $model->getAttributes())) {
+                $explicit = $model->getAttribute($column);
+
+                if ($explicit !== null && $current !== null && (string) $explicit !== (string) $current) {
+                    throw CrossTenantException::forWrite($model::class);
+                }
+
                 return;
             }
-
-            $current = $context->current();
 
             // Optionally fail closed on writes: a missing tenant context would
             // otherwise create a null (shared) row visible to every tenant.
