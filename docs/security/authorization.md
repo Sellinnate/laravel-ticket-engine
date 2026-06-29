@@ -36,7 +36,10 @@ Bind your own policy (or turn registration off and register it yourself) to dele
 system:
 
 ```php
-Gate::policy(\Selli\Ticketing\Models\Ticket::class, \App\Policies\MyTicketPolicy::class);
+use Selli\Ticketing\Support\Ticketing;
+
+// Use the *configured* ticket model, so an override (useTicketModel()) is honoured.
+Gate::policy(Ticketing::ticketModel(), \App\Policies\MyTicketPolicy::class);
 ```
 
 ## Tenant isolation is the first barrier

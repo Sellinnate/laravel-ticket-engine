@@ -38,5 +38,7 @@ fails fast.
   them on, so an upgrade never changes runtime behaviour.
 - **Fail closed.** Unknown config (a missing workflow state, an unknown notification channel) raises
   `InvalidConfigurationException` rather than guessing.
-- **Side effects on the queue.** Notifications, email, escalation and webhooks run on the queue, never inline
-  in the request.
+- **Side effects on the queue.** Downstream side effects — notifications, outbound email, escalation,
+  webhooks and broadcasts — run on the queue, never inline. The entry points themselves are synchronous:
+  `Ticketing::receiveEmail()` ingests the email and creates the ticket/message in-process, then those
+  side effects fan out on the queue.
