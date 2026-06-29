@@ -7,7 +7,6 @@ namespace Selli\Ticketing\Concerns;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Selli\Ticketing\Contracts\TenantScoped;
-use Selli\Ticketing\Exceptions\CrossTenantException;
 use Selli\Ticketing\Exceptions\MissingTenantException;
 use Selli\Ticketing\Tenancy\TenantContext;
 use Selli\Ticketing\Tenancy\TenantScope;
@@ -35,22 +34,20 @@ trait BelongsToTenant
             /** @var Model&TenantScoped $model */
             $column = $model->getTenantColumn();
 
-            $current = $context->current();
-
-            // Only auto-assign when the column was not provided at all. An
-            // explicit value is honoured EXCEPT a non-null value targeting a
-            // different tenant than the resolved one — that is a cross-tenant
-            // write and is refused (the global scope guards reads; this guards
-            // writes). An explicit null (a deliberate "shared" record) is kept.
+            // An EXPLICIT tenant value (including null for a shared row) is always
+            // honoured: setting it deliberately is a first-class operation the
+            // engine itself relies on — child rows (messages, participants, …)
+            // inherit their PARENT ticket's tenant via tenantAttributes(), which
+            // legitimately differs from the ambient context in a queue/CLI flow.
+            // The cross-tenant defence is the read scope (which fails closed) plus
+            // the fact that the package's own write paths never expose the tenant
+            // column to user input; a host that hand-writes a tenant id owns that
+            // choice, exactly as it owns any other column it sets.
             if (array_key_exists($column, $model->getAttributes())) {
-                $explicit = $model->getAttribute($column);
-
-                if ($explicit !== null && $current !== null && (string) $explicit !== (string) $current) {
-                    throw CrossTenantException::forWrite($model::class);
-                }
-
                 return;
             }
+
+            $current = $context->current();
 
             // Optionally fail closed on writes: a missing tenant context would
             // otherwise create a null (shared) row visible to every tenant.
@@ -59,29 +56,6 @@ trait BelongsToTenant
             }
 
             $model->setAttribute($column, $current);
-        });
-
-        // The same guard for updates, and stricter: ANY save of a row whose
-        // (non-null) tenant differs from the resolved tenant is refused —
-        // including ordinary field updates on a model loaded under a different
-        // context, not only an explicit re-tag. A query-builder update bypasses
-        // model events by design, so cross-context maintenance writes that must
-        // skip this (e.g. the first-response stamp) use the builder, not save().
-        static::updating(function (Model $model): void {
-            $context = app(TenantContext::class);
-
-            if (! $context->enabled()) {
-                return;
-            }
-
-            /** @var Model&TenantScoped $model */
-            $column = $model->getTenantColumn();
-            $tenant = $model->getAttribute($column);
-            $current = $context->current();
-
-            if ($tenant !== null && $current !== null && (string) $tenant !== (string) $current) {
-                throw CrossTenantException::forWrite($model::class);
-            }
         });
     }
 

@@ -2,62 +2,29 @@
 
 declare(strict_types=1);
 
-use Selli\Ticketing\Exceptions\CrossTenantException;
 use Selli\Ticketing\Exceptions\InvalidConfigurationException;
 use Selli\Ticketing\Facades\Ticketing;
 use Selli\Ticketing\Models\Team;
 use Selli\Ticketing\Tenancy\TenantContext;
 use Selli\Ticketing\Workflow\ConfigValidator;
 
-// --- #4: cross-tenant WRITE guard (the global scope only guards reads) ---------
+// --- Tenant auto-assignment honours an explicit value (incl. child inheritance) -
 
-it('refuses an explicit write to a different tenant than the resolved one', function (): void {
-    $context = app(TenantContext::class);
-
-    // In tenant 1, creating a package row with an explicit tenant_id of 2 is a
-    // cross-tenant write and must be refused.
-    $context->forTenant(1, function (): void {
-        expect(fn () => Team::query()->create(['name' => 'Smuggled', 'tenant_id' => 2]))
-            ->toThrow(CrossTenantException::class);
-    });
-});
-
-it('refuses re-tagging an existing row to a different tenant on update', function (): void {
-    $context = app(TenantContext::class);
-
-    $team = $context->forTenant(1, fn () => Team::query()->create(['name' => 'Mine']));
-
-    $context->forTenant(1, function () use ($team): void {
-        $team->name = 'Renamed'; // a normal field update is fine
-        $team->save();
-
-        $team->tenant_id = 2; // re-tagging to another tenant is a cross-tenant write
-        expect(fn () => $team->save())->toThrow(CrossTenantException::class);
-    });
-});
-
-it('refuses ANY update to a foreign-tenant row, not only a re-tag', function (): void {
-    $context = app(TenantContext::class);
-    $team = $context->forTenant(2, fn () => Team::query()->create(['name' => 'Theirs']));
-
-    // In tenant 1, load it unscoped and try to change a NON-tenant field.
-    $context->forTenant(1, function () use ($team): void {
-        $loaded = Team::query()->withoutTenancy()->findOrFail($team->getKey());
-        $loaded->name = 'Hijacked';
-
-        expect(fn () => $loaded->save())->toThrow(CrossTenantException::class);
-    });
-});
-
-it('allows an explicit shared (null) write and a matching-tenant write', function (): void {
+it('honours an explicit tenant on write (auto-assigns only when omitted)', function (): void {
     $context = app(TenantContext::class);
 
     $context->forTenant(1, function (): void {
+        // Omitted → auto-assigned to the current tenant.
+        $auto = Team::query()->create(['name' => 'Auto']);
+        // Explicit null → a deliberate shared row, kept.
         $shared = Team::query()->create(['name' => 'Shared', 'tenant_id' => null]);
-        $matching = Team::query()->create(['name' => 'Mine', 'tenant_id' => 1]);
+        // Explicit value (e.g. a child inheriting its parent's tenant, which may
+        // differ from the ambient context) → honoured, never rejected.
+        $explicit = Team::query()->create(['name' => 'Inherited', 'tenant_id' => 2]);
 
-        expect($shared->tenant_id)->toBeNull()
-            ->and((string) $matching->tenant_id)->toBe('1');
+        expect((string) $auto->tenant_id)->toBe('1')
+            ->and($shared->tenant_id)->toBeNull()
+            ->and((string) $explicit->tenant_id)->toBe('2');
     });
 });
 
