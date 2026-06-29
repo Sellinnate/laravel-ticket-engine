@@ -35,8 +35,12 @@ class TicketController extends Controller
         // scope alone would otherwise leak every tenant ticket's metadata to any
         // requester. Agents list the whole tenant.
         $user = $request->user();
-        if ($user instanceof Model && ! $user instanceof CanActOnTickets) {
-            $query->where($this->ownTicketConstraint($user));
+        if (! $user instanceof CanActOnTickets) {
+            // A non-Eloquent requester has no morph identity to scope by, so it
+            // must see nothing rather than the whole tenant (fail closed).
+            $user instanceof Model
+                ? $query->where($this->ownTicketConstraint($user))
+                : $query->whereRaw('1 = 0');
         }
 
         // Only scalar filter values: an array query param (?status[]=x) handed to
