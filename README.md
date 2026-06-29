@@ -19,13 +19,26 @@ domain happens **by contract** (`Ticketable`), never by coupling to your schema.
 > back-office, an Inertia/Vue front-end, a mobile API or a queued job without
 > changes.
 
+📖 **Full documentation:** [laravel-ticketing.selli.io](https://laravel-ticketing.selli.io)
+
+## Features
+
+- **Config-driven workflow** per ticket type, with guards and a Spatie state-class bridge — validated at boot.
+- **SLA & escalation** — first-response / next-response / resolution targets on business hours, with a pausing clock.
+- **Routing & assignment** — teams, pluggable strategies (round-robin, least-busy, skill-based, custom) and data-driven routing rules.
+- **Collaboration** — attachments (signed URLs), @mentions, canned responses, macros, merge/split, tags.
+- **CSAT** with stateless, signed rating links.
+- **Automation** — a data-driven trigger→conditions→actions rule engine, plus SSRF-guarded outbound webhooks.
+- **Notifications** — mail, database (in-app bell), broadcast and Slack, with per-user/per-tenant preferences.
+- **Channels** — an opt-in versioned [REST API](https://laravel-ticketing.selli.io/channels/rest-api), [email-to-ticket](https://laravel-ticketing.selli.io/channels/email) (threading, anti-loop, idempotent), and realtime [broadcasting](https://laravel-ticketing.selli.io/channels/broadcasting) over Reverb.
+- **Security** — agnostic [authorization policies](https://laravel-ticketing.selli.io/security/authorization), an immutable audit trail, and [GDPR](https://laravel-ticketing.selli.io/security/gdpr) anonymisation / export / retention.
+
 ## Installation
 
 ```bash
 composer require selli/ticketing
-php artisan vendor:publish --tag="ticketing-migrations"
-php artisan vendor:publish --tag="ticketing-config"
-php artisan migrate
+php artisan ticketing:install   # publishes config + migrations, offers to migrate
+php artisan ticketing:demo      # seeds a working example ticket
 ```
 
 ## Quick start
