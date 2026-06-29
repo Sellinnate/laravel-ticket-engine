@@ -61,10 +61,12 @@ trait BelongsToTenant
             $model->setAttribute($column, $current);
         });
 
-        // The same guard for updates: re-tagging an existing row to a different
-        // tenant is a cross-tenant write too. Only fires when the tenant column
-        // is actually changed (a normal save that doesn't touch it is untouched;
-        // a query-builder update bypasses model events by design).
+        // The same guard for updates, and stricter: ANY save of a row whose
+        // (non-null) tenant differs from the resolved tenant is refused —
+        // including ordinary field updates on a model loaded under a different
+        // context, not only an explicit re-tag. A query-builder update bypasses
+        // model events by design, so cross-context maintenance writes that must
+        // skip this (e.g. the first-response stamp) use the builder, not save().
         static::updating(function (Model $model): void {
             $context = app(TenantContext::class);
 
@@ -74,15 +76,10 @@ trait BelongsToTenant
 
             /** @var Model&TenantScoped $model */
             $column = $model->getTenantColumn();
-
-            if (! $model->isDirty($column)) {
-                return;
-            }
-
-            $explicit = $model->getAttribute($column);
+            $tenant = $model->getAttribute($column);
             $current = $context->current();
 
-            if ($explicit !== null && $current !== null && (string) $explicit !== (string) $current) {
+            if ($tenant !== null && $current !== null && (string) $tenant !== (string) $current) {
                 throw CrossTenantException::forWrite($model::class);
             }
         });

@@ -36,6 +36,19 @@ it('refuses re-tagging an existing row to a different tenant on update', functio
     });
 });
 
+it('refuses ANY update to a foreign-tenant row, not only a re-tag', function (): void {
+    $context = app(TenantContext::class);
+    $team = $context->forTenant(2, fn () => Team::query()->create(['name' => 'Theirs']));
+
+    // In tenant 1, load it unscoped and try to change a NON-tenant field.
+    $context->forTenant(1, function () use ($team): void {
+        $loaded = Team::query()->withoutTenancy()->findOrFail($team->getKey());
+        $loaded->name = 'Hijacked';
+
+        expect(fn () => $loaded->save())->toThrow(CrossTenantException::class);
+    });
+});
+
 it('allows an explicit shared (null) write and a matching-tenant write', function (): void {
     $context = app(TenantContext::class);
 
