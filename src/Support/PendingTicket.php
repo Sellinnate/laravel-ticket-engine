@@ -58,7 +58,7 @@ class PendingTicket
      * @param  array<string, mixed>  $meta
      */
     public function postMessage(
-        mixed $author,
+        ?Model $author,
         string $body,
         MessageVisibility $visibility = MessageVisibility::Public,
         array $meta = [],

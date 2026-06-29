@@ -34,9 +34,15 @@ trait BelongsToTenant
             /** @var Model&TenantScoped $model */
             $column = $model->getTenantColumn();
 
-            // Only auto-assign when the column was not provided at all. An
-            // explicit null is a deliberate "shared" record and must be kept,
-            // even while a tenant is resolved (honours allow_shared).
+            // An EXPLICIT tenant value (including null for a shared row) is always
+            // honoured: setting it deliberately is a first-class operation the
+            // engine itself relies on — child rows (messages, participants, …)
+            // inherit their PARENT ticket's tenant via tenantAttributes(), which
+            // legitimately differs from the ambient context in a queue/CLI flow.
+            // The cross-tenant defence is the read scope (which fails closed) plus
+            // the fact that the package's own write paths never expose the tenant
+            // column to user input; a host that hand-writes a tenant id owns that
+            // choice, exactly as it owns any other column it sets.
             if (array_key_exists($column, $model->getAttributes())) {
                 return;
             }

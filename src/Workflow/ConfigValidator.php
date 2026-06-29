@@ -16,10 +16,20 @@ class ConfigValidator
 {
     public function validate(): void
     {
-        /** @var array<string, array<string, mixed>> $workflows */
         $workflows = config('ticketing.workflow.workflows', []);
 
+        if (! is_array($workflows)) {
+            throw new InvalidConfigurationException('ticketing.workflow.workflows must be an array.');
+        }
+
         foreach ($workflows as $key => $workflow) {
+            // Guard the entry SHAPE before iterating: a published override that
+            // sets a workflow to a scalar would otherwise raise a TypeError
+            // instead of a clear InvalidConfigurationException.
+            if (! is_array($workflow)) {
+                throw new InvalidConfigurationException("Workflow [{$key}] must be an array.");
+            }
+
             $this->validateWorkflow((string) $key, $workflow);
         }
 
@@ -90,7 +100,9 @@ class ConfigValidator
         }
 
         foreach ((array) ($transition['guard'] ?? []) as $guard) {
-            $guard = (string) $guard;
+            if (! is_string($guard)) {
+                throw new InvalidConfigurationException("Transition [{$workflow}.{$name}] guard must be a class-string.");
+            }
 
             if (! class_exists($guard)) {
                 throw new InvalidConfigurationException("Transition [{$workflow}.{$name}] guard [{$guard}] class does not exist.");
@@ -109,14 +121,21 @@ class ConfigValidator
      */
     protected function validateTypes(array $workflows): void
     {
-        /** @var array<string, array{workflow?: string}> $types */
         $types = config('ticketing.types', []);
 
+        if (! is_array($types)) {
+            throw new InvalidConfigurationException('ticketing.types must be an array.');
+        }
+
         foreach ($types as $key => $definition) {
+            if (! is_array($definition)) {
+                throw new InvalidConfigurationException("Ticket type [{$key}] must be an array.");
+            }
+
             $workflow = $definition['workflow'] ?? 'default';
 
-            if (! array_key_exists($workflow, $workflows)) {
-                throw new InvalidConfigurationException("Ticket type [{$key}] references unknown workflow [{$workflow}].");
+            if (! is_string($workflow) || ! array_key_exists($workflow, $workflows)) {
+                throw new InvalidConfigurationException("Ticket type [{$key}] references an unknown or invalid workflow.");
             }
         }
     }

@@ -9,8 +9,8 @@ use Illuminate\Database\Eloquent\Model;
 use Selli\Ticketing\Enums\BodyFormat;
 use Selli\Ticketing\Enums\MessageSource;
 use Selli\Ticketing\Enums\MessageVisibility;
-use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Models\TicketMessage;
+use Selli\Ticketing\Support\Ticketing;
 
 /**
  * @extends Factory<TicketMessage>
@@ -25,7 +25,10 @@ class TicketMessageFactory extends Factory
     public function definition(): array
     {
         return [
-            'ticket_id' => Ticket::factory(),
+            // Honour a host's useTicketModel()/config override rather than
+            // hard-coding the package Ticket, so a factory-built message attaches
+            // to the configured parent model.
+            'ticket_id' => Ticketing::ticketModel()::factory(),
             'visibility' => MessageVisibility::Public,
             'body' => fake()->paragraph(),
             'body_format' => BodyFormat::Text,

@@ -109,7 +109,7 @@ class Ticketing
      */
     public function postMessage(
         Ticket $ticket,
-        mixed $author,
+        ?Model $author,
         string $body,
         MessageVisibility $visibility = MessageVisibility::Public,
         array $meta = [],
