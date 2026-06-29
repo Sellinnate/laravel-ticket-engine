@@ -16,8 +16,11 @@ class ConfigValidator
 {
     public function validate(): void
     {
-        /** @var array<string, array<string, mixed>> $workflows */
         $workflows = config('ticketing.workflow.workflows', []);
+
+        if (! is_array($workflows)) {
+            throw new InvalidConfigurationException('ticketing.workflow.workflows must be an array.');
+        }
 
         foreach ($workflows as $key => $workflow) {
             // Guard the entry SHAPE before iterating: a published override that
@@ -118,8 +121,11 @@ class ConfigValidator
      */
     protected function validateTypes(array $workflows): void
     {
-        /** @var array<string, array{workflow?: string}> $types */
         $types = config('ticketing.types', []);
+
+        if (! is_array($types)) {
+            throw new InvalidConfigurationException('ticketing.types must be an array.');
+        }
 
         foreach ($types as $key => $definition) {
             if (! is_array($definition)) {
@@ -128,8 +134,8 @@ class ConfigValidator
 
             $workflow = $definition['workflow'] ?? 'default';
 
-            if (! array_key_exists($workflow, $workflows)) {
-                throw new InvalidConfigurationException("Ticket type [{$key}] references unknown workflow [{$workflow}].");
+            if (! is_string($workflow) || ! array_key_exists($workflow, $workflows)) {
+                throw new InvalidConfigurationException("Ticket type [{$key}] references an unknown or invalid workflow.");
             }
         }
     }

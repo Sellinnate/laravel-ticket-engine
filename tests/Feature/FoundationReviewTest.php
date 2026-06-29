@@ -22,6 +22,20 @@ it('refuses an explicit write to a different tenant than the resolved one', func
     });
 });
 
+it('refuses re-tagging an existing row to a different tenant on update', function (): void {
+    $context = app(TenantContext::class);
+
+    $team = $context->forTenant(1, fn () => Team::query()->create(['name' => 'Mine']));
+
+    $context->forTenant(1, function () use ($team): void {
+        $team->name = 'Renamed'; // a normal field update is fine
+        $team->save();
+
+        $team->tenant_id = 2; // re-tagging to another tenant is a cross-tenant write
+        expect(fn () => $team->save())->toThrow(CrossTenantException::class);
+    });
+});
+
 it('allows an explicit shared (null) write and a matching-tenant write', function (): void {
     $context = app(TenantContext::class);
 
@@ -72,5 +86,19 @@ it('rejects a malformed workflow/type/guard config with a clear exception', func
             'transitions' => ['close' => ['from' => ['open'], 'to' => 'closed', 'guard' => [['not' => 'a-string']]]],
         ],
     ]);
+    expect(fn () => $validator->validate())->toThrow(InvalidConfigurationException::class);
+});
+
+it('rejects scalar config containers and a non-string type workflow', function (): void {
+    $validator = app(ConfigValidator::class);
+
+    config()->set('ticketing.workflow.workflows', 'not-an-array');
+    expect(fn () => $validator->validate())->toThrow(InvalidConfigurationException::class);
+
+    config()->set('ticketing.workflow.workflows', ['default' => ['initial' => 'open', 'states' => ['open'], 'transitions' => []]]);
+    config()->set('ticketing.types', 'not-an-array');
+    expect(fn () => $validator->validate())->toThrow(InvalidConfigurationException::class);
+
+    config()->set('ticketing.types', ['support' => ['workflow' => ['array-not-string']]]);
     expect(fn () => $validator->validate())->toThrow(InvalidConfigurationException::class);
 });
