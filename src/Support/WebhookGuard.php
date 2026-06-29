@@ -111,16 +111,25 @@ class WebhookGuard
     }
 
     /**
-     * Unwrap an IPv4-mapped IPv6 (::ffff:a.b.c.d) to its embedded IPv4 so the
-     * private/reserved check can't be evaded through the mapped range.
+     * Unwrap an IPv4-embedding IPv6 to its trailing IPv4 so the private/reserved
+     * check can't be evaded through it. Covers the IPv4-mapped range
+     * (::ffff:a.b.c.d) and the NAT64 well-known prefix (64:ff9b::/96) — an AAAA
+     * of 64:ff9b::a9fe:a9fe looks "public" but a NAT64 gateway translates it to
+     * 169.254.169.254 (or any private IPv4).
      */
     protected static function canonicalIp(string $ip): string
     {
         $packed = @inet_pton($ip);
 
-        if ($packed !== false && strlen($packed) === 16
-            && substr($packed, 0, 10) === str_repeat("\0", 10)
-            && substr($packed, 10, 2) === "\xff\xff") {
+        if ($packed === false || strlen($packed) !== 16) {
+            return $ip;
+        }
+
+        // ::ffff:0:0/96 (IPv4-mapped) or 64:ff9b::/96 (NAT64 well-known prefix).
+        $isMapped = substr($packed, 0, 10) === str_repeat("\0", 10) && substr($packed, 10, 2) === "\xff\xff";
+        $isNat64 = substr($packed, 0, 12) === "\x00\x64\xff\x9b".str_repeat("\0", 8);
+
+        if ($isMapped || $isNat64) {
             $v4 = inet_ntop(substr($packed, 12, 4));
 
             if ($v4 !== false) {

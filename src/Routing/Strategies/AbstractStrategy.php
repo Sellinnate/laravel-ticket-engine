@@ -31,12 +31,18 @@ abstract class AbstractStrategy implements AssignmentStrategy
     {
         $model = Ticketing::teamMemberModel();
 
+        // lockForUpdate so concurrent same-team assignments serialise on the
+        // membership rows: the read of rotation/load state (last_assigned_at) and
+        // the subsequent stamp are then atomic, instead of both picking the same
+        // "least-recently-assigned"/"least-busy" agent off a stale snapshot. Runs
+        // inside AssignTicket's transaction (which already holds the ticket lock).
         /** @var Collection<int, TeamMember> $members */
         $members = $model::query()
             ->withoutTenancy()
             ->with('member')
             ->where('team_id', $team->getKey())
             ->where('is_active', true)
+            ->lockForUpdate()
             ->get();
 
         return $members

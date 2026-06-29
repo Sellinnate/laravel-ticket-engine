@@ -15,13 +15,19 @@ class MessageController extends Controller
     public function store(StoreMessageRequest $request, string $ticket): JsonResponse
     {
         $ticket = $this->resolveTicket($ticket);
-        $this->authorizeTicket($request->user(), 'comment', $ticket);
+
+        $visibility = MessageVisibility::tryFrom((string) $request->input('visibility', 'public')) ?? MessageVisibility::Public;
+
+        // Authorize the ability that matches the visibility, so a host policy that
+        // distinguishes commentInternal from comment is enforced here — not left
+        // to rely solely on the Form Request's agent check.
+        $this->authorizeTicket($request->user(), $visibility->isInternal() ? 'commentInternal' : 'comment', $ticket);
 
         $message = Ticketing::postMessage(
             ticket: $ticket,
             author: $request->user(),
             body: (string) $request->string('body'),
-            visibility: MessageVisibility::tryFrom((string) $request->input('visibility', 'public')) ?? MessageVisibility::Public,
+            visibility: $visibility,
         );
 
         return (new TicketMessageResource($message))->response()->setStatusCode(201);
