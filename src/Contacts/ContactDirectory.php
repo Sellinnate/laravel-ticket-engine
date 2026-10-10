@@ -171,6 +171,10 @@ class ContactDirectory
      * AI's question excerpts — and drop the network traces (origin, IP hash).
      * The conversations themselves stay for the statistics.
      *
+     * A conversation that became a ticket is part of that ticket (its
+     * transcript was copied there): its messages are kept like the ticket's
+     * own, which retention governs, so the two copies never disagree.
+     *
      * @param  array<mixed>  $conversationIds
      *
      * @internal
@@ -181,10 +185,19 @@ class ContactDirectory
             return;
         }
 
-        Ticketing::conversationMessageModel()::query()->withoutTenancy()
-            ->whereIn('conversation_id', $conversationIds)
-            ->where('role', ConversationRole::Visitor->value)
-            ->update(['body' => $label]);
+        $model = Ticketing::conversationModel();
+        $standalone = $model::query()->withoutTenancy()
+            ->whereIn((new $model)->getKeyName(), $conversationIds)
+            ->whereNull('ticket_id')
+            ->pluck((new $model)->getKeyName())
+            ->all();
+
+        if ($standalone !== []) {
+            Ticketing::conversationMessageModel()::query()->withoutTenancy()
+                ->whereIn('conversation_id', $standalone)
+                ->where('role', ConversationRole::Visitor->value)
+                ->update(['body' => $label]);
+        }
 
         $this->scrubConversationTraces($conversationIds);
     }

@@ -11,6 +11,7 @@ use Selli\Ticketing\Events\RequesterAnonymized;
 use Selli\Ticketing\Facades\Ticketing;
 use Selli\Ticketing\Mail\InboundEmail;
 use Selli\Ticketing\Models\Contact;
+use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Models\TicketParticipant;
 use Selli\Ticketing\Notifications\ReplyPostedNotification;
 use Selli\Ticketing\Tenancy\TenantContext;
@@ -233,6 +234,30 @@ it('erases the AI excerpts of a contact\'s and a host user\'s widget conversatio
 
     expect(Ticketing::aiTurnModel()::query()->whereNotNull('question')->count())->toBe(0)
         ->and(Ticketing::conversationMessageModel()::query()->where('body', 'My secret question')->count())->toBe(0);
+});
+
+it('keeps the transcript of a conversation that became a ticket, like the ticket itself', function (): void {
+    config()->set('ticketing.ai.mode', 'off');
+    ['key' => $key] = Ticketing::widgetKeys()->create('Site', ['*']);
+    $contact = Ticketing::contacts()->remember('jane@example.com', 'Jane');
+
+    ['conversation' => $chat] = Ticketing::conversations()->start($key);
+    $chat->forceFill(['contact_id' => $contact->getKey()])->save();
+    Ticketing::conversationMessageModel()::query()->create(['conversation_id' => $chat->getKey(), 'role' => 'visitor', 'body' => 'Chat only']);
+
+    ['conversation' => $escalated] = Ticketing::conversations()->start($key, null, ['ip' => '203.0.113.9', 'origin' => 'https://acme.example']);
+    $escalated->forceFill(['contact_id' => $contact->getKey()])->save();
+    Ticketing::conversations()->post($escalated, 'Became a ticket');
+    $ticket = Ticket::query()->findOrFail($escalated->refresh()->ticket_id);
+
+    Ticketing::contacts()->anonymize($contact);
+
+    $escalated->refresh();
+    expect(Ticketing::conversationMessageModel()::query()->where('conversation_id', $chat->getKey())->value('body'))->toBe('[anonymized]')
+        ->and(Ticketing::conversationMessageModel()::query()->where('conversation_id', $escalated->getKey())->value('body'))->toBe('Became a ticket')
+        ->and($ticket->messages()->where('body', 'Became a ticket')->exists())->toBeTrue()
+        ->and($escalated->ip_hash)->toBeNull()
+        ->and($escalated->origin)->toBeNull();
 });
 
 it('anonymizes any number of contacts of the same tenant', function (): void {

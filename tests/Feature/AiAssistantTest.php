@@ -35,6 +35,7 @@ use Selli\Ticketing\Events\TicketEscalated;
 use Selli\Ticketing\Exceptions\CrossTenantException;
 use Selli\Ticketing\Exceptions\InvalidConfigurationException;
 use Selli\Ticketing\Facades\Ticketing;
+use Selli\Ticketing\Jobs\RunAiTurn;
 use Selli\Ticketing\Knowledge\KnowledgeAudience;
 use Selli\Ticketing\Models\AiTurn;
 use Selli\Ticketing\Models\AutomationRule;
@@ -238,6 +239,18 @@ it('still drafts but escalates silently when a rule fires in draft mode', functi
         ->and($ticket->messages()->where('meta->ai->kind', 'draft')->exists())->toBeTrue()
         // In draft mode the customer is not told about a hand-over.
         ->and($ticket->messages()->where('body', 'A human will follow up.')->exists())->toBeFalse();
+});
+
+it('queues no AI turn for a ticket whose type has the AI off', function (): void {
+    config()->set('ticketing.ai.queue', true);
+    config()->set('ticketing.ai.modes.types', ['incident' => 'off']);
+    Queue::fake();
+
+    customerAsks('Outage!', 'incident');
+    Queue::assertNothingPushed();
+
+    customerAsks('Question');
+    Queue::assertPushed(RunAiTurn::class, 1);
 });
 
 it('does nothing when the AI is off, for the type or the tenant', function (): void {

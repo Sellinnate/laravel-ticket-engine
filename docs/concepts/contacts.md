@@ -63,7 +63,9 @@ tickets for statistics and scrubs:
   address is free again);
 - the email channel's denormalised `from` / `from_name` on its messages;
 - the AI question excerpts stored for the knowledge-gap report;
-- the visitor messages of its widget conversations that never became a ticket.
+- the visitor messages of its widget conversations that never became a ticket. A conversation that did
+  is part of that ticket: its transcript is kept like the ticket's other messages (retention governs it),
+  and only its traces — IP hash, origin, typed-in claims — are dropped.
 
 `ContactAnonymized` is dispatched after commit, so integrations holding copies (the RAG index) purge them.
 

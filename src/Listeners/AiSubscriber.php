@@ -8,7 +8,9 @@ use Illuminate\Contracts\Container\Container;
 use Illuminate\Database\Eloquent\Model;
 use Selli\Ticketing\Actions\TakeOverTicket;
 use Selli\Ticketing\Ai\AiRequestFactory;
+use Selli\Ticketing\Contracts\AiSettingsResolver;
 use Selli\Ticketing\Contracts\CanActOnTickets;
+use Selli\Ticketing\Enums\AiMode;
 use Selli\Ticketing\Enums\AiStatus;
 use Selli\Ticketing\Enums\MessageSource;
 use Selli\Ticketing\Enums\MessageVisibility;
@@ -73,9 +75,20 @@ class AiSubscriber implements Subscriber
         // message (e.g. reopen-on-reply) may have changed it.
         $status = $this->storedStatus($ticket);
 
-        if ($status === null || $status->answers()) {
+        // No job for a ticket whose type or tenant has the AI off (the turn
+        // re-checks the mode anyway: it may change before the job runs).
+        if (($status === null || $status->answers()) && $this->mode($ticket) !== AiMode::Off) {
             RunAiTurn::dispatchFor($ticket, $message);
         }
+    }
+
+    protected function mode(Ticket $ticket): AiMode
+    {
+        return $this->container->make(AiSettingsResolver::class)->mode(
+            $ticket->getAttribute($ticket->getTenantColumn()),
+            $this->requests->typeKey($ticket),
+            $ticket->channel,
+        );
     }
 
     protected function storedStatus(Ticket $ticket): ?AiStatus
