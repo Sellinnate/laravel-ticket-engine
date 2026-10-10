@@ -85,8 +85,11 @@ AI turns, automations, webhooks or SLA clocks for years-old requests:
 
 ```php
 use Illuminate\Support\Facades\Event;
-use Selli\Ticketing\Enums\{MessageSource, MessageVisibility, Priority};
+use Selli\Ticketing\Enums\{MessageVisibility, Priority};
+use Selli\Ticketing\Events\{MessagePosted, ParticipantAdded, TicketAssigned, TicketOpened};
 
+// Only the package's domain events are silenced (routing, SLA, notifications, AI, automation, webhooks
+// listen to them); Eloquent's own events keep running — they assign the tenant to every row.
 Event::fakeFor(function () {
     SupportRequest::query()->with('messages')->chunkById(200, function ($requests) {
         foreach ($requests as $old) {
@@ -115,7 +118,7 @@ Event::fakeFor(function () {
             });
         }
     });
-});
+}, [TicketOpened::class, MessagePosted::class, ParticipantAdded::class, TicketAssigned::class]);
 ```
 
 ```bash
