@@ -17,8 +17,9 @@
 
 4. Compare your published `config/ticketing.php` with the package's: new keys have a default that keeps
    the previous behaviour, so copying them is optional but recommended — except where a version's
-   **Behaviour changes** below say otherwise (for 1.0.0: `contacts.inbound_email` and
-   `workflow.reopen_on_reply` are on by default).
+   **Behaviour changes** below say otherwise (for 1.0.0: `contacts.inbound_email`,
+   `workflow.reopen_on_reply`, `mail.inbound.strip_quotes` and `mail.inbound.cc_participants` are on by
+   default).
 
 ## From a pre-release checkout (`dev-main` before 1.0.0) to 1.0.0
 
