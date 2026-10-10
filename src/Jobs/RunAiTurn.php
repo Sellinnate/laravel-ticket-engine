@@ -68,7 +68,7 @@ class RunAiTurn implements ShouldQueue
                 $message = Ticketing::ticketMessageModel()::query()->withoutTenancy()->find($this->messageId);
 
                 if ($ticket instanceof Ticket && $message instanceof TicketMessage) {
-                    $assistant->respondToTicket($ticket, $message);
+                    $assistant->respondToTicket($ticket, $message, retry: $this->attempts() > 1);
                 }
 
                 return;
@@ -78,7 +78,7 @@ class RunAiTurn implements ShouldQueue
             $message = Ticketing::conversationMessageModel()::query()->withoutTenancy()->find($this->messageId);
 
             if ($conversation instanceof Conversation && $message instanceof ConversationMessage) {
-                $assistant->respondToConversation($conversation, $message);
+                $assistant->respondToConversation($conversation, $message, retry: $this->attempts() > 1);
             }
         });
     }

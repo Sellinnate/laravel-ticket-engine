@@ -457,3 +457,27 @@ it('erases an escalated conversation and its AI turns with the ticket on retenti
         ->and(Ticketing::conversationMessageModel()::query()->count())->toBe(0)
         ->and(Ticketing::aiTurnModel()::query()->count())->toBe(0);
 });
+
+it('never verifies an email that the signature does not cover', function (): void {
+    ['key' => $key, 'secret' => $secret] = widgetKey();
+
+    // A valid signature over user 42, sent next to somebody else's email.
+    ['conversation' => $conversation] = Ticketing::conversations()->start($key, new VisitorIdentity(
+        email: 'ceo@acme.example', userId: '42', signature: WidgetKeys::sign($secret, '42'),
+    ));
+
+    expect($conversation->identity_verified)->toBeTrue()
+        ->and($conversation->contact_id)->toBeNull()
+        ->and(Contact::query()->count())->toBe(0)
+        ->and($conversation->meta['claimed']['email'])->toBe('ceo@acme.example');
+});
+
+it('scrubs the claimed identity when the contact is erased', function (): void {
+    ['key' => $key] = widgetKey();
+    ['conversation' => $conversation] = Ticketing::conversations()->start($key, new VisitorIdentity(email: 'jane@example.com', name: 'Jane'));
+    Ticketing::conversations()->escalate($conversation, EscalationReason::HumanRequested);
+
+    Ticketing::contacts()->anonymize(Contact::query()->sole());
+
+    expect($conversation->refresh()->meta)->toBeNull();
+});

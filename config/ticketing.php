@@ -639,6 +639,10 @@ return [
         // Run AI turns on the queue (recommended) or inline.
         'queue' => true,
 
+        // Seconds after which an unfinished turn (its worker died) may be taken
+        // over by a new delivery; a retry of the same job takes it back at once.
+        'turn_timeout' => 300,
+
         'classification' => [
             'enabled' => true,
             // Let the classifier raise (never lower) the ticket priority.

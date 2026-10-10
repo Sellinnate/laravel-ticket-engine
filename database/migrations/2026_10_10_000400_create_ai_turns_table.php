@@ -29,6 +29,8 @@ return new class extends Migration
             $table->string('trigger_key', 80)->unique('ticketing_ai_turns_trigger_unq');
             $table->string('mode', 8);
             $table->string('status', 16)->default('running'); // running | done
+            // How many deliveries worked on the turn (a retry after a crash adds one).
+            $table->unsignedSmallInteger('attempts')->default(1);
             $table->string('outcome', 16)->nullable();        // answered | drafted | escalated | skipped | failed
             $table->string('escalation_reason', 32)->nullable();
             $table->decimal('confidence', 5, 4)->nullable();

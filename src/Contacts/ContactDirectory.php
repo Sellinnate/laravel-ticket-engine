@@ -192,6 +192,22 @@ class ContactDirectory
         Ticketing::aiTurnModel()::query()->withoutTenancy()
             ->whereIn('conversation_id', $conversationIds)
             ->update(['question' => null]);
+
+        // The name/email a visitor typed in (an unverified claim) goes too;
+        // any other conversation state is kept.
+        $claimed = Ticketing::conversationModel()::query()->withoutTenancy()
+            ->whereIn((new (Ticketing::conversationModel()))->getKeyName(), $conversationIds)
+            ->whereNotNull('meta')
+            ->get();
+
+        foreach ($claimed as $conversation) {
+            $meta = $conversation->meta ?? [];
+
+            if (array_key_exists('claimed', $meta)) {
+                unset($meta['claimed']);
+                $conversation->forceFill(['meta' => $meta === [] ? null : $meta])->save();
+            }
+        }
     }
 
     /**

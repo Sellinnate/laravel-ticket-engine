@@ -59,8 +59,14 @@ class AiAssistant
         protected Container $container,
     ) {}
 
-    public function respondToTicket(Ticket $ticket, TicketMessage $trigger): ?AiTurn
+    /**
+     * @param  bool  $retry  a retry of a job that may have died mid-turn: an
+     *                       unfinished turn for this message is taken back
+     */
+    public function respondToTicket(Ticket $ticket, TicketMessage $trigger, bool $retry = false): ?AiTurn
     {
+        // Work on the stored state (status, exchanges), not a caller's copy.
+        $ticket = Ticketing::ticketModel()::query()->withoutTenancy()->whereKey($ticket->getKey())->first() ?? $ticket;
         $settings = $this->settings();
         $tenant = $ticket->getAttribute($ticket->getTenantColumn());
         $mode = $settings->mode($tenant, $this->requests->typeKey($ticket), $ticket->channel);
@@ -69,7 +75,7 @@ class AiAssistant
             return null;
         }
 
-        $turn = $this->claim('ticket_message:'.$trigger->getKey(), $ticket, null, $mode, $trigger->body);
+        $turn = $this->claim('ticket_message:'.$trigger->getKey(), $ticket, null, $mode, $trigger->body, $retry);
 
         if ($turn === null) {
             return null;
@@ -111,8 +117,9 @@ class AiAssistant
         return $this->completeTicketTurn($ticket, $trigger, $turn, $mode, $reason, $answer, $usage, $started);
     }
 
-    public function respondToConversation(Conversation $conversation, ConversationMessage $trigger): ?AiTurn
+    public function respondToConversation(Conversation $conversation, ConversationMessage $trigger, bool $retry = false): ?AiTurn
     {
+        $conversation = Ticketing::conversationModel()::query()->withoutTenancy()->whereKey($conversation->getKey())->first() ?? $conversation;
         $settings = $this->settings();
         $tenant = $conversation->getAttribute($conversation->getTenantColumn());
         $mode = $settings->mode($tenant, $this->conversationType($conversation), $conversation->channel);
@@ -123,7 +130,7 @@ class AiAssistant
             return null;
         }
 
-        $turn = $this->claim('conversation_message:'.$trigger->getKey(), null, $conversation, $mode, $trigger->body);
+        $turn = $this->claim('conversation_message:'.$trigger->getKey(), null, $conversation, $mode, $trigger->body, $retry);
 
         if ($turn === null) {
             return null;
@@ -308,9 +315,12 @@ class AiAssistant
 
     /**
      * Claim the turn for a triggering message: the unique trigger key makes a
-     * duplicate delivery (queue retry, double dispatch) a no-op.
+     * duplicate delivery a no-op. A turn left "running" by a worker that died
+     * (nothing of it was committed: the writes and the completion share one
+     * transaction) is taken back by a retry of the job, or by anyone once it
+     * is older than `ai.turn_timeout` seconds.
      */
-    protected function claim(string $triggerKey, ?Ticket $ticket, ?Conversation $conversation, AiMode $mode, string $question): ?AiTurn
+    protected function claim(string $triggerKey, ?Ticket $ticket, ?Conversation $conversation, AiMode $mode, string $question, bool $retry = false): ?AiTurn
     {
         $subject = $ticket ?? $conversation;
         $model = Ticketing::aiTurnModel();
@@ -330,7 +340,23 @@ class AiAssistant
             ]),
         );
 
-        return $turn->wasRecentlyCreated ? $turn : null;
+        if ($turn->wasRecentlyCreated) {
+            return $turn;
+        }
+
+        if ($turn->status !== 'running') {
+            return null;
+        }
+
+        $timeout = max(30, (int) config('ticketing.ai.turn_timeout', 300));
+
+        $reclaimed = $model::query()->withoutTenancy()
+            ->whereKey($turn->getKey())
+            ->where('status', 'running')
+            ->when(! $retry, fn ($query) => $query->where('updated_at', '<', now()->subSeconds($timeout)))
+            ->update(['updated_at' => now(), 'mode' => $mode->value, 'attempts' => DB::raw('attempts + 1')]);
+
+        return $reclaimed === 1 ? $turn->refresh() : null;
     }
 
     protected function finish(AiTurn $turn, AiOutcome $outcome, ?EscalationReason $reason, ?AiAnswer $answer, AiUsage $usage, int $started, ?string $error = null): void

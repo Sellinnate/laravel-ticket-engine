@@ -26,6 +26,7 @@ use Selli\Ticketing\Support\Ticketing;
  * @property string $trigger_key
  * @property AiMode $mode
  * @property string $status
+ * @property int $attempts
  * @property AiOutcome|null $outcome
  * @property EscalationReason|null $escalation_reason
  * @property float|null $confidence
@@ -66,6 +67,7 @@ class AiTurn extends Model
             'escalation_reason' => EscalationReason::class,
             'confidence' => 'float',
             'sources_count' => 'integer',
+            'attempts' => 'integer',
             'input_tokens' => 'integer',
             'output_tokens' => 'integer',
             'cost' => 'float',

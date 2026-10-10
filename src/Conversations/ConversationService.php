@@ -73,7 +73,10 @@ class ConversationService
             if ($verified && $identity !== null) {
                 $requester = $this->container->make(VisitorResolver::class)->resolve($identity, $key);
 
-                if ($requester === null && ContactDirectory::normaliseEmail($identity->email) !== null) {
+                // The email is only authenticated when the signature covers it
+                // (no user_id). A signed user_id says nothing about an email
+                // sent next to it: that email stays a claim.
+                if ($requester === null && $identity->userId === null && ContactDirectory::normaliseEmail($identity->email) !== null) {
                     $contact = $this->contacts->markVerified($this->contacts->remember((string) $identity->email, $identity->name));
                 }
             }
@@ -95,9 +98,9 @@ class ConversationService
                 'origin' => isset($options['origin']) ? mb_substr((string) $options['origin'], 0, 255) : null,
                 'ip_hash' => isset($options['ip']) ? hash('sha256', (string) $options['ip'].'|'.config('app.key')) : null,
                 'last_activity_at' => now(),
-                // An unsigned identity is only a claim: kept for the escalation
-                // form, never trusted for a requester.
-                'meta' => ! $verified && $identity !== null && ($identity->email !== null || $identity->name !== null)
+                // Unauthenticated details are only a claim: kept for the
+                // escalation form, never trusted as a verified requester.
+                'meta' => $contact === null && $requester === null && $identity !== null && ($identity->email !== null || $identity->name !== null)
                     ? ['claimed' => array_filter(['email' => $identity->email, 'name' => $identity->name])]
                     : null,
             ], fn (mixed $value): bool => $value !== null));

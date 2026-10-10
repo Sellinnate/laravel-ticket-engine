@@ -457,3 +457,56 @@ it('stands down when an agent replies before the first AI turn completes', funct
     Ticketing::postMessage($ticket, $customer, 'Thanks');
     expect(AiTurn::query()->count())->toBe(0);
 });
+
+it('recovers a turn whose worker died, on retry or after the timeout', function (): void {
+    $customer = Ticketing::contacts()->remember('customer@example.com');
+    $ticket = Ticketing::open(type: 'support', title: 'Crash', requester: $customer);
+    config()->set('ticketing.ai.mode', 'off');
+    $question = Ticketing::postMessage($ticket, $customer, 'Question');
+    config()->set('ticketing.ai.mode', 'auto');
+
+    // A previous attempt claimed the turn and died before committing anything.
+    AiTurn::query()->create(array_merge($ticket->tenantAttributes(), [
+        'ticket_id' => $ticket->getKey(),
+        'trigger_key' => 'ticket_message:'.$question->getKey(),
+        'mode' => 'auto',
+        'status' => 'running',
+        'driver' => 'fake',
+    ]));
+
+    $assistant = app(AiAssistant::class);
+    fakeAi()->queueAnswer(confidentAnswer('Recovered'));
+
+    // A fresh duplicate delivery leaves a recent running turn alone…
+    expect($assistant->respondToTicket($ticket, $question))->toBeNull();
+
+    // …a retry of the job takes it back.
+    $turn = $assistant->respondToTicket($ticket, $question, retry: true);
+    expect($turn?->outcome)->toBe(AiOutcome::Answered)
+        ->and($turn?->attempts)->toBe(2)
+        ->and($ticket->messages()->where('body', 'Recovered')->exists())->toBeTrue();
+
+    // A finished turn is never redone, retry or not.
+    expect($assistant->respondToTicket($ticket, $question, retry: true))->toBeNull();
+});
+
+it('lets a new delivery take over a turn abandoned past the timeout', function (): void {
+    $customer = Ticketing::contacts()->remember('customer@example.com');
+    $ticket = Ticketing::open(type: 'support', title: 'Crash', requester: $customer);
+    config()->set('ticketing.ai.mode', 'off');
+    $question = Ticketing::postMessage($ticket, $customer, 'Question');
+    config()->set('ticketing.ai.mode', 'auto');
+
+    AiTurn::query()->create(array_merge($ticket->tenantAttributes(), [
+        'ticket_id' => $ticket->getKey(),
+        'trigger_key' => 'ticket_message:'.$question->getKey(),
+        'mode' => 'auto',
+        'status' => 'running',
+        'driver' => 'fake',
+    ]));
+
+    $this->travel(6)->minutes();
+    fakeAi()->queueAnswer(confidentAnswer('Late but answered'));
+
+    expect(app(AiAssistant::class)->respondToTicket($ticket, $question)?->outcome)->toBe(AiOutcome::Answered);
+});
