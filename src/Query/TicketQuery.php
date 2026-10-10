@@ -16,6 +16,7 @@ use Selli\Ticketing\Contracts\WorkflowDriver;
 use Selli\Ticketing\Database\SqlDialect;
 use Selli\Ticketing\Enums\ParticipantRole;
 use Selli\Ticketing\Enums\Priority;
+use Selli\Ticketing\Exceptions\InvalidConfigurationException;
 use Selli\Ticketing\Models\Team;
 use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Models\TicketParticipant;
@@ -39,6 +40,9 @@ class TicketQuery
 {
     /** Columns a listing may be sorted by. */
     public const SORTABLE = ['created_at', 'updated_at', 'priority', 'due_at', 'resolved_at', 'reference'];
+
+    /** Sortable columns that may hold NULL (unusable as a cursor). */
+    protected const NULLABLE_SORTS = ['due_at', 'resolved_at'];
 
     /** @var Builder<Ticket> */
     protected Builder $query;
@@ -139,16 +143,20 @@ class TicketQuery
 
         /** @var WorkflowDriver $driver */
         $driver = app(WorkflowDriver::class);
-        /** @var array<string, mixed> $workflows */
-        $workflows = (array) config('ticketing.workflow.workflows', []);
         $typeModel = Ticketing::ticketTypeModel();
 
-        $this->query->where(function (Builder $query) use ($workflows, $driver, $semantic, $typeModel): void {
+        $this->query->where(function (Builder $query) use ($driver, $semantic, $typeModel): void {
             // No workflow at all: match nothing rather than everything.
             $query->whereRaw('1 = 0');
 
-            foreach (array_keys($workflows) as $workflow) {
-                $states = $driver->statesForSemantic((string) $workflow, $semantic);
+            foreach ($this->workflowKeys() as $workflow) {
+                try {
+                    $states = $driver->statesForSemantic($workflow, $semantic);
+                } catch (InvalidConfigurationException) {
+                    // A type pointing at a workflow the driver no longer knows has
+                    // no state with this meaning.
+                    continue;
+                }
 
                 if ($states === []) {
                     continue;
@@ -157,7 +165,7 @@ class TicketQuery
                 $query->orWhere(function (Builder $branch) use ($workflow, $states, $typeModel): void {
                     $branch->whereIn('status', $states)
                         ->whereIn('ticket_type_id', $typeModel::query()->withoutTenancy()
-                            ->where('workflow', (string) $workflow)
+                            ->where('workflow', $workflow)
                             ->select((new $typeModel)->getKeyName()));
                 });
             }
@@ -413,11 +421,17 @@ class TicketQuery
 
     /**
      * Keyset pagination for deep lists and infinite scroll (no OFFSET scan).
+     * Needs a sort column that is never NULL — a cursor cannot advance past
+     * NULLs — so it refuses due_at/resolved_at.
      *
      * @return CursorPaginator<int, Ticket>
      */
     public function cursorPaginate(int $perPage = 25): CursorPaginator
     {
+        if (in_array($this->sortColumn, self::NULLABLE_SORTS, true)) {
+            throw new InvalidArgumentException("Cursor pagination cannot sort by the nullable [{$this->sortColumn}] column; use paginate() or another sort.");
+        }
+
         return $this->builder()->cursorPaginate(self::clampPerPage($perPage));
     }
 
@@ -432,6 +446,31 @@ class TicketQuery
     public function count(): int
     {
         return (clone $this->query)->count();
+    }
+
+    /**
+     * Every workflow a ticket can be in: the configured ones plus whatever the
+     * stored ticket types reference, so a custom (e.g. database-backed)
+     * workflow driver is covered too.
+     *
+     * @return list<string>
+     */
+    protected function workflowKeys(): array
+    {
+        $typeModel = Ticketing::ticketTypeModel();
+
+        $stored = $typeModel::query()->withoutTenancy()->distinct()->pluck('workflow')->all();
+        $configured = array_keys((array) config('ticketing.workflow.workflows', []));
+
+        $keys = [];
+
+        foreach (array_merge($configured, $stored) as $key) {
+            if (is_string($key) && $key !== '') {
+                $keys[$key] = true;
+            }
+        }
+
+        return array_keys($keys);
     }
 
     protected function applyAssigneeFilter(mixed $assignee, ?Model $actor): void

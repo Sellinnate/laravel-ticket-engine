@@ -9,8 +9,11 @@ use Selli\Ticketing\Enums\TicketChannel;
 use Selli\Ticketing\Facades\Ticketing;
 use Selli\Ticketing\Models\Team;
 use Selli\Ticketing\Models\Ticket;
+use Selli\Ticketing\Models\TicketType;
 use Selli\Ticketing\Query\TicketQuery;
 use Selli\Ticketing\Tenancy\TenantContext;
+use Selli\Ticketing\Workflow\ConfigWorkflowDriver;
+use Selli\Ticketing\Workflow\WorkflowManager;
 
 /**
  * @param  list<Ticket>|Collection<int, Ticket>  $tickets
@@ -211,4 +214,45 @@ it('filters the REST listing with the shared query semantics', function (): void
     $this->getJson(API.'/tickets?type=incident')
         ->assertOk()
         ->assertJsonCount(1, 'data');
+});
+
+it('refuses cursor pagination on a nullable sort column', function (): void {
+    Ticketing::open(type: 'support', title: 'no due date');
+
+    expect(fn () => Ticketing::tickets()->sort('due_at')->cursorPaginate(10))
+        ->toThrow(InvalidArgumentException::class, 'nullable [due_at]');
+
+    expect(Ticketing::tickets()->sort('due_at')->paginate(10)->total())->toBe(1);
+});
+
+it('resolves state semantics for workflows only a custom driver knows', function (): void {
+    $config = new ConfigWorkflowDriver;
+
+    $custom = new class($config) extends ConfigWorkflowDriver
+    {
+        public function __construct(private ConfigWorkflowDriver $fallback) {}
+
+        public function statesForSemantic(string $workflow, string $semantic): array
+        {
+            if ($workflow === 'database-backed') {
+                return $semantic === 'paused' ? ['on_hold'] : [];
+            }
+
+            return $this->fallback->statesForSemantic($workflow, $semantic);
+        }
+    };
+
+    app(WorkflowManager::class)->extend('custom', fn () => $custom);
+    config()->set('ticketing.workflow.driver', 'custom');
+
+    $type = TicketType::factory()->create(['key' => 'claims', 'workflow' => 'database-backed']);
+    Ticket::factory()->create(['ticket_type_id' => $type->getKey(), 'status' => 'on_hold', 'title' => 'waiting on insurer']);
+    Ticketing::open(type: 'support', title: 'regular open');
+
+    // A type pointing at a workflow nobody defines is skipped, not fatal.
+    $orphan = TicketType::factory()->create(['key' => 'orphan', 'workflow' => 'gone']);
+    Ticket::factory()->create(['ticket_type_id' => $orphan->getKey(), 'status' => 'on_hold', 'title' => 'orphan']);
+
+    expect(titles(Ticketing::tickets()->state('paused')->get()))->toBe(['waiting on insurer'])
+        ->and(titles(Ticketing::tickets()->state('open')->get()))->toBe(['regular open']);
 });

@@ -76,8 +76,8 @@ it('lists and filters 10k tickets in a constant number of queries', function ():
             ->and($page->items())->toHaveCount(25);
     });
 
-    // One COUNT + one page select, whatever the volume.
-    expect($queries)->toBe(2);
+    // The workflow lookup, one COUNT and one page select, whatever the volume.
+    expect($queries)->toBe(3);
 
     $searchQueries = countQueries(function (): void {
         expect(Ticketing::tickets()->search('Volume ticket 9999')->channel('email')->count())->toBe(1);
@@ -97,7 +97,7 @@ it('serves the REST listing over 10k tickets without per-row queries', function 
             ->assertJsonCount(100, 'data');
     });
 
-    expect($queries)->toBeLessThanOrEqual(3);
+    expect($queries)->toBeLessThanOrEqual(4);
 });
 
 it('picks the least busy agent with one load query, whatever the team size', function (): void {
