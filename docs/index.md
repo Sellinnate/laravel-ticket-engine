@@ -44,4 +44,4 @@ UI. Selli Ticketing is the latter — the engine, not the application.
 ## Requirements
 
 - PHP 8.3+
-- Laravel 12 or 13
+- Laravel 11, 12 or 13

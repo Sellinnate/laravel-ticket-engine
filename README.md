@@ -1,7 +1,7 @@
 # Laravel Ticketing
 
 [![Latest Version on Packagist](https://img.shields.io/packagist/v/selli/ticketing.svg?style=flat-square)](https://packagist.org/packages/selli/ticketing)
-[![GitHub Tests Action Status](https://img.shields.io/github/actions/workflow/status/Sellinnate/laravel-ticketing/run-tests.yml?branch=main&label=tests&style=flat-square)](https://github.com/Sellinnate/laravel-ticketing/actions?query=workflow%3Arun-tests+branch%3Amain)
+[![GitHub Tests Action Status](https://img.shields.io/github/actions/workflow/status/Sellinnate/laravel-ticket-engine/run-tests.yml?branch=main&label=tests&style=flat-square)](https://github.com/Sellinnate/laravel-ticket-engine/actions?query=workflow%3Arun-tests+branch%3Amain)
 [![Total Downloads](https://img.shields.io/packagist/dt/selli/ticketing.svg?style=flat-square)](https://packagist.org/packages/selli/ticketing)
 
 **The agnostic, headless, multi-tenant ticketing domain engine for Laravel.**
@@ -23,7 +23,7 @@ domain happens **by contract** (`Ticketable`), never by coupling to your schema.
 
 ## Features
 
-- **Config-driven workflow** per ticket type, with guards and a Spatie state-class bridge — validated at boot.
+- **Config-driven workflow** per ticket type, with guards and pluggable drivers — validated at boot.
 - **SLA & escalation** — first-response / next-response / resolution targets on business hours, with a pausing clock.
 - **Routing & assignment** — teams, pluggable strategies (round-robin, least-busy, skill-based, custom) and data-driven routing rules.
 - **Collaboration** — attachments (signed URLs), @mentions, canned responses, macros, merge/split, tags.
@@ -98,7 +98,7 @@ app(TenantContext::class)->forTenant($tenantId, function () {
 });
 ```
 
-Bind your own `TenantResolver` (or a bridge to stancl/spatie tenancy) to inherit
+Bind your own `TenantResolver` (a few lines for stancl/tenancy or spatie/laravel-multitenancy) to inherit
 the current tenant from your existing infrastructure.
 
 ## Architecture at a glance
@@ -119,7 +119,7 @@ the current tenant from your existing infrastructure.
 ```bash
 composer test            # Pest
 composer test-coverage   # Pest with a 90% minimum
-composer analyse         # PHPStan (Larastan) level 6
+composer analyse         # PHPStan (Larastan) level 8
 composer format          # Laravel Pint
 ```
 

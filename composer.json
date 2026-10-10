@@ -13,7 +13,7 @@
         "multi-tenant",
         "headless"
     ],
-    "homepage": "https://github.com/Sellinnate/laravel-ticketing",
+    "homepage": "https://laravel-ticketing.selli.io",
     "license": "MIT",
     "authors": [
         {
@@ -22,6 +22,12 @@
             "role": "Developer"
         }
     ],
+    "support": {
+        "docs": "https://laravel-ticketing.selli.io",
+        "issues": "https://github.com/Sellinnate/laravel-ticket-engine/issues",
+        "source": "https://github.com/Sellinnate/laravel-ticket-engine",
+        "security": "https://github.com/Sellinnate/laravel-ticket-engine/security/policy"
+    },
     "require": {
         "php": "^8.3",
         "spatie/laravel-package-tools": "^1.16",
@@ -39,13 +45,7 @@
         "phpstan/phpstan-deprecation-rules": "^2.0",
         "phpstan/phpstan-phpunit": "^2.0"
     },
-    "suggest": {
-        "beyondcode/laravel-mailbox": "Required for the email-to-ticket inbound channel bridge.",
-        "spatie/laravel-model-states": "Required for the type-safe state-class workflow driver.",
-        "spatie/laravel-permission": "Optional integration for role/permission based authorization.",
-        "stancl/tenancy": "Optional bridge to inherit the current tenant from stancl/tenancy.",
-        "spatie/laravel-multitenancy": "Optional bridge to inherit the current tenant from spatie/laravel-multitenancy."
-    },
+    "suggest": {},
     "autoload": {
         "psr-4": {
             "Selli\\Ticketing\\": "src/",
