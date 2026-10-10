@@ -216,6 +216,8 @@ class RagKnowledge
             'audience' => '*',
             'locale' => $ticket->language ?? SaveArticle::defaultLocale(),
             'reference' => $ticket->reference,
+            // Checked at search time, like an article's version.
+            'version' => $this->revisions([$ticket->getKey()])[(string) $ticket->getKey()] ?? '0',
         ]);
     }
 
@@ -398,7 +400,7 @@ class RagKnowledge
 
         usort($best, fn (RagHit $a, RagHit $b): int => $b->score <=> $a->score);
 
-        return array_slice($this->verified($best, $audience, $tenant), 0, $limit);
+        return array_slice($this->verified($best, $audience, $tenant, $locale, $articleType, $categoryId), 0, $limit);
     }
 
     /**
@@ -410,8 +412,14 @@ class RagKnowledge
      * @param  list<RagHit>  $hits
      * @return list<RagHit>
      */
-    protected function verified(array $hits, KnowledgeAudience $audience, int|string|null $tenant): array
-    {
+    protected function verified(
+        array $hits,
+        KnowledgeAudience $audience,
+        int|string|null $tenant,
+        ?string $locale = null,
+        ?ArticleType $articleType = null,
+        int|string|null $categoryId = null,
+    ): array {
         $ids = [self::TYPE_ARTICLE => [], self::TYPE_TICKET => []];
 
         foreach ($hits as $hit) {
@@ -428,15 +436,19 @@ class RagKnowledge
 
         if ($ids[self::TYPE_ARTICLE] !== []) {
             $model = Ticketing::kbArticleModel();
+            // The search's own filters on the current rows: a type, category
+            // or locale changed since indexing (no new version) must not pass.
             $articles = $this->inTenant($model::query()->withoutTenancy()->visibleTo($audience), $tenant)
                 ->whereKey($ids[self::TYPE_ARTICLE])
+                ->when($articleType !== null, fn ($query) => $query->where('type', $articleType?->value))
+                ->when($categoryId !== null, fn ($query) => $query->where('category_id', $categoryId))
+                ->when($locale !== null && $locale !== '', fn ($query) => $query->whereIn('locale', array_values(array_unique([(string) $locale, SaveArticle::defaultLocale()]))))
                 ->get([(new $model)->getKeyName(), 'version']);
 
             foreach ($articles as $article) {
-                $versions[(string) $article->getKey()] = (string) $article->version;
+                $versions[self::TYPE_ARTICLE.':'.$article->getKey()] = (string) $article->version;
+                $allowed[self::TYPE_ARTICLE][] = (string) $article->getKey();
             }
-
-            $allowed[self::TYPE_ARTICLE] = array_map('strval', array_keys($versions));
         }
 
         // Tickets are agents' knowledge only, and only while still resolved
@@ -458,10 +470,58 @@ class RagKnowledge
                 ->map(fn (Ticket $ticket): string => (string) $ticket->getKey())
                 ->values()
                 ->all();
+
+            // The conversation as indexed must still be the current one (a
+            // split, an edit, a late reply not synced yet).
+            $versions += $this->revisions(array_values($allowed[self::TYPE_TICKET]));
         }
 
         return array_values(array_filter($hits, fn (RagHit $hit): bool => in_array($hit->id, $allowed[$hit->type] ?? [], true)
-            && ($hit->type !== self::TYPE_ARTICLE || $hit->version === ($versions[$hit->id] ?? null))));
+            && $hit->version === ($versions[$hit->type.':'.$hit->id] ?? null)));
+    }
+
+    /**
+     * A revision of each ticket's public conversation — how many messages,
+     * the last one, the last change — that changes whenever what is indexed
+     * would.
+     *
+     * @param  list<int|string>  $ticketIds
+     * @return array<string, string> "ticket:<id>" and "<id>" keys
+     */
+    protected function revisions(array $ticketIds): array
+    {
+        if ($ticketIds === []) {
+            return [];
+        }
+
+        $model = Ticketing::ticketMessageModel();
+        $rows = $model::query()->withoutTenancy()
+            ->whereIn('ticket_id', $ticketIds)
+            ->where('visibility', MessageVisibility::Public->value)
+            ->toBase()
+            ->select('ticket_id')
+            ->selectRaw('count(*) as messages')
+            ->selectRaw('max(id) as last_id')
+            ->selectRaw('max(updated_at) as last_change')
+            ->groupBy('ticket_id')
+            ->get();
+
+        $revisions = [];
+        foreach ($ticketIds as $id) {
+            $revisions[(string) $id] = '0';
+        }
+
+        foreach ($rows as $row) {
+            $revisions[(string) $row->ticket_id] = hash('xxh128', $row->messages.'|'.$row->last_id.'|'.$row->last_change);
+        }
+
+        $keyed = [];
+        foreach ($revisions as $id => $revision) {
+            $keyed[(string) $id] = $revision;
+            $keyed[self::TYPE_TICKET.':'.$id] = $revision;
+        }
+
+        return $keyed;
     }
 
     /**

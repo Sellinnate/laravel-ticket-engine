@@ -277,6 +277,31 @@ it('reindexes a resolved ticket whose messages were split out', function (): voi
         ->and(app(RagKnowledge::class)->similarTickets('monitor flickers after waking from sleep', null))->toHaveCount(1);
 });
 
+it('drops a ticket passage whose conversation changed since indexing', function (): void {
+    $ticket = Ticketing::open(type: 'support', title: 'Two problems again');
+    Ticketing::postMessage($ticket, null, 'Webcam image is frozen in video calls.');
+    $moved = Ticketing::postMessage($ticket, null, 'Also the docking station loses network.');
+    Ticketing::transition($ticket, 'resolve');
+
+    // Split while the re-index is still pending.
+    config()->set('ticketing.rag.index.tickets', false);
+    Ticketing::for($ticket->refresh())->split([$moved->getKey()]);
+
+    expect(ragDocuments('ticket:'.$ticket->getKey()))->toBe(1)
+        ->and(app(RagKnowledge::class)->similarTickets('docking station loses network', null))->toBe([]);
+});
+
+it('re-checks the search filters on the current article', function (): void {
+    $article = kb('Export data', 'Export your data as a spreadsheet from reports export.');
+
+    expect(app(RagKnowledge::class)->search('export data spreadsheet reports', KnowledgeAudience::public(), null, articleType: ArticleType::Article))->toHaveCount(1);
+
+    KbArticle::query()->whereKey($article->getKey())->update(['type' => 'faq', 'locale' => 'de']);
+
+    expect(app(RagKnowledge::class)->search('export data spreadsheet reports', KnowledgeAudience::public(), null, articleType: ArticleType::Article))->toBe([])
+        ->and(app(RagKnowledge::class)->search('export data spreadsheet reports', KnowledgeAudience::public(), null, 'fr'))->toBe([]);
+});
+
 it('keeps the opening and the latest replies of a long conversation', function (): void {
     $ticket = Ticketing::open(type: 'support', title: 'Router keeps rebooting');
     Ticketing::postMessage($ticket, null, 'My router keeps rebooting every hour.');
