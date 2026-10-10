@@ -30,6 +30,7 @@ use Selli\Ticketing\Models\Conversation;
 use Selli\Ticketing\Models\ConversationMessage;
 use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Models\TicketMessage;
+use Selli\Ticketing\Models\WidgetKey;
 use Selli\Ticketing\Support\AuditLogger;
 use Selli\Ticketing\Support\Ticketing;
 use Throwable;
@@ -658,9 +659,7 @@ class AiAssistant
 
     protected function conversationType(Conversation $conversation): ?string
     {
-        $type = $conversation->widgetKey()->withoutTenancy()->value('ticket_type');
-
-        return is_string($type) && $type !== '' ? $type : null;
+        return WidgetKey::ticketTypeFor($conversation->widget_key_id);
     }
 
     protected function settings(): AiSettingsResolver

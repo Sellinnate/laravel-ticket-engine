@@ -572,3 +572,22 @@ it('still drafts in draft mode after an anonymous visitor leaves their email', f
 
     expect($ticket?->messages()->where('meta->ai->kind', 'draft')->value('body'))->toBe('Draft for the agent');
 });
+
+it('resolves AI settings for the default type of a key without one', function (): void {
+    config()->set('ticketing.ai.mode', 'auto');
+    config()->set('ticketing.ai.modes.types', ['support' => 'draft']);
+    ['key' => $key, 'secret' => $secret] = widgetKey();
+    expect($key->effectiveTicketType())->toBe('support');
+
+    ['conversation' => $conversation] = Ticketing::conversations()->start($key, new VisitorIdentity(
+        email: 'jane@example.com', signature: WidgetKeys::sign($secret, 'jane@example.com'),
+    ));
+    chatAi()->queueAnswer(sure('Typed draft'));
+
+    Ticketing::conversations()->post($conversation, 'Help');
+
+    expect(Ticket::query()->sole()->messages()->where('meta->ai->kind', 'draft')->value('body'))->toBe('Typed draft');
+
+    $this->getJson('/ticketing/widget/v1/config', ['X-Ticketing-Key' => $key->public_key])
+        ->assertJsonPath('data.assistant', false);
+});

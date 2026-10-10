@@ -84,6 +84,32 @@ class WidgetKey extends Model
         return $this->hasMany(Ticketing::conversationModel(), 'widget_key_id');
     }
 
+    /**
+     * The ticket type this widget's conversations become (the key's own, else
+     * `widget.default_type`) — also the type its AI settings are looked up for.
+     */
+    public function effectiveTicketType(): string
+    {
+        if ($this->ticket_type !== null && $this->ticket_type !== '') {
+            return $this->ticket_type;
+        }
+
+        $default = config('ticketing.widget.default_type', 'support');
+
+        return is_string($default) && $default !== '' ? $default : 'support';
+    }
+
+    /**
+     * The effective ticket type of a conversation's widget key (the default
+     * type for a conversation without a key).
+     */
+    public static function ticketTypeFor(int|string|null $id): string
+    {
+        $key = $id !== null ? Ticketing::widgetKeyModel()::query()->withoutTenancy()->find($id) : null;
+
+        return $key instanceof self ? $key->effectiveTicketType() : (new self)->effectiveTicketType();
+    }
+
     public function isUsable(): bool
     {
         return $this->is_active && $this->revoked_at === null;

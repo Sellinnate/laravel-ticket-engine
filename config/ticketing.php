@@ -695,6 +695,10 @@ return [
         'honeypot_field' => 'website',
         // Token lifetime for a conversation, in seconds (0 = no expiry).
         'token_ttl' => 604800,
+        // The ticket type of conversations through a key without its own type
+        // (and the type their AI settings are resolved for).
+        'default_type' => 'support',
+
         // Ask anonymous visitors for an email before a human takes over.
         'require_email_to_escalate' => true,
         // A captcha check for anonymous visitors (bind your own HumanVerifier).

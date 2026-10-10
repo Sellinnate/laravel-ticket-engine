@@ -48,7 +48,7 @@ and a per-conversation bearer token, and never use cookies.
     name: 'Acme website',
     allowedOrigins: ['https://acme.example'],
     audience: $client,            // optional: articles restricted to this client become visible here
-    ticketType: 'support',        // the type of tickets this widget opens
+    ticketType: 'support',        // the type of tickets this widget opens (default: widget.default_type)
     settings: ['greeting' => 'Hi! How can we help?', 'locale' => 'en'],
 );
 

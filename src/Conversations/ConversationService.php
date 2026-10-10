@@ -467,9 +467,7 @@ class ConversationService
     protected function openTicket(Conversation $conversation, ?Model $requester): Ticket
     {
         $key = $conversation->widgetKey()->withoutTenancy()->first();
-        $type = $key instanceof WidgetKey && $key->ticket_type !== null
-            ? $key->ticket_type
-            : (string) config('ticketing.mail.inbound.default_type', 'support');
+        $type = $key instanceof WidgetKey ? $key->effectiveTicketType() : WidgetKey::ticketTypeFor(null);
 
         $first = Ticketing::conversationMessageModel()::query()->withoutTenancy()
             ->where('conversation_id', $conversation->getKey())
@@ -610,11 +608,9 @@ class ConversationService
 
     protected function mode(Conversation $conversation): AiMode
     {
-        $type = $conversation->widgetKey()->withoutTenancy()->value('ticket_type');
-
         return $this->container->make(AiSettingsResolver::class)->mode(
             $conversation->getAttribute($conversation->getTenantColumn()),
-            is_string($type) ? $type : null,
+            WidgetKey::ticketTypeFor($conversation->widget_key_id),
             $conversation->channel,
         );
     }

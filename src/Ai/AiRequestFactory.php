@@ -18,6 +18,7 @@ use Selli\Ticketing\Models\ConversationMessage;
 use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Models\TicketMessage;
 use Selli\Ticketing\Models\TicketType;
+use Selli\Ticketing\Models\WidgetKey;
 use Selli\Ticketing\Support\Ticketing;
 
 /**
@@ -94,7 +95,7 @@ class AiRequestFactory
             history: $history,
             locale: $conversation->locale ?? $this->defaultLocale(),
             tenant: $conversation->getAttribute($conversation->getTenantColumn()),
-            ticketType: $conversation->widgetKey()->withoutTenancy()->value('ticket_type'),
+            ticketType: WidgetKey::ticketTypeFor($conversation->widget_key_id),
             channel: $conversation->channel,
             conversation: $conversation,
         );

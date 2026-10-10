@@ -20,7 +20,7 @@ class ConfigController extends WidgetController
     public function show(Request $request): JsonResponse
     {
         $key = $this->key($request);
-        $mode = app(AiSettingsResolver::class)->mode($key->getAttribute($key->getTenantColumn()), $key->ticket_type, $key->channel);
+        $mode = app(AiSettingsResolver::class)->mode($key->getAttribute($key->getTenantColumn()), $key->effectiveTicketType(), $key->channel);
 
         return response()->json([
             'data' => [
