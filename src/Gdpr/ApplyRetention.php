@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Selli\Ticketing\Contacts\ContactDirectory;
 use Selli\Ticketing\Events\TicketErased;
 use Selli\Ticketing\Knowledge\KnowledgeBase;
 use Selli\Ticketing\Models\Ticket;
@@ -126,14 +127,12 @@ class ApplyRetention
             ->pluck($conversationModel->getKeyName());
 
         Ticketing::aiTurnModel()::query()->withoutTenancy()
-            ->where(function ($query) use ($ticket, $conversationIds): void {
-                $query->where('ticket_id', $ticket->getKey());
-
-                if ($conversationIds->isNotEmpty()) {
-                    $query->orWhereIn('conversation_id', $conversationIds->all());
-                }
-            })
+            ->where('ticket_id', $ticket->getKey())
             ->update(['question' => null]);
+
+        // The conversation it came from: identity claim, network traces, AI
+        // excerpts and vote comments.
+        app(ContactDirectory::class)->scrubConversationTraces($conversationIds->all());
 
         foreach ($relation->get() as $message) {
             $meta = $message->meta ?? [];

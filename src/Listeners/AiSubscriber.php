@@ -17,6 +17,7 @@ use Selli\Ticketing\Events\TicketReopened;
 use Selli\Ticketing\Events\TicketResolved;
 use Selli\Ticketing\Jobs\RunAiTurn;
 use Selli\Ticketing\Models\Contact;
+use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Support\Ticketing;
 
 /**
@@ -50,7 +51,10 @@ class AiSubscriber implements Subscriber
         if ($author instanceof CanActOnTickets && $author instanceof Model && ! $this->requests->isRequester($ticket, $author)) {
             // The first agent reply is a takeover — also before the AI's first
             // turn completes (status still null), so a pending turn stands down.
-            if ($ticket->ai_status === null || $ticket->ai_status === AiStatus::Active || $ticket->ai_status === AiStatus::Escalated) {
+            // Decided on the stored status (the event may carry a stale copy).
+            $status = $this->storedStatus($ticket);
+
+            if ($status === null || $status === AiStatus::Active || $status === AiStatus::Escalated) {
                 $this->container->make(TakeOverTicket::class)->handle($ticket, $author, assign: false);
             }
 
@@ -67,12 +71,18 @@ class AiSubscriber implements Subscriber
 
         // Read the AI status as stored now: an earlier listener for the same
         // message (e.g. reopen-on-reply) may have changed it.
-        $status = Ticketing::ticketModel()::query()->withoutTenancy()->whereKey($ticket->getKey())->value('ai_status');
-        $status = is_string($status) ? AiStatus::tryFrom($status) : null;
+        $status = $this->storedStatus($ticket);
 
         if ($status === null || $status->answers()) {
             RunAiTurn::dispatchFor($ticket, $message);
         }
+    }
+
+    protected function storedStatus(Ticket $ticket): ?AiStatus
+    {
+        $status = Ticketing::ticketModel()::query()->withoutTenancy()->whereKey($ticket->getKey())->value('ai_status');
+
+        return is_string($status) ? AiStatus::tryFrom($status) : null;
     }
 
     /**

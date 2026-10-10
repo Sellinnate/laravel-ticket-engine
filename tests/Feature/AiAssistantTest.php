@@ -778,3 +778,14 @@ it('posts no hand-off message or summary once an agent took over', function (): 
 
     expect($ticket->messages()->count())->toBe(0);
 });
+
+it('takes over from an agent reply posted with a stale ticket copy', function (): void {
+    fakeAi()->queueAnswer(confidentAnswer());
+    $ticket = customerAsks('Question');
+    $stale = Ticket::query()->find($ticket->getKey());
+    $stale->ai_status = AiStatus::Resolved;   // what an older copy may hold
+
+    Ticketing::postMessage($stale, makeUser(['name' => 'Agent']), 'Human here');
+
+    expect($ticket->refresh()->ai_status)->toBe(AiStatus::Suspended);
+});

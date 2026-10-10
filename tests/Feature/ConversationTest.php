@@ -643,3 +643,20 @@ it('stops the AI on the ticket of a conversation handed over before any answer',
     Ticketing::conversations()->post($conversation->refresh(), 'Anyone there?');
     expect(AiTurn::query()->count())->toBe(0);
 });
+
+it('scrubs the conversation identity when retention anonymises its ticket', function (): void {
+    config()->set('ticketing.gdpr.retention', [['type' => '*', 'after_days' => 30, 'action' => 'anonymize']]);
+    ['key' => $key] = widgetKey();
+    ['conversation' => $conversation] = Ticketing::conversations()->start($key, new VisitorIdentity(email: 'jane@example.com', name: 'Jane'), ['ip' => '203.0.113.5', 'origin' => 'https://acme.example']);
+    $ticket = Ticketing::conversations()->escalate($conversation, EscalationReason::HumanRequested);
+    Ticketing::transition($ticket, 'close');
+
+    $this->travel(31)->days();
+    $this->artisan('ticketing:prune')->assertSuccessful();
+
+    $conversation->refresh();
+
+    expect($conversation->meta)->toBeNull()
+        ->and($conversation->ip_hash)->toBeNull()
+        ->and($conversation->origin)->toBeNull();
+});

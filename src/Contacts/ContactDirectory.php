@@ -186,6 +186,24 @@ class ContactDirectory
             ->where('role', ConversationRole::Visitor->value)
             ->update(['body' => $label]);
 
+        $this->scrubConversationTraces($conversationIds);
+    }
+
+    /**
+     * The identity traces of conversations — network traces, the typed-in
+     * name/email claim, the AI question excerpts, vote comments — keeping
+     * their messages (what retention anonymisation needs).
+     *
+     * @param  array<mixed>  $conversationIds
+     *
+     * @internal
+     */
+    public function scrubConversationTraces(array $conversationIds): void
+    {
+        if ($conversationIds === []) {
+            return;
+        }
+
         Ticketing::conversationModel()::query()->withoutTenancy()
             ->whereIn((new (Ticketing::conversationModel()))->getKeyName(), $conversationIds)
             ->update(['ip_hash' => null, 'origin' => null]);
