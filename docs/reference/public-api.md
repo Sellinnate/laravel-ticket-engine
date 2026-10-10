@@ -40,6 +40,7 @@ you are on your own.
 | Migrations helper | `Database\Migrations\HasTicketingSchema` | Every method — your published migrations call it |
 | Reporting | `Reporting\Metrics` (`Ticketing::metrics()`), `Reporting\CsvExport` | Public methods and the shape of the arrays they return (keys are only added) |
 | MCP | `Mcp\TicketingServer`, `TicketingServer::TOOLS`, the tool classes in `Mcp\Tools` | Tool names and arguments (arguments are only added) |
+| RAG Engine bridge | `Integrations\RagEngine\RagKnowledge`, `RagKnowledgeSearch`, `RagAiDriver`, `RagHit` | Public methods, the indexed metadata keys and the RAG tenant naming |
 
 Everything else is `@internal`: listeners and subscribers, the automation engine internals, the SLA
 calculators, routing strategies, the HTTP controllers/requests/resources (the **routes and JSON** are public,

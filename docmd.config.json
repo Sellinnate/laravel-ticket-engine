@@ -80,7 +80,8 @@
       "title": "Integrations",
       "icon": "plug",
       "children": [
-        { "title": "MCP tools", "path": "/integrations/mcp", "icon": "bot" }
+        { "title": "MCP tools", "path": "/integrations/mcp", "icon": "bot" },
+        { "title": "RAG Engine", "path": "/integrations/rag-engine", "icon": "brain" }
       ]
     },
     {

@@ -45,11 +45,13 @@
         "pestphp/pest-plugin-laravel": "^4.0",
         "phpstan/extension-installer": "^1.4",
         "phpstan/phpstan-deprecation-rules": "^2.0",
-        "phpstan/phpstan-phpunit": "^2.0"
+        "phpstan/phpstan-phpunit": "^2.0",
+        "sellinnate/rag-engine": "^1.4"
     },
     "suggest": {
         "directorytree/imapengine": "Poll inbound email over IMAP with php artisan ticketing:mail:poll (^1.25).",
-        "laravel/mcp": "Expose the help desk to AI agents as MCP tools (Selli\\Ticketing\\Mcp\\TicketingServer; Laravel 12.41+)."
+        "laravel/mcp": "Expose the help desk to AI agents as MCP tools (Selli\\Ticketing\\Mcp\\TicketingServer; Laravel 12.41+).",
+        "sellinnate/rag-engine": "Semantic knowledge-base search, RAG answers with citations, similar tickets (Selli\\Ticketing\\Integrations\\RagEngine; ^1.4)."
     },
     "autoload": {
         "psr-4": {

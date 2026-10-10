@@ -1,0 +1,274 @@
+<?php
+
+declare(strict_types=1);
+
+use Illuminate\Database\Eloquent\Model;
+use Selli\Ticketing\Actions\Knowledge\SaveArticle;
+use Selli\Ticketing\Ai\AiManager;
+use Selli\Ticketing\Ai\AiRequest;
+use Selli\Ticketing\Ai\EscalationPolicy;
+use Selli\Ticketing\Data\ArticleData;
+use Selli\Ticketing\Enums\AiStatus;
+use Selli\Ticketing\Enums\EscalationReason;
+use Selli\Ticketing\Enums\KnowledgeVisibility;
+use Selli\Ticketing\Enums\MessageSource;
+use Selli\Ticketing\Enums\MessageVisibility;
+use Selli\Ticketing\Enums\Priority;
+use Selli\Ticketing\Facades\Ticketing;
+use Selli\Ticketing\Integrations\RagEngine\RagAiDriver;
+use Selli\Ticketing\Integrations\RagEngine\RagHit;
+use Selli\Ticketing\Integrations\RagEngine\RagKnowledge;
+use Selli\Ticketing\Knowledge\KnowledgeAudience;
+use Selli\Ticketing\Models\KbArticle;
+use Selli\Ticketing\Tenancy\TenantContext;
+use Selli\Ticketing\Tests\Fixtures\TestRequester;
+use Sellinnate\RagEngine\Contracts\Llm;
+use Sellinnate\RagEngine\Managers\LlmManager;
+use Sellinnate\RagEngine\Models\Document;
+
+function kb(string $title, string $body, KnowledgeVisibility $visibility = KnowledgeVisibility::Public, ?Model $audience = null): KbArticle
+{
+    $article = Ticketing::knowledge()->save(new ArticleData(title: $title, body: $body, visibility: $visibility, audience: $audience));
+
+    return Ticketing::knowledge()->publish($article);
+}
+
+/**
+ * @return list<string> titles found
+ */
+function ragFind(string $question, KnowledgeAudience $audience, int|string|null $tenant = null): array
+{
+    return array_map(fn (RagHit $hit): string => $hit->title, app(RagKnowledge::class)->search($question, $audience, $tenant));
+}
+
+function ragDocuments(string $key): int
+{
+    return Document::query()->withoutGlobalScopes()->where('metadata->document_key', $key)->count();
+}
+
+it('indexes published articles and finds them only for the audiences that may read them', function (): void {
+    kb('Reset your password', 'Open settings, choose security, then reset password with the emailed link.');
+    kb('Password reset runbook', 'Internal runbook: reset password from the admin console and audit the account.', KnowledgeVisibility::Internal);
+    kb('Password policy for customers', 'Customers choose a password reset every ninety days from settings security.', KnowledgeVisibility::Customer);
+    $client = TestRequester::query()->create(['name' => 'Acme']);
+    kb('Acme password reset', 'Acme staff reset password through the single sign on portal settings.', KnowledgeVisibility::Public, $client);
+    Ticketing::knowledge()->save(new ArticleData(title: 'Draft about password reset', body: 'Draft password reset settings security text.'));
+
+    $question = 'How do I reset my password from settings security?';
+
+    expect(ragFind($question, KnowledgeAudience::public()))->toBe(['Reset your password'])
+        ->and(ragFind($question, KnowledgeAudience::customer()))->toEqualCanonicalizing(['Reset your password', 'Password policy for customers'])
+        ->and(ragFind($question, KnowledgeAudience::public($client)))->toEqualCanonicalizing(['Reset your password', 'Acme password reset'])
+        ->and(ragFind($question, KnowledgeAudience::agent()))->toContain('Password reset runbook', 'Acme password reset')
+        ->and(ragFind($question, KnowledgeAudience::agent()))->not->toContain('Draft about password reset');
+});
+
+it('replaces the indexed version of an edited article and drops an archived one', function (): void {
+    $article = kb('Shipping times', 'Parcels leave the warehouse within two working days.');
+
+    Ticketing::knowledge()->save(new ArticleData(body: 'Parcels leave the warehouse within five working days via courier.'), $article);
+
+    $hits = app(RagKnowledge::class)->search('When do parcels leave the warehouse?', KnowledgeAudience::public(), null);
+
+    expect($hits)->toHaveCount(1)
+        ->and($hits[0]->excerpt)->toContain('five working days')
+        ->and(ragDocuments('kb_article:'.$article->getKey()))->toBe(1);
+
+    Ticketing::knowledge()->archive($article);
+
+    expect(ragFind('When do parcels leave the warehouse?', KnowledgeAudience::agent()))->toBe([])
+        ->and(ragDocuments('kb_article:'.$article->getKey()))->toBe(0);
+});
+
+it('keeps every tenant in its own RAG tenant, shared articles visible to all', function (): void {
+    $context = app(TenantContext::class);
+    $context->forTenant(1, fn () => kb('Invoices of tenant one', 'Download invoices from billing history monthly statements.'));
+    $context->forTenant(2, fn () => kb('Invoices of tenant two', 'Download invoices from billing history yearly statements.'));
+    kb('Invoices everywhere', 'Download invoices from billing history any statements.');
+
+    $question = 'Where do I download invoices from billing history?';
+
+    expect(ragFind($question, KnowledgeAudience::public(), 1))->toEqualCanonicalizing(['Invoices of tenant one', 'Invoices everywhere'])
+        ->and(ragFind($question, KnowledgeAudience::public(), 2))->toEqualCanonicalizing(['Invoices of tenant two', 'Invoices everywhere'])
+        ->and(app(RagKnowledge::class)->ragTenant(1))->toBe('tk-1')
+        ->and(app(RagKnowledge::class)->ragTenant(null))->toBe('tk-shared');
+
+    config()->set('ticketing.tenancy.allow_shared', false);
+    app()->forgetInstance(TenantContext::class);
+    expect(ragFind($question, KnowledgeAudience::public(), 1))->toBe(['Invoices of tenant one']);
+});
+
+it('indexes resolved tickets as internal knowledge, without internal notes', function (): void {
+    $customer = TestRequester::query()->create(['name' => 'Customer']);
+    $ticket = Ticketing::open(type: 'support', title: 'Printer offline after update', requester: $customer);
+    Ticketing::postMessage($ticket, $customer, 'The office printer went offline after the driver update.');
+    Ticketing::postMessage($ticket, makeUser(), 'Reinstall the printer driver from the vendor site, then restart the spooler.');
+    Ticketing::postMessage($ticket, makeUser(), 'Secret escalation contact: ops pager 555.', MessageVisibility::Internal);
+
+    expect(app(RagKnowledge::class)->similarTickets('printer offline after driver update', null))->toBe([]);
+
+    Ticketing::transition($ticket, 'resolve');
+
+    $similar = app(RagKnowledge::class)->similarTickets('printer offline after driver update', null);
+
+    expect($similar)->toHaveCount(1)
+        ->and($similar[0]->type)->toBe(RagKnowledge::TYPE_TICKET)
+        ->and($similar[0]->id)->toBe((string) $ticket->getKey())
+        ->and($similar[0]->excerpt)->toContain('Reinstall the printer driver')
+        ->and($similar[0]->excerpt)->not->toContain('pager')
+        // Customers never get tickets.
+        ->and(app(RagKnowledge::class)->search('printer offline after driver update', KnowledgeAudience::customer(), null, types: [RagKnowledge::TYPE_TICKET]))->toBe([]);
+
+    // Reopened: not resolved knowledge any more.
+    Ticketing::transition($ticket->refresh(), 'reopen');
+    expect(app(RagKnowledge::class)->similarTickets('printer offline after driver update', null))->toBe([]);
+});
+
+it('purges the vectors of erased tickets and anonymised requesters', function (): void {
+    $customer = Ticketing::contacts()->remember('jane@example.test', 'Jane');
+    $ticket = Ticketing::open(type: 'support', title: 'Refund for order', requester: $customer);
+    Ticketing::postMessage($ticket, $customer, 'Please refund my order, Jane Doe, card ending 4242.');
+    Ticketing::transition($ticket, 'resolve');
+    $other = Ticketing::open(type: 'support', title: 'Delivery delayed parcel');
+    Ticketing::postMessage($other, null, 'My parcel delivery is delayed by a week.');
+    Ticketing::transition($other, 'close');
+
+    expect(ragDocuments('ticket:'.$ticket->getKey()))->toBe(1);
+
+    Ticketing::contacts()->anonymize($customer);
+
+    expect(ragDocuments('ticket:'.$ticket->getKey()))->toBe(0)
+        ->and(ragDocuments('ticket:'.$other->getKey()))->toBe(1);
+
+    config()->set('ticketing.gdpr.retention', [['type' => '*', 'after_days' => 1, 'action' => 'delete']]);
+    $this->travel(2)->days();
+    $this->artisan('ticketing:prune')->assertSuccessful();
+
+    expect(ragDocuments('ticket:'.$other->getKey()))->toBe(0);
+});
+
+it('powers the knowledge-base search, re-checked against the database', function (): void {
+    $article = kb('Two-factor login', 'Enable two-factor login with an authenticator app from account security.');
+
+    $results = Ticketing::knowledge()->search('how to enable two-factor login with an authenticator', KnowledgeAudience::public());
+
+    expect($results)->toHaveCount(1)
+        ->and($results[0]->article->is($article))->toBeTrue();
+
+    // Unpublished behind the bridge's back (no event): the stale vector is not trusted.
+    KbArticle::query()->whereKey($article->getKey())->update(['status' => 'draft']);
+
+    expect(Ticketing::knowledge()->search('how to enable two-factor login with an authenticator', KnowledgeAudience::public()))->toBe([]);
+});
+
+it('answers customers from the knowledge base with citations', function (): void {
+    config()->set('ticketing.ai.driver', 'rag-engine');
+    config()->set('ticketing.ai.drivers.rag-engine.classify', false);
+    config()->set('ticketing.ai.mode', 'auto');
+    config()->set('ticketing.ai.escalation.min_confidence', 0.3);
+    app(AiManager::class)->forgetDrivers();
+    $article = kb('Change delivery address', 'Change the delivery address of an order from orders, edit shipping details.');
+    kb('Delivery address runbook', 'Internal: change delivery address in the warehouse console orders shipping.', KnowledgeVisibility::Internal);
+
+    $customer = Ticketing::contacts()->remember('jane@example.test');
+    $ticket = Ticketing::open(type: 'support', title: 'Address', requester: $customer);
+    Ticketing::postMessage($ticket, $customer, 'How can I change the delivery address of my order shipping details?');
+
+    $reply = $ticket->messages()->where('source', MessageSource::Ai->value)->sole();
+
+    expect($reply->body)->toStartWith('ANSWER: You are a customer-support assistant')
+        ->and(array_column($reply->meta['ai']['sources'], 'id'))->toBe([(string) $article->getKey()])
+        ->and($ticket->refresh()->ai_status)->toBe(AiStatus::Active);
+});
+
+it('hands over when the knowledge base has nothing, or the model says it cannot answer', function (): void {
+    $driver = new RagAiDriver(app(RagKnowledge::class), ['classify' => false]);
+    $request = fn (string $question): AiRequest => new AiRequest(question: $question, audience: KnowledgeAudience::customer());
+
+    expect($driver->answer($request('Completely unrelated gardening question about tomatoes'))->isEmpty())->toBeTrue();
+
+    kb('Cancel subscription', 'Cancel your subscription from billing plans at any time.');
+    app(LlmManager::class)->extend('refusing', fn () => new class implements Llm
+    {
+        public function generate(string $prompt, array $options = []): string
+        {
+            return RagAiDriver::NO_ANSWER;
+        }
+
+        public function stream(string $prompt, array $options = []): iterable
+        {
+            yield RagAiDriver::NO_ANSWER;
+        }
+
+        public function model(): string
+        {
+            return 'refusing';
+        }
+    });
+    config()->set('rag-engine.llms.refusing', ['driver' => 'refusing']);
+
+    $refusing = new RagAiDriver(app(RagKnowledge::class), ['llm' => 'refusing']);
+    $answer = $refusing->answer($request('How do I cancel my subscription from billing plans?'));
+
+    expect($answer->isEmpty())->toBeTrue()
+        ->and($answer->usage->model)->toBe('refusing')
+        ->and(app(EscalationPolicy::class)->afterAnswer($answer))->toBe(EscalationReason::NoSources);
+});
+
+it('classifies through the model and survives a reply that is not JSON', function (): void {
+    app(LlmManager::class)->extend('classifier', fn () => new class implements Llm
+    {
+        public string $reply = '{"language": "it", "sentiment": "negative", "priority": "urgent", "category": "billing", "wants_human": true, "topics": ["billing"]}';
+
+        public function generate(string $prompt, array $options = []): string
+        {
+            return 'Sure! '.$this->reply;
+        }
+
+        public function stream(string $prompt, array $options = []): iterable
+        {
+            yield $this->reply;
+        }
+
+        public function model(): string
+        {
+            return 'classifier';
+        }
+    });
+    config()->set('rag-engine.llms.classifier', ['driver' => 'classifier']);
+
+    $driver = new RagAiDriver(app(RagKnowledge::class), ['llm' => 'classifier']);
+    $classification = $driver->classify(new AiRequest(question: 'Voglio parlare con una persona, fattura sbagliata!', audience: KnowledgeAudience::customer()));
+
+    expect($classification->language)->toBe('it')
+        ->and($classification->sentiment?->value)->toBe('negative')
+        ->and($classification->priority)->toBe(Priority::Urgent)
+        ->and($classification->wantsHuman)->toBeTrue()
+        ->and($classification->topics)->toBe(['billing']);
+
+    // The default fake LLM does not answer in JSON: no classification.
+    expect((new RagAiDriver(app(RagKnowledge::class)))->classify(new AiRequest(question: 'Hello', audience: KnowledgeAudience::customer()))->language)->toBeNull();
+});
+
+it('backfills the index from the command', function (): void {
+    config()->set('ticketing.rag.enabled', false); // nothing indexed on the way
+    $article = KbArticle::query()->create([
+        'slug' => 'backfilled', 'slug_key' => SaveArticle::slugKey(null, 'en', 'backfilled'),
+        'locale' => 'en', 'title' => 'Backfilled article', 'body' => 'Backfilled article about warranty repairs.', 'type' => 'article',
+        'status' => 'published', 'visibility' => 'public', 'version' => 1,
+    ]);
+
+    expect(ragDocuments('kb_article:'.$article->getKey()))->toBe(0);
+
+    $this->artisan('ticketing:rag:index', ['--articles' => true])->expectsOutputToContain('articles — 1')->assertSuccessful();
+
+    expect(ragFind('warranty repairs article', KnowledgeAudience::public()))->toBe(['Backfilled article']);
+});
+
+it('shreds a whole tenant from the engine', function (): void {
+    app(TenantContext::class)->forTenant(5, fn () => kb('Tenant five secret sauce', 'Recipe for the tenant five secret sauce marinade.'));
+
+    app(RagKnowledge::class)->shredTenant(5, 'tenant deleted');
+
+    expect(ragFind('secret sauce marinade recipe', KnowledgeAudience::agent(), 5))->toBe([]);
+});

@@ -26,6 +26,7 @@ use Selli\Ticketing\Commands\DemoCommand;
 use Selli\Ticketing\Commands\EscalateCommand;
 use Selli\Ticketing\Commands\PollMailCommand;
 use Selli\Ticketing\Commands\PruneCommand;
+use Selli\Ticketing\Commands\RagIndexCommand;
 use Selli\Ticketing\Commands\RecalculateSlaCommand;
 use Selli\Ticketing\Contacts\ContactDirectory;
 use Selli\Ticketing\Contracts\AiSettingsResolver;
@@ -45,6 +46,7 @@ use Selli\Ticketing\Conversations\NullVisitorResolver;
 use Selli\Ticketing\Conversations\WidgetKeys;
 use Selli\Ticketing\Http\Middleware\ResolveWidgetKey;
 use Selli\Ticketing\Http\Middleware\WidgetCors;
+use Selli\Ticketing\Integrations\RagEngine\RagKnowledgeSearch;
 use Selli\Ticketing\Knowledge\KeywordKnowledgeSearch;
 use Selli\Ticketing\Knowledge\KnowledgeBase;
 use Selli\Ticketing\Listeners\AiSubscriber;
@@ -53,6 +55,7 @@ use Selli\Ticketing\Listeners\BroadcastSubscriber;
 use Selli\Ticketing\Listeners\CollaborationSubscriber;
 use Selli\Ticketing\Listeners\CsatSubscriber;
 use Selli\Ticketing\Listeners\NotificationSubscriber;
+use Selli\Ticketing\Listeners\RagSubscriber;
 use Selli\Ticketing\Listeners\RoutingSubscriber;
 use Selli\Ticketing\Listeners\SlaSubscriber;
 use Selli\Ticketing\Listeners\Subscriber;
@@ -73,6 +76,7 @@ use Selli\Ticketing\Tenancy\DefaultTenantResolver;
 use Selli\Ticketing\Tenancy\TenantContext;
 use Selli\Ticketing\Workflow\ConfigValidator;
 use Selli\Ticketing\Workflow\WorkflowManager;
+use Sellinnate\RagEngine\RagEngine;
 use Spatie\LaravelPackageTools\Commands\InstallCommand;
 use Spatie\LaravelPackageTools\Package;
 use Spatie\LaravelPackageTools\PackageServiceProvider;
@@ -90,6 +94,7 @@ class TicketingServiceProvider extends PackageServiceProvider
                 PruneCommand::class,
                 DemoCommand::class,
                 PollMailCommand::class,
+                RagIndexCommand::class,
             ])
             ->hasInstallCommand(function (InstallCommand $command): void {
                 $command
@@ -139,6 +144,10 @@ class TicketingServiceProvider extends PackageServiceProvider
 
         // Keyword search by default; the RAG Engine bridge (or the host) binds a
         // semantic implementation.
+        if ($this->ragEnabled() && config('ticketing.rag.knowledge_search', false) === true) {
+            $this->app->bindIf(KnowledgeSearch::class, RagKnowledgeSearch::class);
+        }
+
         $this->app->bindIf(KnowledgeSearch::class, KeywordKnowledgeSearch::class);
 
         $this->app->bind(AiSettingsResolver::class, function (): AiSettingsResolver {
@@ -250,6 +259,10 @@ class TicketingServiceProvider extends PackageServiceProvider
 
         if (config('ticketing.ai.enabled', false) === true) {
             $this->subscribe($this->app->make(AiSubscriber::class));
+        }
+
+        if ($this->ragEnabled()) {
+            $this->subscribe($this->app->make(RagSubscriber::class));
         }
 
         if (config('ticketing.broadcasting.enabled', false) === true) {
@@ -389,6 +402,14 @@ class TicketingServiceProvider extends PackageServiceProvider
         [$max, $minutes] = array_map('intval', array_pad(explode(',', $definition), 2, 1));
 
         return Limit::perMinutes(max(1, $minutes), max(1, $max));
+    }
+
+    /**
+     * The RAG Engine bridge is on, and the engine is installed.
+     */
+    protected function ragEnabled(): bool
+    {
+        return config('ticketing.rag.enabled', false) === true && class_exists(RagEngine::class);
     }
 
     /**

@@ -9,6 +9,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Orchestra\Testbench\TestCase as Orchestra;
 use Selli\Ticketing\Support\Ticketing;
 use Selli\Ticketing\TicketingServiceProvider;
+use Sellinnate\RagEngine\RagEngineServiceProvider;
 
 use function Orchestra\Testbench\load_migration_paths;
 
@@ -32,9 +33,13 @@ class TestCase extends Orchestra
      */
     protected function getPackageProviders($app): array
     {
-        return [
+        // The optional RAG engine is booted for the whole suite (its tables
+        // belong to the one schema RefreshDatabase builds); only the RAG test
+        // case turns the bridge on.
+        return array_values(array_filter([
             TicketingServiceProvider::class,
-        ];
+            class_exists(RagEngineServiceProvider::class) ? RagEngineServiceProvider::class : null,
+        ]));
     }
 
     public function defineEnvironment($app): void
@@ -106,9 +111,10 @@ class TestCase extends Orchestra
         // Register the paths with the migrator RefreshDatabase drives, so the
         // schema is built once per run on a server database (and per test on
         // in-memory SQLite) instead of migrated up and down around every test.
-        load_migration_paths($this->app, [
+        load_migration_paths($this->app, array_values(array_filter([
             __DIR__.'/database/migrations',
             __DIR__.'/../database/migrations',
-        ]);
+            class_exists(RagEngineServiceProvider::class) ? __DIR__.'/database/rag-migrations' : null,
+        ])));
     }
 }

@@ -150,7 +150,8 @@ Ticketing::ai()->extend('mine', fn ($app, array $config) => new MyDriver($config
 - Fence retrieved content as untrusted data in your prompt, and return `AiUsage` so costs are tracked.
 - The built-in `null` driver never answers (every turn escalates); `fake` is deterministic (keyword
   heuristics + knowledge-base search) and scriptable in tests (`queueAnswer()`, `queueClassification()`,
-  `failNext()`, `requests()`).
+  `failNext()`, `requests()`); `rag-engine` answers from the [RAG Engine bridge](/integrations/rag-engine)
+  with citations.
 
 ## Common pitfalls
 
