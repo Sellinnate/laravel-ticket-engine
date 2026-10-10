@@ -34,7 +34,14 @@ class WorkflowSubscriber implements Subscriber
     public function onMessage(MessagePosted $event): void
     {
         $message = $event->message;
-        $ticket = $event->ticket;
+
+        // Decide on the stored lifecycle (the event may carry a stale copy the
+        // caller kept across an earlier transition).
+        $ticket = Ticketing::ticketModel()::query()->withoutTenancy()->whereKey($event->ticket->getKey())->first();
+
+        if ($ticket === null) {
+            return;
+        }
 
         if ($message->visibility !== MessageVisibility::Public || $message->author_id === null) {
             return;

@@ -715,3 +715,35 @@ it('falls back to the escalation team configured by id', function (): void {
 
     expect(customerAsks('Nobody documented this')->team_id)->toBe($team->getKey());
 });
+
+it('never lowers a priority an agent raised while the classifier ran', function (): void {
+    $customer = Ticketing::contacts()->remember('customer@example.com');
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: $customer);
+
+    app(AiManager::class)->extend('classifying', fn () => new class($ticket) implements AiDriver
+    {
+        public function __construct(private Ticket $ticket) {}
+
+        public function classify(AiRequest $request): AiClassification
+        {
+            Ticketing::changePriority($this->ticket->refresh(), Priority::Urgent);
+
+            return new AiClassification(priority: Priority::High);
+        }
+
+        public function answer(AiRequest $request): AiAnswer
+        {
+            return confidentAnswer();
+        }
+
+        public function summarize(AiRequest $request): AiSummary
+        {
+            return new AiSummary('');
+        }
+    });
+    config()->set('ticketing.ai.driver', 'classifying');
+
+    Ticketing::postMessage($ticket, $customer, 'Question');
+
+    expect($ticket->refresh()->priority)->toBe(Priority::Urgent);
+});

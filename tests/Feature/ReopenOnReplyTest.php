@@ -99,3 +99,15 @@ it('does not reopen for a contact who is not the requester', function (): void {
 
     expect($ticket->refresh()->status)->toBe('resolved');
 });
+
+it('reopens even when the caller kept a stale ticket instance', function (): void {
+    $requester = TestRequester::query()->create(['name' => 'Customer']);
+    $ticket = Ticketing::open(type: 'support', title: 'Stale', requester: $requester);
+    Ticketing::transition($ticket, 'resolve');
+
+    // $ticket still says "open" in memory.
+    Ticketing::postMessage($ticket, $requester, 'Not fixed');
+
+    expect($ticket->refresh()->status)->toBe('open')
+        ->and($ticket->reopened_count)->toBe(1);
+});

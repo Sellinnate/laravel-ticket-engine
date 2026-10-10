@@ -611,10 +611,22 @@ class AiAssistant
             $ticket->forceFill($changes)->save();
         }
 
-        if ($classification->priority instanceof Priority
-            && config('ticketing.ai.classification.apply_priority', true) !== false
-            && $classification->priority->value > $ticket->priority->value) {
-            app(Ticketing::class)->changePriority($ticket, $classification->priority);
+        $suggested = $classification->priority;
+
+        if ($suggested instanceof Priority && config('ticketing.ai.classification.apply_priority', true) !== false) {
+            // Raise-only, compared with the stored priority under the row lock:
+            // an agent may have raised it while the classifier was running.
+            DB::transaction(function () use ($ticket, $suggested): void {
+                /** @var Ticket $locked */
+                $locked = Ticketing::ticketModel()::query()->withoutTenancy()
+                    ->lockForUpdate()
+                    ->whereKey($ticket->getKey())
+                    ->firstOrFail();
+
+                if ($suggested->value > $locked->priority->value) {
+                    app(Ticketing::class)->changePriority($locked, $suggested);
+                }
+            });
         }
     }
 
