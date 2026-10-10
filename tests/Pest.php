@@ -7,8 +7,12 @@ use Selli\Ticketing\Tests\Fixtures\TestOrder;
 use Selli\Ticketing\Tests\Fixtures\TestUser;
 use Selli\Ticketing\Tests\MigrationTestCase;
 use Selli\Ticketing\Tests\TestCase;
+use Selli\Ticketing\Tests\WidgetApiGroupTestCase;
 
 uses(TestCase::class)->in('Feature', 'Unit');
+
+// The widget API behind the host's real "api" middleware group.
+uses(WidgetApiGroupTestCase::class)->in('Widget');
 
 // Hand-run migrations: no RefreshDatabase transaction around the DDL.
 uses(MigrationTestCase::class)->in('Migrations');

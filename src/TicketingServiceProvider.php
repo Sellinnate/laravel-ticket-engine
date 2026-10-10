@@ -7,6 +7,8 @@ namespace Selli\Ticketing;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Auth\Factory;
+use Illuminate\Contracts\Http\Kernel as HttpKernel;
+use Illuminate\Foundation\Http\Kernel as FoundationHttpKernel;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\Event;
@@ -353,6 +355,16 @@ class TicketingServiceProvider extends PackageServiceProvider
             // carries the allowed origin and the browser lets the client see it.
             [WidgetCors::class, ResolveWidgetKey::class, 'throttle:ticketing-widget'],
         )));
+
+        // Laravel sorts route middleware by its priority list, which would move
+        // the throttle ahead of these two (before SubstituteBindings in the
+        // "api" group): rank them first so CORS and the key always come first.
+        $kernel = $this->app->make(HttpKernel::class);
+
+        if ($kernel instanceof FoundationHttpKernel) {
+            $kernel->prependToMiddlewarePriority(ResolveWidgetKey::class);
+            $kernel->prependToMiddlewarePriority(WidgetCors::class);
+        }
 
         Route::group(['prefix' => $prefix, 'middleware' => $middleware], function (): void {
             $this->loadRoutesFrom(__DIR__.'/../routes/widget.php');
