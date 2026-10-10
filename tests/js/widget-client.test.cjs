@@ -132,3 +132,38 @@ test('searches, reads and votes on articles with the conversation attached', asy
     assert.deepEqual(JSON.parse(calls[2].init.body), { helpful: true, comment: 'Great' });
     assert.equal(widget.session, null);
 });
+
+test('keeps working in memory when the browser denies storage', async () => {
+    // A sandboxed iframe: even reading sessionStorage throws.
+    Object.defineProperty(globalThis, 'sessionStorage', {
+        configurable: true,
+        get() {
+            throw new Error('SecurityError: access denied');
+        },
+    });
+
+    try {
+        const { fetch } = fakeFetch([
+            { status: 201, body: { data: { id: 'conv9', token: 'tok9', status: 'open', expires_at: null } } },
+        ]);
+        const widget = new TicketingWidget({ endpoint: 'https://app.test/w/v1', key: 'tk_pub_x', fetch });
+
+        assert.equal(widget.storage, null);
+        assert.equal((await widget.start()).id, 'conv9');
+        assert.equal(widget.session.token, 'tok9');
+        widget.reset();
+        assert.equal(widget.session, null);
+    } finally {
+        delete globalThis.sessionStorage;
+    }
+
+    // A storage whose writes fail (quota) does not break a started conversation.
+    const failing = { getItem: () => null, setItem: () => { throw new Error('QuotaExceededError'); }, removeItem: () => { throw new Error('denied'); } };
+    const { fetch } = fakeFetch([
+        { status: 201, body: { data: { id: 'conv10', token: 'tok10', status: 'open', expires_at: null } } },
+    ]);
+    const widget = new TicketingWidget({ endpoint: 'https://app.test/w/v1', key: 'tk_pub_x', fetch, storage: failing });
+
+    assert.equal((await widget.start()).id, 'conv10');
+    widget.reset();
+});

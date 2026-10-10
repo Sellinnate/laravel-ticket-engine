@@ -26,6 +26,19 @@
         }
     }
 
+    /**
+     * The tab's sessionStorage, or null where the browser denies it (privacy
+     * settings, a sandboxed iframe): even reading the property can throw, and
+     * the session then simply lives in memory.
+     */
+    function defaultStorage() {
+        try {
+            return typeof sessionStorage !== 'undefined' ? sessionStorage : null;
+        } catch (error) {
+            return null;
+        }
+    }
+
     class TicketingWidget {
         constructor(options) {
             if (!options || !options.endpoint || !options.key) {
@@ -35,9 +48,7 @@
             this.endpoint = String(options.endpoint).replace(/\/+$/, '');
             this.key = String(options.key);
             this.fetch = options.fetch || (typeof fetch === 'function' ? fetch.bind(global) : null);
-            this.storage = options.storage === undefined
-                ? (typeof sessionStorage !== 'undefined' ? sessionStorage : null)
-                : options.storage;
+            this.storage = options.storage === undefined ? defaultStorage() : options.storage;
             this.storageKey = 'ticketing:' + this.key;
             this.session = this.restore();
             this.seen = new Set();
@@ -177,7 +188,13 @@
         reset() {
             this.session = null;
             this.seen.clear();
-            if (this.storage) this.storage.removeItem(this.storageKey);
+            if (this.storage) {
+                try {
+                    this.storage.removeItem(this.storageKey);
+                } catch (error) {
+                    // Denied storage: nothing was persisted.
+                }
+            }
         }
 
         unseen(messages) {
@@ -244,8 +261,12 @@
         }
 
         persist() {
-            if (this.storage && this.session) {
+            if (!this.storage || !this.session) return;
+
+            try {
                 this.storage.setItem(this.storageKey, JSON.stringify(this.session));
+            } catch (error) {
+                // Full or denied storage: the session stays in memory.
             }
         }
     }
