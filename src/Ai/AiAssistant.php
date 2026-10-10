@@ -500,12 +500,14 @@ class AiAssistant
             : null;
 
         // A conversation the visitor closed, or a ticket resolved meanwhile,
-        // has nobody to hand over to.
-        if ($ticket instanceof Ticket) {
-            if (! $this->requests->isClosed($ticket)) {
-                $this->container->make(EscalateTicket::class)->handle($ticket, $reason, notifyCustomer: true, resume: true);
-            }
-        } elseif ($conversation->status !== ConversationStatus::Closed) {
+        // has nobody to hand over to. Otherwise the conversation service
+        // finishes what is missing — the ticket's hand-over and the
+        // conversation's own announcement — and repeats nothing done.
+        $closed = $ticket instanceof Ticket
+            ? $this->requests->isClosed($ticket)
+            : $conversation->status === ConversationStatus::Closed;
+
+        if (! $closed) {
             $this->conversations()->escalate($conversation, $reason);
         }
 

@@ -36,6 +36,7 @@ use Selli\Ticketing\Facades\Ticketing;
 use Selli\Ticketing\Models\AiTurn;
 use Selli\Ticketing\Models\Contact;
 use Selli\Ticketing\Models\Conversation;
+use Selli\Ticketing\Models\ConversationMessage;
 use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Models\TicketMessage;
 use Selli\Ticketing\Models\WidgetKey;
@@ -486,6 +487,42 @@ it('finishes an interrupted hand-over when the visitor asks again', function ():
 
     expect($ticket->messages()->where('body', 'A human will follow up.')->count())->toBe(1)
         ->and($conversation->refresh()->meta)->not->toHaveKey('handover');
+    Event::assertDispatchedTimes(ConversationEscalated::class, 1);
+});
+
+it('finishes an interrupted AI hand-over when the turn is retried', function (): void {
+    Event::fake([ConversationEscalated::class]);
+    ['key' => $key] = widgetKey();
+    ['conversation' => $conversation] = Ticketing::conversations()->start($key, new VisitorIdentity(email: 'jane@example.com'));
+
+    $failing = new class(app(AuditLogger::class), app()) extends EscalateTicket
+    {
+        public bool $fail = true;
+
+        public function handle(Ticket $ticket, EscalationReason $reason, ?Model $actor = null, bool $notifyCustomer = true, bool $resume = false): Ticket
+        {
+            if ($this->fail) {
+                $this->fail = false;
+
+                throw new RuntimeException('worker died');
+            }
+
+            return parent::handle($ticket, $reason, $actor, $notifyCustomer, $resume);
+        }
+    };
+    app()->instance(EscalateTicket::class, $failing);
+    chatAi()->queueClassification(new AiClassification(wantsHuman: true));
+
+    // The AI's hand-over dies after the ticket committed.
+    expect(fn () => Ticketing::conversations()->post($conversation, 'I want a person'))->toThrow(RuntimeException::class, 'worker died');
+    Event::assertNotDispatched(ConversationEscalated::class);
+
+    $trigger = ConversationMessage::query()->where('role', 'visitor')->sole();
+    app(AiAssistant::class)->respondToConversation($conversation->refresh(), $trigger, retry: true);
+
+    expect(Ticket::query()->sole()->ai_status)->toBe(AiStatus::Escalated)
+        ->and($conversation->refresh()->meta)->not->toHaveKey('handover')
+        ->and(AiTurn::query()->sole()->status)->toBe(AiTurn::STATUS_DONE);
     Event::assertDispatchedTimes(ConversationEscalated::class, 1);
 });
 
