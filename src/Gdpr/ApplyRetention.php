@@ -8,6 +8,9 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Selli\Ticketing\Contacts\ContactDirectory;
+use Selli\Ticketing\Events\TicketErased;
+use Selli\Ticketing\Knowledge\KnowledgeBase;
 use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Models\TicketType;
 use Selli\Ticketing\Support\Ticketing;
@@ -47,17 +50,34 @@ class ApplyRetention
 
             $count = 0;
 
-            DB::transaction(function () use ($type, $cutoff, $action, &$count): void {
+            $erased = [];
+
+            DB::transaction(function () use ($type, $cutoff, $action, &$count, &$erased): void {
+                // Per attempt: a re-run transaction must not announce the
+                // tickets of an attempt that rolled back.
+                $erased = [];
+
                 // Re-select (and lock) inside the transaction so a ticket reopened
                 // between selection and action isn't erased on a stale snapshot.
                 $tickets = $this->dueTickets($type, $cutoff)->lockForUpdate()->get();
 
                 foreach ($tickets as $ticket) {
-                    $action === 'delete' ? $this->delete($ticket) : $this->anonymize($ticket);
+                    if ($action === 'delete') {
+                        $this->delete($ticket);
+                        $erased[] = $ticket;
+                    } else {
+                        $this->anonymize($ticket);
+                    }
                 }
 
                 $count = $tickets->count();
             });
+
+            // After commit, so integrations holding copies (search/vector indexes)
+            // only purge what is really gone.
+            foreach ($erased as $ticket) {
+                TicketErased::dispatch($ticket->getKey(), $ticket->getAttribute($ticket->getTenantColumn()));
+            }
 
             $results[] = ['type' => $type, 'action' => $action, 'count' => $count];
         }
@@ -104,6 +124,19 @@ class ApplyRetention
         if (RequesterTickets::softDeletes(Ticketing::ticketMessageModel())) {
             $relation->withTrashed();
         }
+
+        $conversationModel = new (Ticketing::conversationModel());
+        $conversationIds = Ticketing::conversationModel()::query()->withoutTenancy()
+            ->where('ticket_id', $ticket->getKey())
+            ->pluck($conversationModel->getKeyName());
+
+        Ticketing::aiTurnModel()::query()->withoutTenancy()
+            ->where('ticket_id', $ticket->getKey())
+            ->update(['question' => null]);
+
+        // The conversation it came from: identity claim, network traces, AI
+        // excerpts and vote comments.
+        app(ContactDirectory::class)->scrubConversationTraces($conversationIds->all());
 
         foreach ($relation->get() as $message) {
             $meta = $message->meta ?? [];
@@ -158,6 +191,37 @@ class ApplyRetention
             ->where('taggable_id', $ticket->getKey())
             ->delete();
 
+        // A conversation that escalated into this ticket, and its messages.
+        $conversationModel = new (Ticketing::conversationModel());
+        $conversationIds = DB::table($conversationModel->getTable())
+            ->where('ticket_id', $ticket->getKey())
+            ->pluck($conversationModel->getKeyName());
+
+        if ($conversationIds->isNotEmpty()) {
+            // Help-center votes given from the conversation keep their value but
+            // lose their free-text comment.
+            $voterKeys = DB::table($conversationModel->getTable())
+                ->whereIn($conversationModel->getKeyName(), $conversationIds)
+                ->pluck('public_id')
+                ->map(fn (mixed $publicId): string => KnowledgeBase::voterKey('conversation:'.$publicId))
+                ->all();
+
+            DB::table($this->tableFor(Ticketing::kbArticleFeedbackModel()))
+                ->whereIn('voter_key', $voterKeys)
+                ->update(['comment' => null]);
+
+            // The conversation's own AI turns (before it became this ticket).
+            DB::table($this->tableFor(Ticketing::aiTurnModel()))->whereIn('conversation_id', $conversationIds)->delete();
+            DB::table($this->tableFor(Ticketing::conversationMessageModel()))->whereIn('conversation_id', $conversationIds)->delete();
+            DB::table($conversationModel->getTable())->whereIn($conversationModel->getKeyName(), $conversationIds)->delete();
+        }
+
+        // Votes given in the context of this ticket stay (they are the article's
+        // statistics), but lose the link and the free-text comment.
+        DB::table($this->tableFor(Ticketing::kbArticleFeedbackModel()))
+            ->where('ticket_id', $ticket->getKey())
+            ->update(['ticket_id' => null, 'comment' => null]);
+
         // Every ticket_id-owned child, by its bound model's table.
         foreach ([
             Ticketing::ticketMessageModel(),
@@ -166,6 +230,8 @@ class ApplyRetention
             Ticketing::slaClockModel(),
             Ticketing::ticketLinkModel(),
             Ticketing::satisfactionRatingModel(),
+            Ticketing::aiTurnModel(),
+            Ticketing::kbArticleLinkModel(),
         ] as $model) {
             DB::table($this->tableFor($model))->where('ticket_id', $ticket->getKey())->delete();
         }

@@ -26,6 +26,7 @@ listing channels globally and/or per event:
     'default_channels' => ['database'],
     'events' => [
         'sla.breached' => ['mail', 'database', 'slack'],
+        'ticket.escalated' => ['mail', 'database'],
     ],
 
     'throttle' => ['seconds' => 300, 'channels' => ['mail', 'slack']], // digest noisy channels

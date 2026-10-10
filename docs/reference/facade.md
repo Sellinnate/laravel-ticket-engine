@@ -45,6 +45,18 @@ Ticketing::submitCsat(ticket, rating, comment?, submittedBy?): SatisfactionRatin
 Ticketing::submitCsatByToken(token, rating, comment?, submittedBy?): SatisfactionRating
 ```
 
+## Contacts, knowledge base, AI and conversations
+
+```php
+Ticketing::contacts(): ContactDirectory          // remember(), find(), markVerified(), anonymize(), export()
+Ticketing::knowledge(): KnowledgeBase            // search(), suggest(), find(), save(), publish(), archive(), feedback(), link()
+Ticketing::ai(): AiManager                       // driver(), extend()
+Ticketing::takeOver(ticket, agent, assign?): Ticket
+Ticketing::escalate(ticket, reason?, actor?, notifyCustomer?): Ticket
+Ticketing::conversations(): ConversationService  // start(), post(), escalate(), takeOver(), close(), timeline()
+Ticketing::widgetKeys(): WidgetKeys              // create(), find(), rotateSecret(), revoke(), verifyIdentity()
+```
+
 ## Channels & GDPR
 
 ```php

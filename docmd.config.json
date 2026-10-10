@@ -59,7 +59,10 @@
         { "title": "Collaboration", "path": "/concepts/collaboration", "icon": "message-square" },
         { "title": "CSAT", "path": "/concepts/csat", "icon": "star" },
         { "title": "Automation", "path": "/concepts/automation", "icon": "cpu" },
-        { "title": "Notifications", "path": "/concepts/notifications", "icon": "bell" }
+        { "title": "Notifications", "path": "/concepts/notifications", "icon": "bell" },
+        { "title": "Contacts", "path": "/concepts/contacts", "icon": "contact" },
+        { "title": "Knowledge base", "path": "/concepts/knowledge-base", "icon": "library" },
+        { "title": "AI assistance", "path": "/concepts/ai", "icon": "sparkles" }
       ]
     },
     {
@@ -68,7 +71,15 @@
       "children": [
         { "title": "REST API", "path": "/channels/rest-api", "icon": "code" },
         { "title": "Email-to-ticket", "path": "/channels/email", "icon": "mail" },
-        { "title": "Broadcasting", "path": "/channels/broadcasting", "icon": "wifi" }
+        { "title": "Broadcasting", "path": "/channels/broadcasting", "icon": "wifi" },
+        { "title": "Chat & widget", "path": "/channels/widget", "icon": "message-circle" }
+      ]
+    },
+    {
+      "title": "Guides",
+      "icon": "compass",
+      "children": [
+        { "title": "Widget on an external site", "path": "/guides/external-widget", "icon": "globe" }
       ]
     },
     {

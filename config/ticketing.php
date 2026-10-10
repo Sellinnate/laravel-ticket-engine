@@ -2,11 +2,21 @@
 
 declare(strict_types=1);
 
+use Selli\Ticketing\Ai\ConfigAiSettings;
 use Selli\Ticketing\Collaboration\NullMentionResolver;
+use Selli\Ticketing\Models\AiTurn;
 use Selli\Ticketing\Models\AutomationRule;
 use Selli\Ticketing\Models\BusinessHours;
 use Selli\Ticketing\Models\CannedResponse;
+use Selli\Ticketing\Models\Contact;
+use Selli\Ticketing\Models\Conversation;
+use Selli\Ticketing\Models\ConversationMessage;
 use Selli\Ticketing\Models\Holiday;
+use Selli\Ticketing\Models\KbArticle;
+use Selli\Ticketing\Models\KbArticleFeedback;
+use Selli\Ticketing\Models\KbArticleLink;
+use Selli\Ticketing\Models\KbArticleVersion;
+use Selli\Ticketing\Models\KbCategory;
 use Selli\Ticketing\Models\Macro;
 use Selli\Ticketing\Models\RoutingRule;
 use Selli\Ticketing\Models\SatisfactionRating;
@@ -22,7 +32,9 @@ use Selli\Ticketing\Models\TicketLink;
 use Selli\Ticketing\Models\TicketMessage;
 use Selli\Ticketing\Models\TicketParticipant;
 use Selli\Ticketing\Models\TicketType;
+use Selli\Ticketing\Models\WidgetKey;
 use Selli\Ticketing\Notifications\ConfigNotificationPreferences;
+use Selli\Ticketing\Support\NullHumanVerifier;
 use Selli\Ticketing\Tenancy\DefaultTenantResolver;
 use Selli\Ticketing\Workflow\Guards\RequireResolutionNote;
 
@@ -111,6 +123,16 @@ return [
         'tags' => 'tags',
         'taggables' => 'taggables',
         'inbound_emails' => 'ticketing_inbound_emails',
+        'contacts' => 'ticket_contacts',
+        'kb_categories' => 'kb_categories',
+        'kb_articles' => 'kb_articles',
+        'kb_article_versions' => 'kb_article_versions',
+        'kb_article_feedback' => 'kb_article_feedback',
+        'kb_article_links' => 'kb_article_links',
+        'widget_keys' => 'ticket_widget_keys',
+        'conversations' => 'ticket_conversations',
+        'conversation_messages' => 'ticket_conversation_messages',
+        'ai_turns' => 'ticketing_ai_turns',
     ],
 
     /*
@@ -142,6 +164,16 @@ return [
         'ticket_link' => TicketLink::class,
         'satisfaction_rating' => SatisfactionRating::class,
         'automation_rule' => AutomationRule::class,
+        'contact' => Contact::class,
+        'kb_category' => KbCategory::class,
+        'kb_article' => KbArticle::class,
+        'kb_article_version' => KbArticleVersion::class,
+        'kb_article_feedback' => KbArticleFeedback::class,
+        'kb_article_link' => KbArticleLink::class,
+        'widget_key' => WidgetKey::class,
+        'conversation' => Conversation::class,
+        'conversation_message' => ConversationMessage::class,
+        'ai_turn' => AiTurn::class,
     ],
 
     /*
@@ -195,6 +227,16 @@ return [
 
         // Validate the workflow configuration at boot (fail-fast on typos).
         'validate_on_boot' => true,
+
+        // A public reply from the requester reopens a resolved/closed ticket
+        // (through this workflow transition) if it comes within N days of the
+        // resolution (0 = any time). The transition must be allowed from the
+        // ticket's state, so a workflow without it is simply not reopened.
+        'reopen_on_reply' => [
+            'enabled' => true,
+            'transition' => 'reopen',
+            'within_days' => 7,
+        ],
 
         'workflows' => [
             'default' => [
@@ -517,6 +559,150 @@ return [
 
         // Secret for the thread token HMAC; falls back to the application key.
         'token' => ['secret' => null],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Contacts (external requesters)
+    |--------------------------------------------------------------------------
+    |
+    | People without an account in your app — an email sender, a widget visitor
+    | who left a name and an email — are stored as Contact rows, de-duplicated
+    | per tenant on the normalised email, and act as requesters/participants
+    | like any host model. "inbound_email" makes the email channel resolve
+    | senders to contacts (unless you bind your own InboundRequesterResolver).
+    |
+    */
+    'contacts' => [
+        'inbound_email' => true,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Knowledge base (headless help center)
+    |--------------------------------------------------------------------------
+    |
+    | Categories, articles and FAQs with drafts, versions, locales and per
+    | audience visibility (public, customer, internal). The built-in search is
+    | a portable keyword search; the RAG Engine bridge upgrades it to hybrid
+    | semantic search when installed. "default_locale" falls back to the app
+    | locale.
+    |
+    */
+    'knowledge' => [
+        'default_locale' => null,
+        'search' => [
+            // How many candidate rows the keyword search ranks in PHP.
+            'candidates' => 200,
+            'min_term_length' => 2,
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | AI assistance
+    |--------------------------------------------------------------------------
+    |
+    | Provider-agnostic: an AI driver (null, fake, rag-engine from the bridge,
+    | or your own via AiManager::extend()) classifies incoming requests, answers
+    | them with sources and a confidence, and summarises tickets for agents.
+    |
+    | "mode" is the default per ticket type and tenant: "auto" (the AI replies),
+    | "draft" (the AI writes an internal draft for an agent) or "off". Override
+    | per type/tenant below, or bind your own AiSettingsResolver (e.g. backed by
+    | a settings table). AI is off unless "enabled" is true.
+    |
+    | Escalation rules hand the ticket to humans: low confidence, no sources,
+    | the customer asking for a person (always on), sensitive topics, too many
+    | AI exchanges, negative sentiment, or a provider error (always on). An
+    | agent's public reply — or Ticketing::takeOver() — suspends the AI on that
+    | ticket for good.
+    |
+    */
+    'ai' => [
+        'enabled' => false,
+        'driver' => 'null',
+        'drivers' => [
+            'null' => [],
+            'fake' => [],
+        ],
+
+        'mode' => 'off',
+        'modes' => [
+            // 'types' => ['support' => 'auto'],
+            'types' => [],
+            // 'tenants' => [5 => 'draft'],
+            'tenants' => [],
+        ],
+        'settings' => ConfigAiSettings::class,
+
+        // Run AI turns on the queue (recommended) or inline.
+        'queue' => true,
+
+        // Seconds after which an unfinished turn (its worker died) may be taken
+        // over by a new delivery; a retry of the same job takes it back at once.
+        'turn_timeout' => 300,
+
+        'classification' => [
+            'enabled' => true,
+            // Let the classifier raise (never lower) the ticket priority.
+            'apply_priority' => true,
+            'apply_category' => true,
+        ],
+
+        'escalation' => [
+            'min_confidence' => 0.7,
+            'require_sources' => true,
+            'sensitive_topics' => ['billing', 'legal', 'privacy', 'complaint'],
+            'max_exchanges' => 3,
+            'on_negative_sentiment' => false,
+            // Team key or id the ticket is assigned to when routing rules find
+            // no owner; null leaves it in the unassigned queue.
+            'team' => null,
+            'notify_leads' => true,
+            // Posted to the customer when the AI hands over (null = no message).
+            'handoff_message' => 'Thanks — a member of our team will get back to you shortly.',
+            // Post an internal AI summary for the agent who picks it up.
+            'summarize' => true,
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Conversations & embeddable widget
+    |--------------------------------------------------------------------------
+    |
+    | An opt-in public JSON API for chat widgets (on your app or a customer's
+    | website). A browser only ever holds a public widget key and an opaque
+    | conversation id + bearer token — never an internal id. Conversations turn
+    | into tickets when a human is needed. Keys carry an origin allow-list and an
+    | optional HMAC secret for signed visitor identity. Rate limits are
+    | "max,minutes"; the honeypot field must arrive empty.
+    |
+    */
+    'widget' => [
+        'enabled' => false,
+        'prefix' => 'ticketing/widget',
+        'version' => 'v1',
+        'middleware' => ['api'],
+        'rate_limits' => [
+            'per_ip' => '60,1',
+            'per_key' => '1200,1',
+            'conversations_per_ip' => '10,60',
+        ],
+        'max_message_length' => 4000,
+        'max_messages_per_conversation' => 50,
+        'honeypot_field' => 'website',
+        // Token lifetime for a conversation, in seconds (0 = no expiry).
+        'token_ttl' => 604800,
+        // The ticket type of conversations through a key without its own type
+        // (and the type their AI settings are resolved for).
+        'default_type' => 'support',
+
+        // Ask anonymous visitors for an email before a human takes over.
+        'require_email_to_escalate' => true,
+        // A captcha check for anonymous visitors (bind your own HumanVerifier).
+        'human_verifier' => NullHumanVerifier::class,
     ],
 
     /*

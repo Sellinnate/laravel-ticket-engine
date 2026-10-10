@@ -19,6 +19,14 @@ internal-note visibility is denied to non-agents at the policy *and* query level
 | `view`, `comment`, `addAttachment`, `submitCsat` | a tenant agent, or the ticket's requester/subject/participant |
 | `viewInternal`, `commentInternal` | tenant agents only |
 | `transition`, `assign`, `changePriority`, `merge`, `split`, `delete` | tenant agents only |
+| `escalate` | anyone who can view the ticket (a requester asking for a person) |
+| `takeOver`, `linkArticle` | tenant agents only |
+
+Knowledge-base articles have their own `KbArticlePolicy`: `view` follows the article's
+[audience](/concepts/knowledge-base#audiences) (tenant agents also see drafts; another tenant's article is
+never visible), while `create`, `update`, `publish`, `archive` and `delete` are for agents of the article's
+tenant. A shared article (null tenant) is readable by every tenant but only writable by an agent who is not
+tied to one tenant.
 
 The REST API authorizes every action through this policy (a stranger gets 403; a requester is limited to
 their own tickets). The facade/Action layer is intentionally unguarded — it is the trusted lower layer;

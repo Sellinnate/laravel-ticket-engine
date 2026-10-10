@@ -15,8 +15,10 @@
    php artisan migrate
    ```
 
-4. Compare your published `config/ticketing.php` with the package's: new keys always have a default that
-   keeps the previous behaviour, so copying them is optional but recommended.
+4. Compare your published `config/ticketing.php` with the package's: new keys have a default that keeps
+   the previous behaviour, so copying them is optional but recommended — except where a version's
+   **Behaviour changes** below say otherwise (for 1.0.0: `contacts.inbound_email` and
+   `workflow.reopen_on_reply` are on by default).
 
 ## From a pre-release checkout (`dev-main` before 1.0.0) to 1.0.0
 
@@ -30,7 +32,10 @@ run them as above. They add:
 
 - query indexes on `tickets`, `ticket_participants`, `ticket_messages`, `sla_clocks` and
   `satisfaction_ratings`;
-- a nullable `channel` column on `tickets`.
+- a nullable `channel` column on `tickets`;
+- the contacts, knowledge-base, widget-key, conversation and AI-turn tables;
+- AI and classification columns on `tickets` (`language`, `sentiment`, `ai_status`, `ai_exchanges`,
+  `escalation_reason`, `escalated_at`, `first_ai_response_at`) and a `role` on `team_members`.
 
 ### Removed claims (no code is removed)
 
@@ -50,6 +55,17 @@ documented recipes on the [Multi-tenancy](https://laravel-ticketing.selli.io/con
   values (`?status=open,pending` or `?status[]=open&status[]=pending`) instead of silently ignoring arrays,
   and new filters (`state`, `type`, `channel`, `assignee`, `team`, `tag`, `created_from`/`created_to`, `q`,
   `sort`) are available. The default order is still newest first.
+- **Inbound email senders become contacts.** With no `InboundRequesterResolver` of your own, the email
+  channel now resolves the sender to a `Contact` (author and requester of the ticket) instead of leaving them
+  empty. Set `ticketing.contacts.inbound_email` to `false` for the old behaviour.
+- **Requester replies reopen resolved or closed tickets** within 7 days, through the workflow's `reopen`
+  transition (`ticketing.workflow.reopen_on_reply`). Set `enabled` to `false` to keep them as they are.
+- **REST ids are strings.** `subject.id`, `assignee.id` and `author.id` are always serialised as strings
+  (they are string columns); a freshly assigned ticket used to return an integer.
+- **Message sources** gain `ai` and `widget`.
+- **Requesters are checked against the ticket's tenant**: opening a ticket for a requester of another tenant
+  throws `CrossTenantException`, and the ticket policy no longer lets a user of another tenant in through a
+  participant row.
 - **Inbound email rate-limit keys** are hashed with SHA-256 instead of SHA-1. Counters in flight at the
   moment of the upgrade restart from zero (at most one minute of flood allowance).
 

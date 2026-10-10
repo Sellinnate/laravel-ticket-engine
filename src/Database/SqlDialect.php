@@ -97,6 +97,36 @@ final class SqlDialect
     }
 
     /**
+     * A relevance score: for every term and column, the column's weight when
+     * LOWER(column) contains the term. Terms are embedded as literals, so they
+     * must be letters and digits only (anything else is refused) — which makes
+     * the literal impossible to break out of on any engine.
+     *
+     * @param  array<string, int>  $weights  column => weight
+     * @param  list<string>  $terms  lower-cased letters/digits
+     */
+    public static function keywordScore(array $weights, array $terms): Expression
+    {
+        foreach ($terms as $term) {
+            if (preg_match('/^[\p{L}\p{N}]+$/u', $term) !== 1) {
+                throw new \InvalidArgumentException('Keyword terms may only contain letters and digits.');
+            }
+        }
+
+        return self::fragment(function (Grammar $grammar) use ($weights, $terms): string {
+            $parts = [];
+
+            foreach ($terms as $term) {
+                foreach ($weights as $column => $weight) {
+                    $parts[] = 'CASE WHEN LOWER('.$grammar->wrap($column).") LIKE '%".$term."%' THEN ".(int) $weight.' ELSE 0 END';
+                }
+            }
+
+            return $parts === [] ? '0' : '('.implode(' + ', $parts).')';
+        });
+    }
+
+    /**
      * @param  Closure(Grammar): string  $render
      */
     private static function fragment(Closure $render): Expression

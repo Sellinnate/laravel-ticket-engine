@@ -30,6 +30,10 @@ fails fast.
 | `broadcasting` | realtime channels — see [Broadcasting](/channels/broadcasting) |
 | `authorization` | policy registration — see [Authorization](/security/authorization) |
 | `gdpr` | anonymisation label + retention rules — see [GDPR](/security/gdpr) |
+| `contacts` | resolve inbound email senders to contacts — see [Contacts](/concepts/contacts) |
+| `knowledge` | default locale and keyword-search tuning — see [Knowledge base](/concepts/knowledge-base) |
+| `ai` | driver, modes per tenant/type, classification, escalation rules — see [AI assistance](/concepts/ai) |
+| `widget` | the public chat/widget API, rate limits and abuse protection — see [Chat & widget](/channels/widget) |
 | `queue` | the connection/queue for side effects (notifications, webhooks, sweeps) |
 
 ## Design notes

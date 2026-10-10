@@ -86,6 +86,11 @@ class ConditionEvaluator
             'assignee_type' => $ticket->assignee_type,
             'reopened_count' => $ticket->reopened_count,
             'is_assigned' => $ticket->assignee_id !== null,
+            'channel' => $ticket->channel,
+            'language' => $ticket->language,
+            'sentiment' => $ticket->sentiment?->value,
+            'ai_status' => $ticket->ai_status?->value,
+            'escalation_reason' => $ticket->escalation_reason?->value,
             default => throw new InvalidConfigurationException("Unknown automation condition field [{$field}]."),
         };
     }

@@ -118,6 +118,8 @@ class RoutingEngine
         return match ($field) {
             'type' => $this->typeKey($ticket),
             'category' => $ticket->category,
+            'channel' => $ticket->channel,
+            'language' => $ticket->language,
             'priority' => $ticket->priority->value,
             'subject_type' => $ticket->subject_type,
             'status' => $ticket->status,

@@ -7,6 +7,7 @@ namespace Selli\Ticketing\Listeners;
 use Closure;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Notification as NotificationFacade;
+use Selli\Ticketing\Contracts\EscalationRecipients;
 use Selli\Ticketing\Contracts\NotificationPreferences;
 use Selli\Ticketing\Enums\MessageVisibility;
 use Selli\Ticketing\Enums\ParticipantRole;
@@ -15,6 +16,7 @@ use Selli\Ticketing\Events\ParticipantAdded;
 use Selli\Ticketing\Events\SlaBreached;
 use Selli\Ticketing\Events\SlaThresholdReached;
 use Selli\Ticketing\Events\TicketAssigned;
+use Selli\Ticketing\Events\TicketEscalated;
 use Selli\Ticketing\Notifications\Channels\SlackWebhookChannel;
 use Selli\Ticketing\Notifications\NotificationThrottle;
 use Selli\Ticketing\Notifications\ParticipantAddedNotification;
@@ -22,6 +24,7 @@ use Selli\Ticketing\Notifications\RecipientResolver;
 use Selli\Ticketing\Notifications\ReplyPostedNotification;
 use Selli\Ticketing\Notifications\SlaNotification;
 use Selli\Ticketing\Notifications\TicketAssignedNotification;
+use Selli\Ticketing\Notifications\TicketEscalatedNotification;
 use Selli\Ticketing\Notifications\TicketNotification;
 
 /**
@@ -33,7 +36,10 @@ use Selli\Ticketing\Notifications\TicketNotification;
  */
 class NotificationSubscriber implements Subscriber
 {
-    public function __construct(protected RecipientResolver $recipients) {}
+    public function __construct(
+        protected RecipientResolver $recipients,
+        protected EscalationRecipients $escalationRecipients,
+    ) {}
 
     public function onAssigned(TicketAssigned $event): void
     {
@@ -73,6 +79,23 @@ class NotificationSubscriber implements Subscriber
             $role = $event->participant->role->value;
             $this->dispatch([$model], fn (): TicketNotification => new ParticipantAddedNotification($event->ticket, $role));
         }
+    }
+
+    public function onEscalated(TicketEscalated $event): void
+    {
+        $recipients = $this->escalationRecipients->for($event->ticket);
+
+        $actor = $event->actor;
+
+        // Whoever escalated does not need to be told about it.
+        if ($actor instanceof Model) {
+            $recipients = array_values(array_filter(
+                $recipients,
+                fn (Model $recipient): bool => ! ($recipient->getMorphClass() === $actor->getMorphClass() && (string) $recipient->getKey() === (string) $actor->getKey()),
+            ));
+        }
+
+        $this->dispatch($recipients, fn (): TicketNotification => new TicketEscalatedNotification($event->ticket, $event->reason));
     }
 
     public function onSlaBreached(SlaBreached $event): void
@@ -140,6 +163,7 @@ class NotificationSubscriber implements Subscriber
             ParticipantAdded::class => 'onParticipantAdded',
             SlaBreached::class => 'onSlaBreached',
             SlaThresholdReached::class => 'onSlaThreshold',
+            TicketEscalated::class => 'onEscalated',
         ];
     }
 }

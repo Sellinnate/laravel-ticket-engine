@@ -14,6 +14,7 @@ use Selli\Ticketing\Database\Factories\TicketParticipantFactory;
 use Selli\Ticketing\Enums\ParticipantRole;
 use Selli\Ticketing\Models\Concerns\ConfiguresTicketingTable;
 use Selli\Ticketing\Support\Ticketing;
+use Selli\Ticketing\Tenancy\TenantScope;
 
 /**
  * A participant on a ticket with a typed role. Multiple participants with
@@ -67,11 +68,15 @@ class TicketParticipant extends Model
     }
 
     /**
+     * The person it names, whatever the ambient tenant: a listener running
+     * after commit (outside the ticket's tenant context) still finds a
+     * contact.
+     *
      * @return MorphTo<Model, $this>
      */
     public function participant(): MorphTo
     {
-        return $this->morphTo();
+        return $this->morphTo()->withoutGlobalScope(TenantScope::class);
     }
 
     /**

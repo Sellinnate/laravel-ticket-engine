@@ -4,12 +4,20 @@ declare(strict_types=1);
 
 namespace Selli\Ticketing;
 
+use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Auth\Factory;
+use Illuminate\Contracts\Http\Kernel as HttpKernel;
+use Illuminate\Foundation\Http\Kernel as FoundationHttpKernel;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Route;
+use Selli\Ticketing\Ai\AiManager;
+use Selli\Ticketing\Ai\ConfigAiSettings;
+use Selli\Ticketing\Ai\TeamLeadEscalationRecipients;
 use Selli\Ticketing\Automation\RuleEngine;
 use Selli\Ticketing\Broadcasting\Channels;
 use Selli\Ticketing\Broadcasting\DefaultChannelAuthorizer;
@@ -18,13 +26,27 @@ use Selli\Ticketing\Commands\DemoCommand;
 use Selli\Ticketing\Commands\EscalateCommand;
 use Selli\Ticketing\Commands\PruneCommand;
 use Selli\Ticketing\Commands\RecalculateSlaCommand;
+use Selli\Ticketing\Contacts\ContactDirectory;
+use Selli\Ticketing\Contracts\AiSettingsResolver;
 use Selli\Ticketing\Contracts\ChannelAuthorizer;
+use Selli\Ticketing\Contracts\EscalationRecipients;
+use Selli\Ticketing\Contracts\HumanVerifier;
 use Selli\Ticketing\Contracts\InboundMailRouter;
 use Selli\Ticketing\Contracts\InboundRequesterResolver;
+use Selli\Ticketing\Contracts\KnowledgeSearch;
 use Selli\Ticketing\Contracts\MentionResolver;
 use Selli\Ticketing\Contracts\NotificationPreferences;
 use Selli\Ticketing\Contracts\TenantResolver;
+use Selli\Ticketing\Contracts\VisitorResolver;
 use Selli\Ticketing\Contracts\WorkflowDriver;
+use Selli\Ticketing\Conversations\ConversationService;
+use Selli\Ticketing\Conversations\NullVisitorResolver;
+use Selli\Ticketing\Conversations\WidgetKeys;
+use Selli\Ticketing\Http\Middleware\ResolveWidgetKey;
+use Selli\Ticketing\Http\Middleware\WidgetCors;
+use Selli\Ticketing\Knowledge\KeywordKnowledgeSearch;
+use Selli\Ticketing\Knowledge\KnowledgeBase;
+use Selli\Ticketing\Listeners\AiSubscriber;
 use Selli\Ticketing\Listeners\AutomationSubscriber;
 use Selli\Ticketing\Listeners\BroadcastSubscriber;
 use Selli\Ticketing\Listeners\CollaborationSubscriber;
@@ -33,12 +55,17 @@ use Selli\Ticketing\Listeners\NotificationSubscriber;
 use Selli\Ticketing\Listeners\RoutingSubscriber;
 use Selli\Ticketing\Listeners\SlaSubscriber;
 use Selli\Ticketing\Listeners\Subscriber;
+use Selli\Ticketing\Listeners\WorkflowSubscriber;
 use Selli\Ticketing\Mail\ConfigInboundMailRouter;
+use Selli\Ticketing\Mail\ContactInboundRequesterResolver;
 use Selli\Ticketing\Mail\NullInboundRequesterResolver;
+use Selli\Ticketing\Models\WidgetKey;
 use Selli\Ticketing\Notifications\ConfigNotificationPreferences;
+use Selli\Ticketing\Policies\KbArticlePolicy;
 use Selli\Ticketing\Policies\TicketPolicy;
 use Selli\Ticketing\Routing\AssignmentManager;
 use Selli\Ticketing\Sla\SlaManager;
+use Selli\Ticketing\Support\NullHumanVerifier;
 use Selli\Ticketing\Support\Ticketing;
 use Selli\Ticketing\Tenancy\DefaultTenantResolver;
 use Selli\Ticketing\Tenancy\TenantContext;
@@ -101,6 +128,33 @@ class TicketingServiceProvider extends PackageServiceProvider
 
         $this->app->singleton(SlaManager::class);
 
+        $this->app->singleton(AiManager::class, fn (): AiManager => new AiManager($this->app));
+        $this->app->singleton(KnowledgeBase::class);
+        $this->app->singleton(ContactDirectory::class);
+        $this->app->singleton(ConversationService::class);
+        $this->app->singleton(WidgetKeys::class);
+
+        // Keyword search by default; the RAG Engine bridge (or the host) binds a
+        // semantic implementation.
+        $this->app->bindIf(KnowledgeSearch::class, KeywordKnowledgeSearch::class);
+
+        $this->app->bind(AiSettingsResolver::class, function (): AiSettingsResolver {
+            /** @var class-string<AiSettingsResolver> $class */
+            $class = config('ticketing.ai.settings', ConfigAiSettings::class);
+
+            return $this->app->make($class);
+        });
+
+        $this->app->bind(HumanVerifier::class, function (): HumanVerifier {
+            /** @var class-string<HumanVerifier> $class */
+            $class = config('ticketing.widget.human_verifier', NullHumanVerifier::class);
+
+            return $this->app->make($class);
+        });
+
+        $this->app->bindIf(EscalationRecipients::class, TeamLeadEscalationRecipients::class);
+        $this->app->bindIf(VisitorResolver::class, NullVisitorResolver::class);
+
         $this->app->singleton(AssignmentManager::class, fn (): AssignmentManager => new AssignmentManager($this->app));
 
         // Scoped so the automation engine's re-entrancy depth counter is shared
@@ -129,7 +183,9 @@ class TicketingServiceProvider extends PackageServiceProvider
         // Email-to-ticket: config-driven recipient routing + a null requester
         // resolver by default. bindIf so a host's own bindings win.
         $this->app->bindIf(InboundMailRouter::class, ConfigInboundMailRouter::class);
-        $this->app->bindIf(InboundRequesterResolver::class, NullInboundRequesterResolver::class);
+        $this->app->bindIf(InboundRequesterResolver::class, fn (): InboundRequesterResolver => config('ticketing.contacts.inbound_email', true) !== false
+            ? $this->app->make(ContactInboundRequesterResolver::class)
+            : $this->app->make(NullInboundRequesterResolver::class));
     }
 
     public function packageBooted(): void
@@ -141,7 +197,13 @@ class TicketingServiceProvider extends PackageServiceProvider
 
             $this->publishes([
                 __DIR__.'/../routes/api.php' => base_path('routes/ticketing-api.php'),
+                __DIR__.'/../routes/widget.php' => base_path('routes/ticketing-widget.php'),
             ], 'ticketing-routes');
+
+            // The optional, dependency-free reference widget client.
+            $this->publishes([
+                __DIR__.'/../resources/js/ticketing-widget.js' => public_path('vendor/ticketing/ticketing-widget.js'),
+            ], 'ticketing-widget');
         }
 
         $this->registerApiRoutes();
@@ -178,6 +240,14 @@ class TicketingServiceProvider extends PackageServiceProvider
             $this->subscribe($this->app->make(AutomationSubscriber::class));
         }
 
+        if (config('ticketing.workflow.reopen_on_reply.enabled', true) !== false) {
+            $this->subscribe($this->app->make(WorkflowSubscriber::class));
+        }
+
+        if (config('ticketing.ai.enabled', false) === true) {
+            $this->subscribe($this->app->make(AiSubscriber::class));
+        }
+
         if (config('ticketing.broadcasting.enabled', false) === true) {
             $this->subscribe($this->app->make(BroadcastSubscriber::class));
             $this->registerBroadcastChannels();
@@ -185,7 +255,10 @@ class TicketingServiceProvider extends PackageServiceProvider
 
         if (config('ticketing.authorization.register_policies', true) !== false) {
             Gate::policy(Ticketing::ticketModel(), TicketPolicy::class);
+            Gate::policy(Ticketing::kbArticleModel(), KbArticlePolicy::class);
         }
+
+        $this->registerWidgetRoutes();
     }
 
     /**
@@ -248,6 +321,70 @@ class TicketingServiceProvider extends PackageServiceProvider
         Route::group(['prefix' => $prefix, 'middleware' => $middleware], function (): void {
             $this->loadRoutesFrom(__DIR__.'/../routes/api.php');
         });
+    }
+
+    /**
+     * Mount the opt-in public widget API (conversations + public knowledge
+     * base) with its own rate limiters. Every route resolves a widget key
+     * first, which also fixes the tenant for the request.
+     */
+    protected function registerWidgetRoutes(): void
+    {
+        if (config('ticketing.widget.enabled', false) !== true) {
+            return;
+        }
+
+        RateLimiter::for('ticketing-widget', function (Request $request): array {
+            // Counted on the key ResolveWidgetKey resolved (the throttle runs
+            // after it), so no spelling of the header gets a counter of its own.
+            $key = $request->attributes->get(ResolveWidgetKey::ATTRIBUTE);
+            $counter = $key instanceof WidgetKey
+                ? 'id:'.$key->getKey()
+                : 'raw:'.hash('sha256', (string) $request->header('X-Ticketing-Key', ''));
+
+            return [
+                self::limit((string) config('ticketing.widget.rate_limits.per_ip', '60,1'))->by('ip:'.$request->ip()),
+                self::limit((string) config('ticketing.widget.rate_limits.per_key', '1200,1'))->by('key:'.$counter),
+            ];
+        });
+
+        RateLimiter::for('ticketing-widget-start', fn (Request $request): Limit => self::limit(
+            (string) config('ticketing.widget.rate_limits.conversations_per_ip', '10,60'),
+        )->by('start:'.$request->ip()));
+
+        $prefix = trim((string) config('ticketing.widget.prefix', 'ticketing/widget'), '/')
+            .'/'.trim((string) config('ticketing.widget.version', 'v1'), '/');
+
+        $middleware = array_values(array_unique(array_merge(
+            (array) config('ticketing.widget.middleware', ['api']),
+            // CORS first (it answers preflights), then the key — so even a 429
+            // carries the allowed origin and the browser lets the client see it.
+            [WidgetCors::class, ResolveWidgetKey::class, 'throttle:ticketing-widget'],
+        )));
+
+        // Laravel sorts route middleware by its priority list, which would move
+        // the throttle ahead of these two (before SubstituteBindings in the
+        // "api" group): rank them first so CORS and the key always come first.
+        $kernel = $this->app->make(HttpKernel::class);
+
+        if ($kernel instanceof FoundationHttpKernel) {
+            $kernel->prependToMiddlewarePriority(ResolveWidgetKey::class);
+            $kernel->prependToMiddlewarePriority(WidgetCors::class);
+        }
+
+        Route::group(['prefix' => $prefix, 'middleware' => $middleware], function (): void {
+            $this->loadRoutesFrom(__DIR__.'/../routes/widget.php');
+        });
+    }
+
+    /**
+     * A limit from "max,minutes".
+     */
+    protected static function limit(string $definition): Limit
+    {
+        [$max, $minutes] = array_map('intval', array_pad(explode(',', $definition), 2, 1));
+
+        return Limit::perMinutes(max(1, $minutes), max(1, $max));
     }
 
     /**

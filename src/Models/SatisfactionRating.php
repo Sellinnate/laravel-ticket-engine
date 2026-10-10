@@ -15,6 +15,7 @@ use Selli\Ticketing\Database\Factories\SatisfactionRatingFactory;
 use Selli\Ticketing\Enums\CsatScale;
 use Selli\Ticketing\Models\Concerns\ConfiguresTicketingTable;
 use Selli\Ticketing\Support\Ticketing;
+use Selli\Ticketing\Tenancy\TenantScope;
 
 /**
  * One satisfaction rating per ticket. Created (unrated) when CSAT is requested,
@@ -83,11 +84,15 @@ class SatisfactionRating extends Model
     }
 
     /**
+     * The person it names, whatever the ambient tenant: a listener running
+     * after commit (outside the ticket's tenant context) still finds a
+     * contact.
+     *
      * @return MorphTo<Model, $this>
      */
     public function submittedBy(): MorphTo
     {
-        return $this->morphTo();
+        return $this->morphTo()->withoutGlobalScope(TenantScope::class);
     }
 
     public function isSubmitted(): bool
