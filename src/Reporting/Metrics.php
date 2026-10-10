@@ -603,7 +603,7 @@ class Metrics
             return ['count' => 0, 'mean_seconds' => null, 'median_seconds' => null];
         }
 
-        $mean = (clone $values)->toBase()->avg($duration);
+        $mean = (clone $values)->toBase()->select([SqlDialect::alias(SqlDialect::average($duration), 'mean')])->value('mean');
 
         $middle = (clone $values)->toBase()
             ->select([SqlDialect::alias($duration, 'duration')])

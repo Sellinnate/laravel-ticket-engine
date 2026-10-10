@@ -56,11 +56,14 @@ final class SqlDialect
     }
 
     /**
-     * `avg(<expression>)`.
+     * `avg(<expression>)` with a fractional result everywhere (SQL Server keeps
+     * the integer type of its argument, so the value is cast first).
      */
     public static function average(Expression $expression): Expression
     {
-        return self::fragment(fn (Grammar $grammar): string => 'avg('.$expression->getValue($grammar).')');
+        return self::fragment(fn (Grammar $grammar): string => $grammar instanceof SqlServerGrammar
+            ? 'avg(cast('.$expression->getValue($grammar).' as float))'
+            : 'avg('.$expression->getValue($grammar).')');
     }
 
     /**
