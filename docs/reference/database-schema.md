@@ -28,6 +28,16 @@ Every table name is configurable under `ticketing.tables` (and prefixable). Ever
 | `automation_rules` | the automation rule engine |
 | `tags` / `taggables` | per-tenant tags |
 | `ticketing_inbound_emails` | the email idempotency ledger (unique Message-ID) |
+| `ticket_contacts` | external requesters, unique per tenant and normalised email (`dedupe_key`) |
+| `kb_categories` / `kb_articles` | the knowledge base (per locale, translation groups, status, visibility, audience) |
+| `kb_article_versions` | **immutable** content snapshots, one per article version |
+| `kb_article_feedback` / `kb_article_links` | helpful votes (one per voter) and article ↔ ticket links |
+| `ticket_widget_keys` | public widget keys (origin allow-list, encrypted HMAC secret) |
+| `ticket_conversations` / `ticket_conversation_messages` | widget/chat conversations and their messages |
+| `ticketing_ai_turns` | one row per AI turn: outcome, reason, confidence, tokens, cost, question fingerprint |
+
+`tickets` also carries `channel`, `language`, `sentiment`, `ai_status`, `ai_exchanges`, `escalation_reason`,
+`escalated_at` and `first_ai_response_at`; `team_members` carries a `role` (`member` / `lead`).
 
 ## Tenant column
 

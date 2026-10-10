@@ -228,6 +228,16 @@ return [
         // Validate the workflow configuration at boot (fail-fast on typos).
         'validate_on_boot' => true,
 
+        // A public reply from the requester reopens a resolved/closed ticket
+        // (through this workflow transition) if it comes within N days of the
+        // resolution (0 = any time). The transition must be allowed from the
+        // ticket's state, so a workflow without it is simply not reopened.
+        'reopen_on_reply' => [
+            'enabled' => true,
+            'transition' => 'reopen',
+            'within_days' => 7,
+        ],
+
         'workflows' => [
             'default' => [
                 'initial' => 'open',

@@ -55,6 +55,19 @@ resolution note:
 'resolve' => ['from' => ['in_progress'], 'to' => 'resolved', 'guard' => RequireResolutionNote::class],
 ```
 
+## Reopening on a customer reply {#reopen-on-reply}
+
+A public reply from the requester reopens a resolved or closed ticket — through the workflow's own `reopen`
+transition, so guards, audit, SLA and events behave as for a manual reopen — if it arrives within a window:
+
+```php
+'workflow' => [
+    'reopen_on_reply' => ['enabled' => true, 'transition' => 'reopen', 'within_days' => 7], // 0 = any time
+],
+```
+
+Agents' replies and internal notes never reopen; a state the transition cannot leave is left alone.
+
 ## Custom workflow drivers
 
 The rest of the engine (SLA, routing, events) talks to the `WorkflowDriver` contract, never to the config

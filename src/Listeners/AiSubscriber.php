@@ -13,6 +13,7 @@ use Selli\Ticketing\Enums\AiStatus;
 use Selli\Ticketing\Enums\MessageSource;
 use Selli\Ticketing\Enums\MessageVisibility;
 use Selli\Ticketing\Events\MessagePosted;
+use Selli\Ticketing\Events\TicketReopened;
 use Selli\Ticketing\Events\TicketResolved;
 use Selli\Ticketing\Jobs\RunAiTurn;
 use Selli\Ticketing\Models\Contact;
@@ -58,9 +59,29 @@ class AiSubscriber implements Subscriber
             || ($author instanceof Model && $this->requests->isRequester($ticket, $author))
             || ($author === null && in_array($message->source, [MessageSource::Email, MessageSource::Widget], true));
 
-        if ($fromCustomer && ($ticket->ai_status === null || $ticket->ai_status->answers())) {
+        if (! $fromCustomer) {
+            return;
+        }
+
+        // Read the AI status as stored now: an earlier listener for the same
+        // message (e.g. reopen-on-reply) may have changed it.
+        $status = Ticketing::ticketModel()::query()->withoutTenancy()->whereKey($ticket->getKey())->value('ai_status');
+        $status = is_string($status) ? AiStatus::tryFrom($status) : null;
+
+        if ($status === null || $status->answers()) {
             RunAiTurn::dispatchFor($ticket, $message);
         }
+    }
+
+    /**
+     * A customer coming back to a ticket the AI had resolved is the AI's again.
+     */
+    public function onReopened(TicketReopened $event): void
+    {
+        Ticketing::ticketModel()::query()->withoutTenancy()
+            ->whereKey($event->ticket->getKey())
+            ->where('ai_status', AiStatus::Resolved->value)
+            ->update(['ai_status' => AiStatus::Active->value]);
     }
 
     public function onResolved(TicketResolved $event): void
@@ -83,6 +104,7 @@ class AiSubscriber implements Subscriber
         return [
             MessagePosted::class => 'onMessage',
             TicketResolved::class => 'onResolved',
+            TicketReopened::class => 'onReopened',
         ];
     }
 }

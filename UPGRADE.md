@@ -30,7 +30,10 @@ run them as above. They add:
 
 - query indexes on `tickets`, `ticket_participants`, `ticket_messages`, `sla_clocks` and
   `satisfaction_ratings`;
-- a nullable `channel` column on `tickets`.
+- a nullable `channel` column on `tickets`;
+- the contacts, knowledge-base, widget-key, conversation and AI-turn tables;
+- AI and classification columns on `tickets` (`language`, `sentiment`, `ai_status`, `ai_exchanges`,
+  `escalation_reason`, `escalated_at`, `first_ai_response_at`) and a `role` on `team_members`.
 
 ### Removed claims (no code is removed)
 
@@ -50,6 +53,14 @@ documented recipes on the [Multi-tenancy](https://laravel-ticketing.selli.io/con
   values (`?status=open,pending` or `?status[]=open&status[]=pending`) instead of silently ignoring arrays,
   and new filters (`state`, `type`, `channel`, `assignee`, `team`, `tag`, `created_from`/`created_to`, `q`,
   `sort`) are available. The default order is still newest first.
+- **Inbound email senders become contacts.** With no `InboundRequesterResolver` of your own, the email
+  channel now resolves the sender to a `Contact` (author and requester of the ticket) instead of leaving them
+  empty. Set `ticketing.contacts.inbound_email` to `false` for the old behaviour.
+- **Requester replies reopen resolved tickets** within 7 days, through the workflow's `reopen` transition
+  (`ticketing.workflow.reopen_on_reply`). Set `enabled` to `false` to keep resolved tickets resolved.
+- **REST ids are strings.** `subject.id`, `assignee.id` and `author.id` are always serialised as strings
+  (they are string columns); a freshly assigned ticket used to return an integer.
+- **Message sources** gain `ai` and `widget`.
 - **Inbound email rate-limit keys** are hashed with SHA-256 instead of SHA-1. Counters in flight at the
   moment of the upgrade restart from zero (at most one minute of flood allowance).
 

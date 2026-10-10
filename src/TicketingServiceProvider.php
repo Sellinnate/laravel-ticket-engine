@@ -52,6 +52,7 @@ use Selli\Ticketing\Listeners\NotificationSubscriber;
 use Selli\Ticketing\Listeners\RoutingSubscriber;
 use Selli\Ticketing\Listeners\SlaSubscriber;
 use Selli\Ticketing\Listeners\Subscriber;
+use Selli\Ticketing\Listeners\WorkflowSubscriber;
 use Selli\Ticketing\Mail\ConfigInboundMailRouter;
 use Selli\Ticketing\Mail\ContactInboundRequesterResolver;
 use Selli\Ticketing\Mail\NullInboundRequesterResolver;
@@ -233,6 +234,10 @@ class TicketingServiceProvider extends PackageServiceProvider
 
         if (config('ticketing.automation.enabled', true) !== false) {
             $this->subscribe($this->app->make(AutomationSubscriber::class));
+        }
+
+        if (config('ticketing.workflow.reopen_on_reply.enabled', true) !== false) {
+            $this->subscribe($this->app->make(WorkflowSubscriber::class));
         }
 
         if (config('ticketing.ai.enabled', false) === true) {

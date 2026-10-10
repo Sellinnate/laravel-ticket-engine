@@ -36,6 +36,23 @@ and wire it yourself.
 | `POST /tickets/{ticket}/assignment` | assign to a team/agent or self |
 | `POST /tickets/{ticket}/attachments` | upload an attachment |
 | `POST /tickets/{ticket}/csat` | submit a satisfaction rating |
+| `POST /tickets/{ticket}/escalate` | hand the ticket to humans (a requester asks for a person; an agent escalates manually) |
+| `POST /tickets/{ticket}/takeover` | an agent takes the ticket from the AI (`assign=false` to keep the assignee) |
+| `POST /tickets/{ticket}/articles` | link a knowledge-base article: `{article_id, relation?}` (agents) |
+
+### Knowledge base {#knowledge-base}
+
+| Method & path | Action |
+| --- | --- |
+| `GET /kb/articles?q=&locale=&type=&category=` | list or search what the caller may read (by [audience](/concepts/knowledge-base#audiences)) |
+| `GET /kb/articles/{article}` | show (agents of the tenant also see drafts) |
+| `POST /kb/articles` / `PATCH /kb/articles/{article}` | create (draft) / update — agents |
+| `POST /kb/articles/{article}/publish` / `…/archive` | change visibility — agents |
+| `POST /kb/articles/{article}/feedback` | `{helpful, comment?}` |
+
+Ticket responses include `channel`, `language`, `sentiment` and an `ai` block (`status`, `exchanges`,
+`escalation_reason`, `escalated_at`, `first_response_at`); AI-written messages carry `ai.sources` and
+`ai.confidence`. Polymorphic ids (`subject.id`, `assignee.id`, `author.id`) are always strings.
 
 ## Listing and filtering {#listing}
 
