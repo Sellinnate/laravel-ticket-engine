@@ -32,6 +32,7 @@ use Selli\Ticketing\Events\ConversationEscalated;
 use Selli\Ticketing\Events\ConversationStarted;
 use Selli\Ticketing\Exceptions\ConversationException;
 use Selli\Ticketing\Facades\Ticketing;
+use Selli\Ticketing\Models\AiTurn;
 use Selli\Ticketing\Models\Contact;
 use Selli\Ticketing\Models\Conversation;
 use Selli\Ticketing\Models\Ticket;
@@ -590,4 +591,43 @@ it('resolves AI settings for the default type of a key without one', function ()
 
     $this->getJson('/ticketing/widget/v1/config', ['X-Ticketing-Key' => $key->public_key])
         ->assertJsonPath('data.assistant', false);
+});
+
+it('finishes a failed turn quietly when the visitor closed the conversation meanwhile', function (): void {
+    ['key' => $key] = widgetKey();
+    ['conversation' => $conversation] = Ticketing::conversations()->start($key);
+    config()->set('ticketing.ai.mode', 'off');
+    $message = Ticketing::conversationMessageModel()::query()->create([
+        'conversation_id' => $conversation->getKey(), 'role' => 'visitor', 'body' => 'Question',
+    ]);
+    config()->set('ticketing.ai.mode', 'auto');
+
+    app(AiManager::class)->extend('closing', fn () => new class($conversation) implements AiDriver
+    {
+        public function __construct(private Conversation $conversation) {}
+
+        public function classify(AiRequest $request): AiClassification
+        {
+            Ticketing::conversations()->close($this->conversation);
+
+            throw new RuntimeException('provider down');
+        }
+
+        public function answer(AiRequest $request): AiAnswer
+        {
+            return sure();
+        }
+
+        public function summarize(AiRequest $request): AiSummary
+        {
+            return new AiSummary('');
+        }
+    });
+    config()->set('ticketing.ai.driver', 'closing');
+
+    $turn = app(AiAssistant::class)->respondToConversation($conversation, $message);
+
+    expect($turn?->status)->toBe(AiTurn::STATUS_DONE)
+        ->and($conversation->refresh()->status)->toBe(ConversationStatus::Closed)
+        ->and(Ticket::query()->count())->toBe(0);
 });

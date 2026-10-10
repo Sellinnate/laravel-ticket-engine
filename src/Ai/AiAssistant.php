@@ -17,6 +17,7 @@ use Selli\Ticketing\Enums\AiMode;
 use Selli\Ticketing\Enums\AiOutcome;
 use Selli\Ticketing\Enums\AiStatus;
 use Selli\Ticketing\Enums\ConversationRole;
+use Selli\Ticketing\Enums\ConversationStatus;
 use Selli\Ticketing\Enums\EscalationReason;
 use Selli\Ticketing\Enums\MessageSource;
 use Selli\Ticketing\Enums\MessageVisibility;
@@ -479,9 +480,12 @@ class AiAssistant
             ? Ticketing::ticketModel()::query()->withoutTenancy()->find($conversation->ticket_id)
             : null;
 
-        $ticket instanceof Ticket
-            ? $this->container->make(EscalateTicket::class)->handle($ticket, $reason, notifyCustomer: true, resume: true)
-            : $this->conversations()->escalate($conversation, $reason);
+        // A conversation the visitor closed meanwhile has nobody to hand over to.
+        if ($ticket instanceof Ticket) {
+            $this->container->make(EscalateTicket::class)->handle($ticket, $reason, notifyCustomer: true, resume: true);
+        } elseif ($conversation->status !== ConversationStatus::Closed) {
+            $this->conversations()->escalate($conversation, $reason);
+        }
 
         $turn->forceFill(['status' => AiTurn::STATUS_DONE])->save();
 
