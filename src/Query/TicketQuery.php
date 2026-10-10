@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Selli\Ticketing\Query;
 
 use Carbon\CarbonInterface;
+use Closure;
 use Illuminate\Contracts\Pagination\CursorPaginator;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
@@ -60,6 +61,14 @@ class TicketQuery
     public static function make(): static
     {
         return new static;
+    }
+
+    /**
+     * A clone narrows independently of the original.
+     */
+    public function __clone()
+    {
+        $this->query = clone $this->query;
     }
 
     /**
@@ -144,6 +153,27 @@ class TicketQuery
      */
     public function state(string $semantic): static
     {
+        $this->query->where($this->stateConstraint($semantic));
+
+        return $this;
+    }
+
+    /**
+     * Tickets whose status does NOT map to this semantic — e.g. the backlog
+     * is everything not `closed`.
+     */
+    public function notState(string $semantic): static
+    {
+        $this->query->whereNot($this->stateConstraint($semantic));
+
+        return $this;
+    }
+
+    /**
+     * @return Closure(Builder<Ticket>): void
+     */
+    protected function stateConstraint(string $semantic): Closure
+    {
         if (! in_array($semantic, ['open', 'closed', 'paused'], true)) {
             throw new InvalidArgumentException("Unknown ticket state semantic [{$semantic}].");
         }
@@ -152,7 +182,7 @@ class TicketQuery
         $driver = app(WorkflowDriver::class);
         $typeModel = Ticketing::ticketTypeModel();
 
-        $this->query->where(function (Builder $query) use ($driver, $semantic, $typeModel): void {
+        return function (Builder $query) use ($driver, $semantic, $typeModel): void {
             // No workflow at all: match nothing rather than everything.
             $query->whereRaw('1 = 0');
 
@@ -176,9 +206,7 @@ class TicketQuery
                             ->select((new $typeModel)->getKeyName()));
                 });
             }
-        });
-
-        return $this;
+        };
     }
 
     /**
@@ -575,6 +603,16 @@ class TicketQuery
      * the many free-form strings Carbon would happily guess at — is ignored. A
      * bare date used as an upper bound covers that whole day.
      */
+    /**
+     * A filter date as the listing accepts it — `YYYY-MM-DD` (with
+     * $endOfDay, the whole day) or an ISO date-time, offsets converted to the
+     * application timezone — or null when it is not one.
+     */
+    public static function parseDate(mixed $value, bool $endOfDay = false): ?Carbon
+    {
+        return self::date($value, $endOfDay);
+    }
+
     protected static function date(mixed $value, bool $endOfDay = false): ?Carbon
     {
         if (! is_string($value) || preg_match('/^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/', $value) !== 1) {

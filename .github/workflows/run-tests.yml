@@ -60,7 +60,13 @@ jobs:
           echo "::add-matcher::${{ runner.tool_cache }}/phpunit.json"
 
       - name: Install dependencies
+        shell: bash
         run: |
+          # laravel/mcp (optional MCP tools) needs Laravel 12.41+, which would also
+          # lift the lowest Laravel 12 tested: those jobs run without it (its tests skip).
+          if [ "${{ matrix.laravel }}" = "11.*" ] || [ "${{ matrix.stability }}" = "prefer-lowest" ]; then
+            composer remove laravel/mcp --dev --no-update --no-interaction
+          fi
           composer require "laravel/framework:${{ matrix.laravel }}" "orchestra/testbench:${{ matrix.testbench }}" --no-interaction --no-update
           composer update --${{ matrix.stability }} --prefer-dist --no-interaction
 

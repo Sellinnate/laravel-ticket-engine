@@ -546,6 +546,33 @@ return [
 
             // Per-sender flood guard; an over-limit sender is dropped (fail closed).
             'rate_limit' => ['max_per_minute' => 30],
+
+            // Store what the sender wrote: quoted history and signature are cut
+            // (the original stays in the message's meta.original_body).
+            'strip_quotes' => true,
+
+            // Cc'd addresses follow the ticket as `cc` participants (contacts).
+            'cc_participants' => true,
+
+            // Your own addresses, never added as Cc participants (besides the
+            // reply-to base, the outbound sender, the polled mailboxes and
+            // the literal route addresses, which are recognised already).
+            'own_addresses' => [],
+
+            // Mailboxes polled by `php artisan ticketing:mail:poll` (schedule it
+            // every minute with ->withoutOverlapping()). The imap driver needs
+            // directorytree/imapengine; without processed_folder a message is
+            // flagged seen once ingested. A message that keeps failing is
+            // retried with a growing delay, then set aside after max_attempts
+            // (moved to failed_folder, or flagged).
+            //
+            // 'support' => [
+            //     'driver' => 'imap',
+            //     'host' => env('TICKETING_IMAP_HOST'), 'port' => 993, 'encryption' => 'ssl',
+            //     'username' => env('TICKETING_IMAP_USERNAME'), 'password' => env('TICKETING_IMAP_PASSWORD'),
+            //     'folder' => 'INBOX', 'processed_folder' => 'Processed', 'failed_folder' => 'Failed', 'max_attempts' => 10,
+            // ],
+            'mailboxes' => [],
         ],
 
         'outbound' => [

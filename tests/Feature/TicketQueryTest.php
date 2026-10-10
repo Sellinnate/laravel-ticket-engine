@@ -327,3 +327,15 @@ it('applies the tag model scopes in the tag filter', function (): void {
         expect(Ticketing::tickets()->taggedWith('shared')->count())->toBe(1);
     });
 });
+
+it('narrows a clone independently of the original', function (): void {
+    Ticketing::open(type: 'support', title: 'Open one');
+    $resolved = Ticketing::open(type: 'support', title: 'Resolved one');
+    Ticketing::transition($resolved, 'resolve');
+
+    $all = Ticketing::tickets();
+    $open = (clone $all)->state('open');
+
+    expect($open->count())->toBe(1)
+        ->and($all->count())->toBe(2);
+});

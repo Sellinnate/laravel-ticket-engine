@@ -111,6 +111,18 @@ class TicketPolicy
         return $this->view($user, $ticket);
     }
 
+    /**
+     * Read the support KPIs and exports of the current tenant: agents of that
+     * tenant only (the tenant scope narrows the rows; it does not say the
+     * caller belongs there).
+     */
+    public function viewReports(Authenticatable $user): bool
+    {
+        return $user instanceof CanActOnTickets
+            && $user instanceof Model
+            && $this->tenants->belongsToCurrentTenant($user);
+    }
+
     public function delete(Authenticatable $user, Ticket $ticket): bool
     {
         return $this->isTenantAgent($user, $ticket);

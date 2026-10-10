@@ -23,6 +23,36 @@ class TenantGuard
     }
 
     /**
+     * Whether a model belongs to the current tenant (same rules as
+     * belongsToTenantOf(), against the resolved tenant rather than a row).
+     */
+    public function belongsToCurrentTenant(Model $model): bool
+    {
+        $context = app(TenantContext::class);
+
+        // Single-tenant: there is no tenant to belong to.
+        if (! $context->enabled()) {
+            return true;
+        }
+
+        $column = $context->column();
+
+        if (! array_key_exists($column, $model->getAttributes())) {
+            return true;
+        }
+
+        $modelTenant = $model->getAttribute($column);
+
+        if ($modelTenant === null) {
+            return config('ticketing.tenancy.allow_shared', true) !== false;
+        }
+
+        $current = $context->current();
+
+        return $current !== null && (string) $modelTenant === (string) $current;
+    }
+
+    /**
      * The same check against any tenant-scoped owner (an article, a widget
      * key, …): the model must carry no tenant column, be shared (when sharing
      * is on) or belong to the owner's tenant.

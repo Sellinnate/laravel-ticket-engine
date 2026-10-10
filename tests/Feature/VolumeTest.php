@@ -190,3 +190,29 @@ it('resolves 50 notification recipients in a constant number of queries', functi
     expect($resolved)->toHaveCount(50)
         ->and($queries)->toBe(2);
 });
+
+it('computes the KPIs of 10k tickets in the database, in a bounded number of queries', function (): void {
+    seedTickets(VOLUME, ['first_response_at' => Carbon::parse('2026-01-05 00:00:00')]);
+    Carbon::setTestNow('2026-02-01 00:00:00');
+
+    try {
+        $metrics = Ticketing::metrics()->between(Carbon::parse('2026-01-01'), Carbon::parse('2026-01-31 23:59:59'));
+        $summary = null;
+
+        $queries = countQueries(function () use ($metrics, &$summary): void {
+            $summary = $metrics->summary();
+        });
+
+        // Volume and its daily series, backlog buckets, durations with their
+        // medians, SLA, AI, CSAT, gaps: independent of the number of tickets.
+        expect($summary['volume']['created'])->toBe(VOLUME)
+            ->and($summary['first_response']['count'])->toBe(VOLUME)
+            ->and($summary['backlog']['open'])->toBe(8000)
+            ->and($queries)->toBeLessThanOrEqual(45);
+
+        $breakdown = countQueries(fn () => expect($metrics->breakdown('channel'))->toHaveCount(2));
+        expect($breakdown)->toBeLessThanOrEqual(8);
+    } finally {
+        Carbon::setTestNow();
+    }
+});

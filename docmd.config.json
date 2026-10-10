@@ -62,7 +62,8 @@
         { "title": "Notifications", "path": "/concepts/notifications", "icon": "bell" },
         { "title": "Contacts", "path": "/concepts/contacts", "icon": "contact" },
         { "title": "Knowledge base", "path": "/concepts/knowledge-base", "icon": "library" },
-        { "title": "AI assistance", "path": "/concepts/ai", "icon": "sparkles" }
+        { "title": "AI assistance", "path": "/concepts/ai", "icon": "sparkles" },
+        { "title": "Reporting & KPIs", "path": "/concepts/reporting", "icon": "bar-chart" }
       ]
     },
     {
@@ -73,6 +74,13 @@
         { "title": "Email-to-ticket", "path": "/channels/email", "icon": "mail" },
         { "title": "Broadcasting", "path": "/channels/broadcasting", "icon": "wifi" },
         { "title": "Chat & widget", "path": "/channels/widget", "icon": "message-circle" }
+      ]
+    },
+    {
+      "title": "Integrations",
+      "icon": "plug",
+      "children": [
+        { "title": "MCP tools", "path": "/integrations/mcp", "icon": "bot" }
       ]
     },
     {

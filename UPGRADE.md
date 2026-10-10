@@ -17,8 +17,9 @@
 
 4. Compare your published `config/ticketing.php` with the package's: new keys have a default that keeps
    the previous behaviour, so copying them is optional but recommended — except where a version's
-   **Behaviour changes** below say otherwise (for 1.0.0: `contacts.inbound_email` and
-   `workflow.reopen_on_reply` are on by default).
+   **Behaviour changes** below say otherwise (for 1.0.0: `contacts.inbound_email`,
+   `workflow.reopen_on_reply`, `mail.inbound.strip_quotes` and `mail.inbound.cc_participants` are on by
+   default).
 
 ## From a pre-release checkout (`dev-main` before 1.0.0) to 1.0.0
 
@@ -35,7 +36,9 @@ run them as above. They add:
 - a nullable `channel` column on `tickets`;
 - the contacts, knowledge-base, widget-key, conversation and AI-turn tables;
 - AI and classification columns on `tickets` (`language`, `sentiment`, `ai_status`, `ai_exchanges`,
-  `escalation_reason`, `escalated_at`, `first_ai_response_at`) and a `role` on `team_members`.
+  `escalation_reason`, `escalated_at`, `first_ai_response_at`) and a `role` on `team_members`;
+- an indexed `email_message_id` on `ticket_messages` — the migration backfills it from the emails already
+  stored — and, with tenancy on, an index on `tickets.reference`.
 
 ### Removed claims (no code is removed)
 
@@ -68,6 +71,19 @@ documented recipes on the [Multi-tenancy](https://laravel-ticketing.selli.io/con
   participant row.
 - **Inbound email rate-limit keys** are hashed with SHA-256 instead of SHA-1. Counters in flight at the
   moment of the upgrade restart from zero (at most one minute of flood allowance).
+- **Inbound email bodies** are stored without the quoted history and the signature (the original stays in
+  `meta.original_body`); set `ticketing.mail.inbound.strip_quotes` to `false` for the old behaviour.
+- **Cc'd addresses** of an inbound email become `cc` participants (contacts) and so receive the public
+  replies; set `ticketing.mail.inbound.cc_participants` to `false` to keep them out.
+- **More automated mail is dropped**: bounces and delivery reports, `noreply@` senders and the package's own
+  notifications coming back.
+- **Threading** also follows the package's own Message-IDs and a bracketed reference in the subject (only
+  for a sender already on the ticket); `In-Reply-To` lookups use the new column instead of the JSON path.
+- **Reply notifications by mail** carry the whole message under `Re: <title> [<reference>]` instead of a
+  140-character excerpt, and every ticket mail gets threading headers (`Message-ID`, `In-Reply-To`,
+  `References`, `X-Ticketing-Mailer`).
+- **Inbound Message-IDs longer than 191 characters** are de-duplicated on their SHA-256 hash: a redelivery
+  of such an email in the minutes around the upgrade may be ingested once more.
 
 ### Classes now marked `@internal`
 

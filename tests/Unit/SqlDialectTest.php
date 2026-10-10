@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use Illuminate\Database\Query\Grammars\MySqlGrammar;
+use Illuminate\Database\Query\Grammars\SqlServerGrammar;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Selli\Ticketing\Database\SqlDialect;
@@ -39,4 +41,13 @@ it('yields NULL durations when either side is NULL', function (): void {
         ->value(SqlDialect::secondsBetween('created_at', 'resolved_at'));
 
     expect($seconds)->toBeNull();
+});
+
+it('averages to a fraction on every database, SQL Server included', function (): void {
+    $average = SqlDialect::average(SqlDialect::secondsBetween('created_at', 'resolved_at'));
+
+    expect($average->getValue(new SqlServerGrammar(DB::connection())))
+        ->toBe('avg(cast(DATEDIFF_BIG(SECOND, [created_at], [resolved_at]) as float))')
+        ->and($average->getValue(new MySqlGrammar(DB::connection())))
+        ->toBe('avg(TIMESTAMPDIFF(SECOND, `created_at`, `resolved_at`))');
 });

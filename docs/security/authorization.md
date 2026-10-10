@@ -21,6 +21,7 @@ internal-note visibility is denied to non-agents at the policy *and* query level
 | `transition`, `assign`, `changePriority`, `merge`, `split`, `delete` | tenant agents only |
 | `escalate` | anyone who can view the ticket (a requester asking for a person) |
 | `takeOver`, `linkArticle` | tenant agents only |
+| `viewReports` (no ticket: `Gate::allows('viewReports', Ticket::class)`) | agents of the current tenant (or not tied to one) — the [KPIs and exports](/concepts/reporting) of that tenant |
 
 Knowledge-base articles have their own `KbArticlePolicy`: `view` follows the article's
 [audience](/concepts/knowledge-base#audiences) (tenant agents also see drafts; another tenant's article is

@@ -34,7 +34,9 @@
         "illuminate/contracts": "^11.0||^12.0||^13.0"
     },
     "require-dev": {
+        "directorytree/imapengine": "^1.25",
         "larastan/larastan": "^3.0",
+        "laravel/mcp": "^1.0",
         "laravel/pint": "^1.14",
         "nunomaduro/collision": "^8.8",
         "orchestra/testbench": "^11.0.0||^10.0.0||^9.0.0",
@@ -45,7 +47,10 @@
         "phpstan/phpstan-deprecation-rules": "^2.0",
         "phpstan/phpstan-phpunit": "^2.0"
     },
-    "suggest": {},
+    "suggest": {
+        "directorytree/imapengine": "Poll inbound email over IMAP with php artisan ticketing:mail:poll (^1.25).",
+        "laravel/mcp": "Expose the help desk to AI agents as MCP tools (Selli\\Ticketing\\Mcp\\TicketingServer; Laravel 12.41+)."
+    },
     "autoload": {
         "psr-4": {
             "Selli\\Ticketing\\": "src/",
