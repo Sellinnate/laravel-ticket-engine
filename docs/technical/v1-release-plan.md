@@ -258,9 +258,9 @@ feature above works on the keyword search and the configured AI driver.
 
 | Phase | Branch | Content |
 | --- | --- | --- |
-| 1. Foundation | `feature/v1-stable-foundation` | This plan; PHPStan level 8; claims and links cleanup; public API + `@internal`; arch tests; indexes, N+1 fixes, `TicketQuery`; CI matrix (Laravel 11–13) with MySQL and PostgreSQL jobs; volume tests. |
-| 2. Support domain | `feature/v1-stable-support` | Contacts, knowledge base, AI layer, conversations and widget API, human takeover, escalation, reference JS client. |
-| 3. Channels & insight | `feature/v1-stable-channels` | Inbound email completion and IMAP adapter; KPI service and CSV export; MCP tools. |
+| 1. Foundation ([#18](https://github.com/Sellinnate/laravel-ticket-engine/pull/18)) | `feature/v1-stable-foundation` | This plan; PHPStan level 8; claims and links cleanup; public API + `@internal`; arch tests; indexes, N+1 fixes, `TicketQuery`; CI matrix (Laravel 11–13) with MySQL and PostgreSQL jobs; volume tests. |
+| 2. Support domain ([#19](https://github.com/Sellinnate/laravel-ticket-engine/pull/19)) | `feature/v1-stable-support` | Contacts, knowledge base, AI layer, conversations and widget API, human takeover, escalation, reference JS client. |
+| 3. Channels & insight ([#20](https://github.com/Sellinnate/laravel-ticket-engine/pull/20)) | `feature/v1-stable-channels` | Inbound email completion and IMAP adapter; KPI service and CSV export; MCP tools. |
 | 4. RAG bridge | `feature/v1-stable-rag` | `Integrations\RagEngine` (indexing, AI driver, deflection, similar tickets, GDPR purge). |
 | 5. Docs & release | `feature/v1-stable-release` | Full docmd site, Cloudflare `wrangler.jsonc`, README with banner, CHANGELOG 1.0.0, `UPGRADE.md`, `SECURITY.md`, `CONTRIBUTING.md`, `.gitattributes`, `composer.json`, release runbook, final adversarial review (`hardening-v1.md`). |
 
