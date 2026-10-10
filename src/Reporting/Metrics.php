@@ -290,7 +290,17 @@ class Metrics
             }
         }
 
-        $handled = $this->createdInPeriod()->whereNotNull('ai_status');
+        // Handled by the AI: it ran on the ticket, or on the widget
+        // conversation the ticket came from — not a ticket an agent took
+        // before the AI ever ran (its status is "suspended" all the same).
+        $key = (new (Ticketing::ticketModel()))->getKeyName();
+        $handled = $this->createdInPeriod()->where(function (Builder $query) use ($key): void {
+            $query->whereIn($key, Ticketing::aiTurnModel()::query()->withoutTenancy()->whereNotNull('ticket_id')->select('ticket_id'))
+                ->orWhereIn($key, Ticketing::conversationModel()::query()->withoutTenancy()
+                    ->whereNotNull('ticket_id')
+                    ->whereIn((new (Ticketing::conversationModel()))->getKeyName(), Ticketing::aiTurnModel()::query()->withoutTenancy()->whereNotNull('conversation_id')->select('conversation_id'))
+                    ->select('ticket_id'));
+        });
         $total = (clone $handled)->count();
         $resolved = (clone $handled)->where('ai_status', AiStatus::Resolved->value)->count();
         $escalated = (clone $handled)->whereNotNull('escalated_at')->count();

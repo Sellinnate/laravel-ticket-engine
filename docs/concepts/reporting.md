@@ -45,7 +45,7 @@ takes any `TicketQuery` call.
 | `resolution()` | `count`, `mean_seconds`, `median_seconds` | time from creation to resolution, for the tickets **resolved** in the period |
 | `reopenRate()` | `0..1` or `null` | share of the tickets resolved in the period that had been reopened |
 | `sla()` | per target: `met`, `breached`, `running`, `compliance` | the [SLA clocks](/concepts/sla) of the tickets created in the period — a deadline missed before the sweep ran (completed late, or still open and overdue) counts as breached; compliance = met / (met + breached) |
-| `ai()` | turns by outcome, AI-handled tickets, `resolved_by_ai`, `escalated`, rates, `escalation_reasons`, conversations, tokens, `cost` per currency | the [AI](/concepts/ai) turns and tickets of the period |
+| `ai()` | turns by outcome, AI-handled tickets, `resolved_by_ai`, `escalated`, rates, `escalation_reasons`, conversations, tokens, `cost` per currency | the [AI](/concepts/ai) turns of the period, and the tickets of the period the AI actually ran on (or on the widget conversation they came from) — not those an agent took first |
 | `csat()` | `requested`, `submitted`, `response_rate`, per scale: average and distribution | the [CSAT](/concepts/csat) surveys sent / answered in the period |
 | `knowledgeGaps($limit = 20)` | `question`, `asked`, `last_asked_at` | questions the AI could not answer (no sources, low confidence), grouped by their normalised text, most asked first |
 | `breakdown($dimension)` | per key: `label`, `created`, `resolved`, `open`, mean first response and resolution | the same flow metrics, grouped |

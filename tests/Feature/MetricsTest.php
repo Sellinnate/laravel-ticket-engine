@@ -168,13 +168,16 @@ it('reports the AI share of the work, its escalations and its cost', function ()
     $a = pastTicket(['ai_status' => 'resolved']);
     $b = pastTicket(['ai_status' => 'escalated', 'escalated_at' => '2026-03-02 09:00:00', 'escalation_reason' => 'no_sources']);
     $c = pastTicket(['ai_status' => 'suspended', 'escalated_at' => '2026-03-02 09:00:00', 'escalation_reason' => 'human_requested']);
-    pastTicket(['ai_status' => 'active']);
+    $d = pastTicket(['ai_status' => 'active']);
     pastTicket();
+    // Taken by an agent before the AI ever ran: not AI work.
+    pastTicket(['ai_status' => 'suspended']);
 
     $turn(['ticket_id' => $a, 'outcome' => 'answered', 'input_tokens' => 100, 'output_tokens' => 20, 'cost' => 0.01, 'currency' => 'EUR']);
     $turn(['ticket_id' => $b, 'outcome' => 'escalated', 'escalation_reason' => 'no_sources', 'cost' => 0.02, 'currency' => 'EUR']);
     $turn(['ticket_id' => $c, 'outcome' => 'escalated', 'escalation_reason' => 'human_requested', 'cost' => 0.5, 'currency' => 'USD']);
     $turn(['ticket_id' => $c, 'outcome' => 'answered', 'created_at' => '2026-02-01 08:00:00']);
+    $turn(['ticket_id' => $d, 'outcome' => 'answered']);
 
     DB::table((new (Ticketing::conversationModel()))->getTable())->insert([
         ['public_id' => 'c1', 'channel' => 'widget', 'token_hash' => 'h1', 'status' => 'closed', 'resolved_by_ai' => true, 'escalated_at' => null, 'created_at' => '2026-03-03 08:00:00', 'updated_at' => '2026-03-03 08:00:00'],
@@ -184,7 +187,7 @@ it('reports the AI share of the work, its escalations and its cost', function ()
     $ai = Ticketing::metrics()->between(...period())->ai();
 
     expect($ai)->toMatchArray([
-        'turns' => 3,
+        'turns' => 4,
         'tickets' => 4,
         'resolved_by_ai' => 1,
         'escalated' => 2,
@@ -195,7 +198,7 @@ it('reports the AI share of the work, its escalations and its cost', function ()
         'input_tokens' => 100,
         'output_tokens' => 20,
         'cost' => ['EUR' => 0.03, 'USD' => 0.5],
-    ])->and($ai['outcomes'])->toEqual(['answered' => 1, 'escalated' => 2]);
+    ])->and($ai['outcomes'])->toEqual(['answered' => 2, 'escalated' => 2]);
 
     // A ticket filter narrows the turns too, and leaves conversations out.
     $filtered = Ticketing::metrics()->between(...period())->where(fn (TicketQuery $query) => $query->where(fn ($builder) => $builder->whereKey($a)))->ai();
