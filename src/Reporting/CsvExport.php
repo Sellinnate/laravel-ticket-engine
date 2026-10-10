@@ -8,6 +8,7 @@ use BackedEnum;
 use DateTimeInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Selli\Ticketing\Models\Ticket;
+use Selli\Ticketing\Tenancy\TenantContext;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
@@ -36,10 +37,22 @@ class CsvExport
         $columns ??= self::TICKET_COLUMNS;
         $key = $query->getModel()->getKeyName();
 
-        return self::stream($columns, (function () use ($query, $columns, $key): \Generator {
-            foreach ((clone $query)->reorder()->lazyById(500, $key) as $ticket) {
-                yield array_map(fn (string $column): mixed => $ticket->getAttribute($column), $columns);
-            }
+        // The response streams after this call returns, maybe outside the
+        // tenant it was asked in: every chunk is read in that tenant.
+        $context = app(TenantContext::class);
+        $tenant = $context->current();
+
+        return self::stream($columns, (function () use ($query, $columns, $key, $context, $tenant): \Generator {
+            $last = null;
+
+            do {
+                $chunk = $context->forTenant($tenant, fn () => (clone $query)->reorder()->forPageAfterId(500, $last, $key)->get());
+
+                foreach ($chunk as $ticket) {
+                    yield array_map(fn (string $column): mixed => $ticket->getAttribute($column), $columns);
+                    $last = $ticket->getKey();
+                }
+            } while ($chunk->count() === 500);
         })(), $filename);
     }
 

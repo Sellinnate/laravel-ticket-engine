@@ -330,6 +330,24 @@ it('streams the tickets of the period as CSV, safe for spreadsheets', function (
         ->and($csv)->not->toContain('Too old');
 });
 
+it('streams the export in the tenant it was asked in, in chunks', function (): void {
+    $context = app(TenantContext::class);
+    $context->forTenant(1, fn () => pastTicket(['tenant_id' => 1, 'title' => 'Tenant one']));
+    foreach (range(1, 501) as $i) {
+        $context->forTenant(2, fn () => pastTicket(['tenant_id' => 2, 'title' => 'Tenant two '.$i]));
+    }
+
+    // Built in tenant 2, streamed afterwards with no tenant around.
+    $response = $context->forTenant(2, fn () => Ticketing::metrics()->between(...period())->exportTickets(['title']));
+
+    ob_start();
+    $response->sendContent();
+    $lines = array_values(array_filter(explode("\n", (string) ob_get_clean())));
+
+    expect($lines)->toHaveCount(502)
+        ->and(implode("\n", $lines))->not->toContain('Tenant one');
+});
+
 it('streams a breakdown as CSV', function (): void {
     pastTicket(['channel' => 'email']);
 
