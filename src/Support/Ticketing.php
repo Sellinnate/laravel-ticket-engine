@@ -26,6 +26,7 @@ use Selli\Ticketing\Data\PostMessageData;
 use Selli\Ticketing\Data\TransitionData;
 use Selli\Ticketing\Enums\MessageVisibility;
 use Selli\Ticketing\Enums\Priority;
+use Selli\Ticketing\Enums\TicketChannel;
 use Selli\Ticketing\Exceptions\CsatException;
 use Selli\Ticketing\Exceptions\InvalidConfigurationException;
 use Selli\Ticketing\Gdpr\AnonymizeRequester;
@@ -51,6 +52,7 @@ use Selli\Ticketing\Models\TicketLink;
 use Selli\Ticketing\Models\TicketMessage;
 use Selli\Ticketing\Models\TicketParticipant;
 use Selli\Ticketing\Models\TicketType;
+use Selli\Ticketing\Query\TicketQuery;
 use Selli\Ticketing\Tenancy\TenantContext;
 
 /**
@@ -81,6 +83,7 @@ class Ticketing
         mixed $subject = null,
         ?string $category = null,
         array $attributes = [],
+        TicketChannel|string|null $channel = null,
     ): Ticket {
         return $this->container->make(OpenTicket::class)->handle(new OpenTicketData(
             type: $type,
@@ -90,6 +93,7 @@ class Ticketing
             subject: $subject,
             category: $category,
             attributes: $attributes,
+            channel: $channel instanceof TicketChannel ? $channel->value : $channel,
         ));
     }
 
@@ -100,6 +104,14 @@ class Ticketing
     public function for(mixed $target): PendingTicket
     {
         return new PendingTicket($this, $target);
+    }
+
+    /**
+     * A filterable, sortable listing of the current tenant's tickets.
+     */
+    public function tickets(): TicketQuery
+    {
+        return TicketQuery::make();
     }
 
     /**

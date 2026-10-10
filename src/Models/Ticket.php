@@ -32,6 +32,7 @@ use Selli\Ticketing\Support\Ticketing;
  * @property string|null $subject_type
  * @property int|string|null $subject_id
  * @property string|null $category
+ * @property string|null $channel
  * @property Priority $priority
  * @property string $status
  * @property string|null $assignee_type

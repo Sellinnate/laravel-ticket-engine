@@ -37,7 +37,9 @@ class RecipientResolver
         $out = [];
         $seen = [];
 
-        foreach ($query->get() as $participant) {
+        // Eager-load every participant's host model in one query per morph type
+        // instead of one lazy load per participant.
+        foreach ($query->with('participant')->get() as $participant) {
             $model = $participant->participant;
 
             if (! $model instanceof Model || $this->same($model, $except)) {

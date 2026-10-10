@@ -8,6 +8,7 @@ use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Selli\Ticketing\Data\OpenTicketData;
 use Selli\Ticketing\Enums\ParticipantRole;
+use Selli\Ticketing\Enums\TicketChannel;
 use Selli\Ticketing\Events\TicketOpened;
 use Selli\Ticketing\Exceptions\InvalidConfigurationException;
 use Selli\Ticketing\Models\Ticket;
@@ -47,6 +48,7 @@ class OpenTicket
         'closed_at',
         'due_at',
         'reopened_count',
+        'channel',
         'created_at',
         'updated_at',
         'deleted_at',
@@ -87,7 +89,7 @@ class OpenTicket
                 ticket: $ticket,
                 event: 'ticket.opened',
                 actor: $data->requester,
-                context: ['type' => $type->key, 'status' => $initialState],
+                context: ['type' => $type->key, 'status' => $initialState, 'channel' => $ticket->channel],
             );
 
             return $ticket;
@@ -121,6 +123,7 @@ class OpenTicket
             // caller did not specify one.
             'priority' => $data->priority ?? $type->default_priority,
             'category' => $data->category,
+            'channel' => $data->channel ?? TicketChannel::Web->value,
             'status' => $initialState,
             // References are allocated atomically (see ReferenceGenerator), so a
             // single insert is collision-free under concurrency.

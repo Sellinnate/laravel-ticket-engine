@@ -16,6 +16,7 @@ use Selli\Ticketing\Data\AddAttachmentData;
 use Selli\Ticketing\Data\PostMessageData;
 use Selli\Ticketing\Enums\MessageSource;
 use Selli\Ticketing\Enums\MessageVisibility;
+use Selli\Ticketing\Enums\TicketChannel;
 use Selli\Ticketing\Exceptions\InvalidConfigurationException;
 use Selli\Ticketing\Exceptions\TicketingException;
 use Selli\Ticketing\Models\Ticket;
@@ -187,7 +188,7 @@ class ProcessInboundEmail
                 // the message author, so a find-or-create resolver runs once.
                 $requester = $this->requesters->resolve($email);
 
-                $ticket = app(Ticketing::class)->open(type: $route->type, title: $title, requester: $requester);
+                $ticket = app(Ticketing::class)->open(type: $route->type, title: $title, requester: $requester, channel: TicketChannel::Email);
 
                 return $this->record($ticket, $email, $requester);
             });
