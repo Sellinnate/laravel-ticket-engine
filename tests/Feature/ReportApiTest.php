@@ -57,6 +57,14 @@ it('keeps an agent of another tenant out of the reports', function (): void {
     });
 });
 
+it('lets any agent read the reports of a single-tenant app', function (): void {
+    config()->set('ticketing.tenancy.enabled', false);
+    app()->forgetInstance(TenantContext::class);
+    $this->actingAs(makeUser(['tenant_id' => 7]));
+
+    $this->getJson(API.'/reports/metrics')->assertOk();
+});
+
 it('validates the period and the dimension', function (): void {
     $this->actingAs(makeUser());
 

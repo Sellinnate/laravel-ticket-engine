@@ -28,7 +28,14 @@ class TenantGuard
      */
     public function belongsToCurrentTenant(Model $model): bool
     {
-        $column = (string) config('ticketing.tenancy.column', 'tenant_id');
+        $context = app(TenantContext::class);
+
+        // Single-tenant: there is no tenant to belong to.
+        if (! $context->enabled()) {
+            return true;
+        }
+
+        $column = $context->column();
 
         if (! array_key_exists($column, $model->getAttributes())) {
             return true;
@@ -40,7 +47,7 @@ class TenantGuard
             return config('ticketing.tenancy.allow_shared', true) !== false;
         }
 
-        $current = app(TenantContext::class)->current();
+        $current = $context->current();
 
         return $current !== null && (string) $modelTenant === (string) $current;
     }
