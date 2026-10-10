@@ -270,7 +270,14 @@ class TicketingServiceProvider extends PackageServiceProvider
             // Canned responses have no domain events: their model events sync them.
             if (config('ticketing.rag.index.canned_responses', true) !== false) {
                 $canned = Ticketing::cannedResponseModel();
-                $sync = fn (Model $response) => RagSyncJob::sync(RagKnowledge::TYPE_CANNED, $response->getKey(), $response->getAttribute($canned::make()->getTenantColumn()));
+                $sync = function (Model $response) use ($canned): void {
+                    // An optional integration never fails the save itself.
+                    try {
+                        RagSyncJob::sync(RagKnowledge::TYPE_CANNED, $response->getKey(), $response->getAttribute($canned::make()->getTenantColumn()));
+                    } catch (\Throwable $exception) {
+                        report($exception);
+                    }
+                };
                 $canned::saved($sync);
                 $canned::deleted($sync);
             }

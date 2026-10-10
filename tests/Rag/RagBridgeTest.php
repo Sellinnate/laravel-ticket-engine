@@ -352,6 +352,23 @@ it('indexes the question and the final answer of a long conversation, without pe
         ->and($content)->not->toContain('1234567');
 });
 
+it('never takes the requester\'s own reply for the answer', function (): void {
+    // makeUser() can both request and act on tickets.
+    $requester = makeUser(['name' => 'Requester']);
+    $ticket = Ticketing::open(type: 'support', title: 'Scanner offline', requester: $requester);
+    Ticketing::postMessage($ticket, $requester, 'The scanner is offline after the update.');
+    Ticketing::postMessage($ticket, makeUser(['name' => 'Agent']), 'Reinstall the scanner driver.');
+    Ticketing::postMessage($ticket, $requester, 'Thanks, all good now.');
+    Ticketing::transition($ticket, 'resolve');
+
+    $content = Rag::forTenant('tk-shared', fn () => Rag::ingestor()->content(
+        Document::query()->withoutGlobalScopes()->where('metadata->document_key', 'ticket:'.$ticket->getKey())->sole(),
+    ));
+
+    expect($content)->toContain('Question: The scanner is offline after the update.')
+        ->and($content)->toContain('Answer: Reinstall the scanner driver.');
+});
+
 it('indexes active canned responses for agents only', function (): void {
     $canned = CannedResponse::factory()->create(['name' => 'Password reset steps', 'body' => 'Send the password reset steps: settings, security, reset link.']);
     $question = 'password reset steps settings security';

@@ -16,6 +16,7 @@ use Selli\Ticketing\Enums\BodyFormat;
 use Selli\Ticketing\Enums\KnowledgeVisibility;
 use Selli\Ticketing\Enums\MessageSource;
 use Selli\Ticketing\Enums\MessageVisibility;
+use Selli\Ticketing\Enums\ParticipantRole;
 use Selli\Ticketing\Gdpr\RequesterTickets;
 use Selli\Ticketing\Knowledge\KnowledgeAudience;
 use Selli\Ticketing\Models\CannedResponse;
@@ -232,7 +233,17 @@ class RagKnowledge
         $model = Ticketing::ticketMessageModel();
         $key = (new $model)->getKeyName();
         $public = fn () => $ticket->messages()->withoutTenancy()->with('author')->where('visibility', MessageVisibility::Public->value);
-        $isAnswer = fn (TicketMessage $message): bool => $message->author instanceof CanActOnTickets || $message->source === MessageSource::Ai;
+
+        // The requester's own messages are never the answer, even when their
+        // model can also act on tickets.
+        $requesters = [];
+        foreach ($ticket->participants()->withoutTenancy()->where('role', ParticipantRole::Requester->value)->get(['participant_type', 'participant_id']) as $participant) {
+            $requesters[$participant->participant_type.':'.$participant->participant_id] = true;
+        }
+
+        $isAnswer = fn (TicketMessage $message): bool => $message->author_id === null
+            ? $message->source === MessageSource::Ai
+            : ! isset($requesters[$message->author_type.':'.$message->author_id]) && $message->author instanceof CanActOnTickets;
 
         $question = $public()->oldest()->orderBy($key)->limit(20)->get()->first(fn (TicketMessage $message): bool => ! $isAnswer($message));
         $answer = $public()->latest()->orderByDesc($key)->limit(20)->get()->first($isAnswer);
