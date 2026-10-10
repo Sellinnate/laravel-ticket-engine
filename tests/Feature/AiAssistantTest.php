@@ -606,6 +606,48 @@ it('resumes a hand-over whose escalation never committed', function (): void {
         ->and($ticket->escalation_reason)->toBe(EscalationReason::AiError);
 });
 
+it('finishes a pending hand-over without escalating a ticket resolved meanwhile', function (): void {
+    Event::fake([TicketEscalated::class]);
+    $customer = Ticketing::contacts()->remember('customer@example.com');
+    $ticket = Ticketing::open(type: 'support', title: 'Crash', requester: $customer);
+    config()->set('ticketing.ai.mode', 'off');
+    $question = Ticketing::postMessage($ticket, $customer, 'Question');
+    config()->set('ticketing.ai.mode', 'auto');
+
+    AiTurn::query()->create(array_merge($ticket->tenantAttributes(), [
+        'ticket_id' => $ticket->getKey(),
+        'trigger_key' => 'ticket_message:'.$question->getKey(),
+        'mode' => 'auto',
+        'status' => AiTurn::STATUS_HANDOFF,
+        'outcome' => AiOutcome::Escalated,
+        'escalation_reason' => EscalationReason::NoSources,
+        'driver' => 'fake',
+    ]));
+    Ticketing::transition($ticket, 'resolve');
+    $status = $ticket->refresh()->ai_status;
+
+    $turn = app(AiAssistant::class)->respondToTicket($ticket, $question, retry: true);
+
+    expect($turn?->status)->toBe(AiTurn::STATUS_DONE)
+        ->and($ticket->refresh()->ai_status)->toBe($status)
+        ->and($ticket->messages()->where('source', MessageSource::Ai->value)->exists())->toBeFalse()
+        ->and(fakeAi()->requests())->toBe([]);
+
+    Event::assertNotDispatched(TicketEscalated::class);
+});
+
+it('answers the first message in the language the classifier detected', function (): void {
+    config()->set('ticketing.knowledge.default_locale', 'en');
+    fakeAi()->queueClassification(new AiClassification(language: 'it'));
+    fakeAi()->queueAnswer(confidentAnswer('Apri Impostazioni.'));
+
+    customerAsks('Come reimposto la password?');
+
+    $answer = collect(fakeAi()->requests())->firstWhere('operation', 'answer')['request'];
+
+    expect($answer->locale)->toBe('it');
+});
+
 it('re-checks the exchange limit under the lock', function (): void {
     config()->set('ticketing.ai.escalation.max_exchanges', 2);
     $customer = Ticketing::contacts()->remember('customer@example.com');

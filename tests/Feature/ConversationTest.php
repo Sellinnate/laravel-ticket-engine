@@ -210,6 +210,19 @@ it('lets the AI answer while the conversation is open', function (): void {
         ->and(Ticket::query()->count())->toBe(0);
 });
 
+it('answers in the language the classifier detected', function (): void {
+    config()->set('ticketing.knowledge.default_locale', 'en');
+    ['key' => $key] = widgetKey();
+    ['conversation' => $conversation] = Ticketing::conversations()->start($key);
+    chatAi()->queueClassification(new AiClassification(language: 'de'));
+    chatAi()->queueAnswer(sure('Nutzen Sie den Link.'));
+
+    Ticketing::conversations()->post($conversation, 'Wie setze ich mein Passwort zurück?');
+
+    expect($conversation->refresh()->locale)->toBe('de')
+        ->and(collect(chatAi()->requests())->firstWhere('operation', 'answer')['request']->locale)->toBe('de');
+});
+
 it('turns the conversation into a ticket with its transcript when a human is needed', function (): void {
     Event::fake([ConversationEscalated::class]);
     ['key' => $key, 'secret' => $secret] = widgetKey(['type' => 'support']);

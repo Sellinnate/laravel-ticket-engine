@@ -112,6 +112,12 @@ class AiAssistant
 
                 if ($ticket->ai_status === null) {
                     $this->applyClassification($ticket, $turn, $classification);
+
+                    // Answer in the language just detected: drivers search the
+                    // knowledge base by the request's locale.
+                    if ($ticket->language !== null && $ticket->language !== $request->locale) {
+                        $request = $this->requests->forTicket($ticket, $trigger, $settings->audience($ticket));
+                    }
                 }
             }
 
@@ -174,6 +180,7 @@ class AiAssistant
 
                 if ($conversation->locale === null && $classification->language !== null) {
                     $conversation->forceFill(['locale' => mb_substr($classification->language, 0, 12)])->save();
+                    $request = $this->requests->forConversation($conversation, $trigger, $settings->audience($conversation));
                 }
             }
 
@@ -457,12 +464,16 @@ class AiAssistant
      */
     protected function resumeTicketHandoff(Ticket $ticket, AiTurn $turn): AiTurn
     {
-        $this->container->make(EscalateTicket::class)->handle(
-            $ticket->refresh(),
-            $turn->escalation_reason ?? EscalationReason::AiError,
-            notifyCustomer: $turn->mode === AiMode::Auto,
-            resume: true,
-        );
+        // Resolved meanwhile: nobody to hand over to, and no hand-off message
+        // promising help on a closed ticket.
+        if (! $this->requests->isClosed($ticket->refresh())) {
+            $this->container->make(EscalateTicket::class)->handle(
+                $ticket,
+                $turn->escalation_reason ?? EscalationReason::AiError,
+                notifyCustomer: $turn->mode === AiMode::Auto,
+                resume: true,
+            );
+        }
 
         $turn->forceFill(['status' => AiTurn::STATUS_DONE])->save();
 
@@ -482,9 +493,12 @@ class AiAssistant
             ? Ticketing::ticketModel()::query()->withoutTenancy()->find($conversation->ticket_id)
             : null;
 
-        // A conversation the visitor closed meanwhile has nobody to hand over to.
+        // A conversation the visitor closed, or a ticket resolved meanwhile,
+        // has nobody to hand over to.
         if ($ticket instanceof Ticket) {
-            $this->container->make(EscalateTicket::class)->handle($ticket, $reason, notifyCustomer: true, resume: true);
+            if (! $this->requests->isClosed($ticket)) {
+                $this->container->make(EscalateTicket::class)->handle($ticket, $reason, notifyCustomer: true, resume: true);
+            }
         } elseif ($conversation->status !== ConversationStatus::Closed) {
             $this->conversations()->escalate($conversation, $reason);
         }
