@@ -54,6 +54,9 @@ it('lists the tenant for agents and only their own tickets for customers', funct
 
     TicketingServer::actingAs(makeUser())->tool(ListTicketsTool::class, ['channel' => 'email'])->assertSee('"total":1');
 
+    TicketingServer::actingAs(makeUser())->tool(ListTicketsTool::class, ['limit' => 1])->assertSee(['"page":1', '"has_more":true']);
+    TicketingServer::actingAs(makeUser())->tool(ListTicketsTool::class, ['limit' => 1, 'page' => 2])->assertSee(['"page":2', '"has_more":false']);
+
     TicketingServer::actingAs($customer)->tool(ListTicketsTool::class)
         ->assertSee(['"total":1', $mine->reference])
         ->assertDontSee('Someone else');

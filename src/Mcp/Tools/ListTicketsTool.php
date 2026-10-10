@@ -26,7 +26,10 @@ class ListTicketsTool extends TicketingTool
         $user = $this->user($request);
         $this->authorize($request, 'viewAny', Ticketing::ticketModel());
 
-        $request->validate(['limit' => ['nullable', 'integer', 'min:1', 'max:50']]);
+        $request->validate([
+            'limit' => ['nullable', 'integer', 'min:1', 'max:50'],
+            'page' => ['nullable', 'integer', 'min:1'],
+        ]);
 
         /** @var array<string, mixed> $filters */
         $filters = Arr::only($request->all(), ['state', 'status', 'priority', 'type', 'category', 'channel', 'team', 'assignee', 'tag', 'q', 'created_from', 'created_to']);
@@ -37,10 +40,15 @@ class ListTicketsTool extends TicketingTool
             $query->involving($user);
         }
 
-        $page = $query->paginate((int) ($request->get('limit') ?? 20));
+        // The page comes from the arguments, never from an ambient HTTP request.
+        $number = (int) ($request->get('page') ?? 1);
+        $page = $query->builder()->paginate((int) ($request->get('limit') ?? 20), ['*'], 'page', $number);
 
         return Response::json([
             'total' => $page->total(),
+            'page' => $page->currentPage(),
+            'last_page' => $page->lastPage(),
+            'has_more' => $page->hasMorePages(),
             'tickets' => array_map(fn (Ticket $ticket): array => $this->summary($ticket), $page->items()),
         ]);
     }
@@ -61,6 +69,7 @@ class ListTicketsTool extends TicketingTool
             'created_from' => $schema->string()->format('date'),
             'created_to' => $schema->string()->format('date'),
             'limit' => $schema->integer()->min(1)->max(50)->default(20),
+            'page' => $schema->integer()->min(1)->default(1)->description('Next pages while "has_more" is true.'),
         ];
     }
 }

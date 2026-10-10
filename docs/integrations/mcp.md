@@ -44,7 +44,7 @@ protected array $tools = [...TicketingServer::TOOLS, MyOtherTool::class];
 
 | Tool | Does | Ability |
 | --- | --- | --- |
-| `list-tickets` | list with the [listing filters](/concepts/querying) (`state`, `status`, `priority`, `type`, `channel`, `team`, `assignee`, `tag`, `q`, dates; `limit` ≤ 50) | `viewAny` — customers only see their own tickets |
+| `list-tickets` | list with the [listing filters](/concepts/querying) (`state`, `status`, `priority`, `type`, `channel`, `team`, `assignee`, `tag`, `q`, dates; `limit` ≤ 50, `page`; returns `has_more`) | `viewAny` — customers only see their own tickets |
 | `get-ticket` | one ticket by reference or id, with its last 50 messages | `view`; internal notes need `viewInternal` |
 | `reply-to-ticket` | public reply (the customer is notified) | `comment` |
 | `add-internal-note` | internal note | `commentInternal` |
