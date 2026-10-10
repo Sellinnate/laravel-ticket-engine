@@ -808,6 +808,21 @@ it('lets only the current owner of a reclaimed turn write', function (): void {
         ->and(AiTurn::query()->sole()->attempts)->toBe(2);
 });
 
+it('does not answer a question split into another ticket before its job ran', function (): void {
+    config()->set('ticketing.ai.queue', true);
+    Queue::fake();
+    $customer = Ticketing::contacts()->remember('customer@example.com');
+    $ticket = Ticketing::open(type: 'support', title: 'Two questions', requester: $customer);
+    $question = Ticketing::postMessage($ticket, $customer, 'A second, unrelated question');
+    Ticketing::for($ticket)->split([$question->getKey()]);
+
+    fakeAi()->queueAnswer(confidentAnswer('Answer on the wrong ticket'));
+    (new RunAiTurn('ticket', $ticket->getKey(), $question->getKey(), null))->handle(app(AiAssistant::class), app(TenantContext::class));
+
+    expect(fakeAi()->requests())->toBe([])
+        ->and(AiTurn::query()->count())->toBe(0);
+});
+
 it('records nothing for a failure of a worker whose turn was taken over', function (): void {
     Event::fake([AiTurnFailed::class, AiUsageRecorded::class, TicketEscalated::class]);
     $customer = Ticketing::contacts()->remember('customer@example.com');

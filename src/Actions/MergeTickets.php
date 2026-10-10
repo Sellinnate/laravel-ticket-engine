@@ -72,6 +72,12 @@ class MergeTickets
                 $this->moveContent($source, $target);
                 $this->copyRequesters($source, $target);
 
+                // A widget conversation that became the source follows it: the
+                // visitor keeps writing to, and reading, the merged ticket.
+                Ticketing::conversationModel()::query()->withoutTenancy()
+                    ->where('ticket_id', $source->getKey())
+                    ->update(['ticket_id' => $target->getKey()]);
+
                 $this->audit->record($target, 'ticket.merged_from', $actor, context: ['source_id' => $source->getKey()]);
                 $this->audit->record($source, 'ticket.merged_into', $actor, context: ['target_id' => $target->getKey()]);
 

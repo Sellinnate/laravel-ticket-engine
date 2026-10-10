@@ -427,6 +427,24 @@ it('shows an anonymous visitor\'s replies on the ticket as theirs', function ():
         ->and(Ticket::query()->sole()->participants()->where('role', 'requester')->exists())->toBeFalse();
 });
 
+it('follows its ticket when an agent merges it into another', function (): void {
+    config()->set('ticketing.ai.mode', 'off');
+    config()->set('ticketing.widget.require_email_to_escalate', false);
+    ['key' => $key] = widgetKey();
+    ['conversation' => $conversation] = Ticketing::conversations()->start($key);
+    Ticketing::conversations()->post($conversation, 'Printer broken');
+    $source = Ticket::query()->sole();
+    $target = Ticketing::open(type: 'support', title: 'Same issue, by phone');
+
+    Ticketing::for($target)->mergeFrom([$source]);
+    Ticketing::postMessage($target, makeUser(), 'We are on it.');
+    Ticketing::conversations()->post($conversation->refresh(), 'Thanks!');
+
+    expect($conversation->refresh()->ticket_id)->toBe($target->getKey())
+        ->and($target->messages()->pluck('body')->all())->toContain('Printer broken', 'We are on it.', 'Thanks!')
+        ->and(array_column(Ticketing::conversations()->timeline($conversation), 'body'))->toContain('We are on it.', 'Thanks!');
+});
+
 it('lets an agent take a conversation over at any time', function (): void {
     ['key' => $key, 'secret' => $secret] = widgetKey();
     ['conversation' => $conversation] = Ticketing::conversations()->start($key, new VisitorIdentity(

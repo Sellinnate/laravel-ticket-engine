@@ -67,7 +67,9 @@ class RunAiTurn implements ShouldQueue
                 $ticket = Ticketing::ticketModel()::query()->withoutTenancy()->find($this->subjectId);
                 $message = Ticketing::ticketMessageModel()::query()->withoutTenancy()->find($this->messageId);
 
-                if ($ticket instanceof Ticket && $message instanceof TicketMessage) {
+                // A message split into another ticket meanwhile is not this
+                // ticket's question any more (an agent is handling it).
+                if ($ticket instanceof Ticket && $message instanceof TicketMessage && (string) $message->ticket_id === (string) $ticket->getKey()) {
                     $assistant->respondToTicket($ticket, $message, retry: $this->attempts() > 1);
                 }
 
@@ -77,7 +79,7 @@ class RunAiTurn implements ShouldQueue
             $conversation = Ticketing::conversationModel()::query()->withoutTenancy()->find($this->subjectId);
             $message = Ticketing::conversationMessageModel()::query()->withoutTenancy()->find($this->messageId);
 
-            if ($conversation instanceof Conversation && $message instanceof ConversationMessage) {
+            if ($conversation instanceof Conversation && $message instanceof ConversationMessage && (string) $message->conversation_id === (string) $conversation->getKey()) {
                 $assistant->respondToConversation($conversation, $message, retry: $this->attempts() > 1);
             }
         });
