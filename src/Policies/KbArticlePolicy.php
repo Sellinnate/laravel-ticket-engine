@@ -46,22 +46,43 @@ class KbArticlePolicy
 
     public function update(Authenticatable $user, KbArticle $article): bool
     {
-        return $this->isTenantAgent($user, $article);
+        return $this->canWrite($user, $article);
     }
 
     public function publish(Authenticatable $user, KbArticle $article): bool
     {
-        return $this->isTenantAgent($user, $article);
+        return $this->canWrite($user, $article);
     }
 
     public function archive(Authenticatable $user, KbArticle $article): bool
     {
-        return $this->isTenantAgent($user, $article);
+        return $this->canWrite($user, $article);
     }
 
     public function delete(Authenticatable $user, KbArticle $article): bool
     {
-        return $this->isTenantAgent($user, $article);
+        return $this->canWrite($user, $article);
+    }
+
+    /**
+     * Writing needs an agent of the article's own tenant. A shared article
+     * (null tenant, visible to every tenant) is only writable by an agent who
+     * is not tied to one tenant (no or a null tenant column) — never by one
+     * tenant's agents.
+     */
+    protected function canWrite(Authenticatable $user, KbArticle $article): bool
+    {
+        if (! $user instanceof Model || ! $this->isTenantAgent($user, $article)) {
+            return false;
+        }
+
+        $column = $article->getTenantColumn();
+
+        if ($article->getAttribute($column) !== null) {
+            return true;
+        }
+
+        return ! array_key_exists($column, $user->getAttributes()) || $user->getAttribute($column) === null;
     }
 
     /** An agent (CanActOnTickets) of the article's tenant. */

@@ -173,3 +173,27 @@ it('lists shared articles to every tenant agent but never another tenant\'s', fu
         $this->getJson(API.'/kb/articles?q=runbook')->assertOk()->assertJsonCount(1, 'data');
     });
 });
+
+it('keeps shared articles out of every tenant\'s write path', function (): void {
+    $shared = kbArticle('Shared FAQ');
+    $agent = makeUser(['tenant_id' => 1]);
+    $gate = Gate::forUser($agent);
+
+    expect($gate->allows('view', $shared))->toBeTrue()
+        ->and($gate->allows('update', $shared))->toBeFalse()
+        ->and($gate->allows('publish', $shared))->toBeFalse()
+        ->and($gate->allows('archive', $shared))->toBeFalse();
+
+    $own = app(TenantContext::class)->forTenant(1, fn () => kbArticle('Own FAQ'));
+    expect($gate->allows('update', $own))->toBeTrue();
+});
+
+it('allocates slugs in the article\'s own tenant, whatever the ambient one', function (): void {
+    kbArticle('Billing', publish: false);
+    $second = kbArticle('Other', publish: false);
+
+    // Renamed from inside a tenant context: the shared slug "billing" is taken.
+    $renamed = app(TenantContext::class)->forTenant(5, fn () => Ticketing::knowledge()->save(new ArticleData(slug: 'billing'), $second));
+
+    expect($renamed->slug)->toBe('billing-2');
+});

@@ -80,7 +80,7 @@ class SaveArticle
             'visibility' => $data->visibility ?? KnowledgeVisibility::Public,
             'version' => 1,
             'meta' => $data->meta,
-            'slug' => $this->uniqueSlug($data->slug ?? $data->title, $locale),
+            'slug' => $this->uniqueSlug($data->slug ?? $data->title, $locale, null, $this->tenant->current()),
         ], $this->morph('audience', $data->audience), $this->morph('author', $author)));
 
         $this->snapshot($article, $author);
@@ -113,7 +113,7 @@ class SaveArticle
         }
 
         if ($data->slug !== null && Str::slug($data->slug) !== $article->slug) {
-            $changes['slug'] = $this->uniqueSlug($data->slug, $article->locale, $article);
+            $changes['slug'] = $this->uniqueSlug($data->slug, $article->locale, $article, $article->getAttribute($article->getTenantColumn()));
         }
 
         $article->fill($changes);
@@ -165,7 +165,7 @@ class SaveArticle
      * A slug unique within the tenant and locale: "reset-password",
      * "reset-password-2", … (the unique index is the final arbiter).
      */
-    protected function uniqueSlug(string $source, string $locale, ?KbArticle $ignore = null): string
+    protected function uniqueSlug(string $source, string $locale, ?KbArticle $ignore, int|string|null $tenant): string
     {
         $base = Str::slug($source);
         $base = $base !== '' ? mb_substr($base, 0, 180) : 'article';
@@ -174,10 +174,12 @@ class SaveArticle
         for ($i = 1; $i <= 50; $i++) {
             $slug = $i === 1 ? $base : $base.'-'.$i;
 
-            $exists = $model::query()->withTrashed()
+            // Checked in the article's own tenant, unscoped: an update may run in
+            // another ambient context than the one the article belongs to.
+            $exists = $model::query()->withoutTenancy()->withTrashed()
                 ->where('slug', $slug)
                 ->where('locale', $locale)
-                ->where($this->tenant->column(), $this->tenant->current())
+                ->where($this->tenant->column(), $tenant)
                 ->when($ignore !== null, fn ($query) => $query->whereKeyNot($ignore?->getKey()))
                 ->exists();
 
