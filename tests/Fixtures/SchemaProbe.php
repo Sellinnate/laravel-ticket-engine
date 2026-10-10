@@ -26,6 +26,11 @@ class SchemaProbe
         $this->indexScoped($table, ['owner_type'], 'probe_idx');
     }
 
+    public function uniqueWhenPresent(string $table, string $column, string $name): void
+    {
+        $this->uniqueUnlessNull($table, $column, $name);
+    }
+
     public function tableName(string $key): string
     {
         return $this->table($key);

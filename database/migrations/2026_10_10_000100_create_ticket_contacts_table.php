@@ -25,8 +25,9 @@ return new class extends Migration
             $table->string('email')->nullable();
             // sha256 of "<tenant|shared>|<normalised email>": a non-null unique key
             // that de-duplicates even when the tenant is NULL (NULLs never collide
-            // in a composite unique index). Cleared on anonymisation.
-            $table->string('dedupe_key', 64)->nullable()->unique('ticket_contacts_dedupe_unq');
+            // in a composite unique index). Cleared on anonymisation, so the
+            // unique index below must admit many NULLs.
+            $table->string('dedupe_key', 64)->nullable();
             $table->string('name')->nullable();
             $table->string('phone', 64)->nullable();
             $table->string('locale', 12)->nullable();
@@ -39,6 +40,8 @@ return new class extends Migration
 
             $this->indexScoped($table, ['email'], 'ticket_contacts_tenant_email_idx');
         });
+
+        $this->uniqueUnlessNull($this->table('contacts'), 'dedupe_key', 'ticket_contacts_dedupe_unq');
     }
 
     public function down(): void

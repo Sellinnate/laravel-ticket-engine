@@ -234,3 +234,14 @@ it('erases the AI excerpts of a contact\'s and a host user\'s widget conversatio
     expect(Ticketing::aiTurnModel()::query()->whereNotNull('question')->count())->toBe(0)
         ->and(Ticketing::conversationMessageModel()::query()->where('body', 'My secret question')->count())->toBe(0);
 });
+
+it('anonymizes any number of contacts of the same tenant', function (): void {
+    $first = Ticketing::contacts()->remember('first@example.com');
+    $second = Ticketing::contacts()->remember('second@example.com');
+
+    Ticketing::contacts()->anonymize($first);
+    Ticketing::contacts()->anonymize($second);
+
+    expect(Ticketing::contactModel()::query()->whereNull('dedupe_key')->count())->toBe(2)
+        ->and(Ticketing::contacts()->remember('first@example.com')->getKey())->not->toBe($first->getKey());
+});
