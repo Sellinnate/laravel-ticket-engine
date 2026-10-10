@@ -51,15 +51,29 @@ class RagKnowledge
     ) {}
 
     /**
-     * The RAG tenant of a ticketing tenant.
+     * The RAG tenant of a ticketing tenant — one-to-one, and safe as a vector
+     * store namespace ([A-Za-z0-9_-], at most 64 characters): `<prefix>shared`
+     * for shared rows, `<prefix>n-<id>` for a plain id (letters, digits,
+     * underscores), `<prefix>b-<base64url>` for any other one, and a hash for
+     * an id too long to encode.
      */
     public function ragTenant(int|string|null $tenant): string
     {
         $prefix = (string) config('ticketing.rag.tenant_prefix', 'tk-');
 
-        return $tenant === null || (string) $tenant === ''
-            ? $prefix.'shared'
-            : $prefix.preg_replace('/[^A-Za-z0-9_-]/', '-', (string) $tenant);
+        if ($tenant === null || (string) $tenant === '') {
+            return $prefix.'shared';
+        }
+
+        $id = (string) $tenant;
+
+        if (preg_match('/^[A-Za-z0-9_]{1,48}$/', $id) === 1) {
+            return $prefix.'n-'.$id;
+        }
+
+        $encoded = rtrim(strtr(base64_encode($id), '+/', '-_'), '=');
+
+        return strlen($encoded) <= 48 ? $prefix.'b-'.$encoded : $prefix.'h-'.substr(hash('sha256', $id), 0, 48);
     }
 
     public function namespace(): string
@@ -246,7 +260,7 @@ class RagKnowledge
 
                 if (! isset($best[$key]) || $hit->score > $best[$key]->score) {
                     $url = $hit->metadata['url'] ?? null;
-                    $locale = $hit->metadata['locale'] ?? null;
+                    $hitLocale = $hit->metadata['locale'] ?? null;
                     $title = $hit->metadata['title'] ?? null;
 
                     $best[$key] = new RagHit(
@@ -256,7 +270,7 @@ class RagKnowledge
                         score: $hit->score,
                         excerpt: mb_strimwidth(trim($hit->content), 0, 600, '…'),
                         url: is_string($url) && $url !== '' ? $url : null,
-                        locale: is_string($locale) ? $locale : null,
+                        locale: is_string($hitLocale) ? $hitLocale : null,
                     );
                 }
             }
@@ -264,7 +278,71 @@ class RagKnowledge
 
         usort($best, fn (RagHit $a, RagHit $b): int => $b->score <=> $a->score);
 
-        return array_slice($best, 0, $limit);
+        return array_slice($this->verified($best, $audience, $tenant), 0, $limit);
+    }
+
+    /**
+     * Only what the database still allows: the index follows the help desk
+     * asynchronously, so an article unpublished, restricted or moved — or a
+     * ticket erased — since it was indexed is dropped here, before anyone
+     * (a customer, a model's prompt) sees its text.
+     *
+     * @param  list<RagHit>  $hits
+     * @return list<RagHit>
+     */
+    protected function verified(array $hits, KnowledgeAudience $audience, int|string|null $tenant): array
+    {
+        $ids = [self::TYPE_ARTICLE => [], self::TYPE_TICKET => []];
+
+        foreach ($hits as $hit) {
+            if (isset($ids[$hit->type])) {
+                $ids[$hit->type][] = $hit->id;
+            }
+        }
+
+        $allowed = [self::TYPE_ARTICLE => [], self::TYPE_TICKET => []];
+
+        if ($ids[self::TYPE_ARTICLE] !== []) {
+            $model = Ticketing::kbArticleModel();
+            $allowed[self::TYPE_ARTICLE] = $this->inTenant($model::query()->withoutTenancy()->visibleTo($audience), $tenant)
+                ->whereKey($ids[self::TYPE_ARTICLE])
+                ->pluck((new $model)->getKeyName())
+                ->map(fn (mixed $key): string => (string) $key)
+                ->all();
+        }
+
+        // Tickets are agents' knowledge only.
+        if ($ids[self::TYPE_TICKET] !== [] && $audience->agent) {
+            $model = Ticketing::ticketModel();
+            $allowed[self::TYPE_TICKET] = $this->inTenant($model::query()->withoutTenancy(), $tenant)
+                ->whereKey($ids[self::TYPE_TICKET])
+                ->pluck((new $model)->getKeyName())
+                ->map(fn (mixed $key): string => (string) $key)
+                ->all();
+        }
+
+        return array_values(array_filter($hits, fn (RagHit $hit): bool => in_array($hit->id, $allowed[$hit->type] ?? [], true)));
+    }
+
+    /**
+     * Rows of the tenant — and shared rows, when sharing is on.
+     *
+     * @template TModel of Model
+     *
+     * @param  Builder<TModel>  $query
+     * @return Builder<TModel>
+     */
+    protected function inTenant(Builder $query, int|string|null $tenant): Builder
+    {
+        $column = $this->tenants->column();
+
+        return $query->where(function ($scoped) use ($column, $tenant): void {
+            $tenant === null ? $scoped->whereNull($column) : $scoped->where($column, $tenant);
+
+            if ($tenant !== null && $this->tenants->allowsShared()) {
+                $scoped->orWhereNull($column);
+            }
+        });
     }
 
     /**

@@ -90,12 +90,49 @@ it('keeps every tenant in its own RAG tenant, shared articles visible to all', f
 
     expect(ragFind($question, KnowledgeAudience::public(), 1))->toEqualCanonicalizing(['Invoices of tenant one', 'Invoices everywhere'])
         ->and(ragFind($question, KnowledgeAudience::public(), 2))->toEqualCanonicalizing(['Invoices of tenant two', 'Invoices everywhere'])
-        ->and(app(RagKnowledge::class)->ragTenant(1))->toBe('tk-1')
+        ->and(app(RagKnowledge::class)->ragTenant(1))->toBe('tk-n-1')
         ->and(app(RagKnowledge::class)->ragTenant(null))->toBe('tk-shared');
 
     config()->set('ticketing.tenancy.allow_shared', false);
     app()->forgetInstance(TenantContext::class);
     expect(ragFind($question, KnowledgeAudience::public(), 1))->toBe(['Invoices of tenant one']);
+});
+
+it('maps every tenant id to its own RAG tenant', function (): void {
+    $rag = app(RagKnowledge::class);
+    $ids = ['acme.eu', 'acme-eu', 'acme_eu', 'shared', 5, '5', str_repeat('x', 60), str_repeat('x', 61), 'École'];
+    $mapped = array_map(fn (int|string $id): string => $rag->ragTenant($id), $ids);
+
+    expect(array_unique(array_merge($mapped, [$rag->ragTenant(null)])))->toHaveCount(count($ids))  // 5 and '5' are one tenant
+        ->and($rag->ragTenant('shared'))->not->toBe($rag->ragTenant(null))
+        ->and($mapped)->each->toMatch('/^[A-Za-z0-9_-]{1,64}$/');
+});
+
+it('never hands out an article changed since it was indexed', function (): void {
+    $article = kb('Discount codes', 'Use the discount codes printed on your loyalty card at checkout.');
+    $question = 'Where are the discount codes for checkout loyalty card?';
+
+    expect(ragFind($question, KnowledgeAudience::public()))->toBe(['Discount codes']);
+
+    // Made internal behind the index's back (its sync job not run yet).
+    KbArticle::query()->whereKey($article->getKey())->update(['visibility' => 'internal']);
+
+    $answer = (new RagAiDriver(app(RagKnowledge::class), ['classify' => false]))
+        ->answer(new AiRequest(question: $question, audience: KnowledgeAudience::public()));
+
+    expect(ragFind($question, KnowledgeAudience::public()))->toBe([])
+        ->and($answer->isEmpty())->toBeTrue()
+        ->and(ragFind($question, KnowledgeAudience::agent()))->toBe(['Discount codes']);
+});
+
+it('keeps the requested locale for every tenant searched', function (): void {
+    config()->set('ticketing.knowledge.default_locale', 'en');
+    app(TenantContext::class)->forTenant(1, fn () => Ticketing::knowledge()->publish(Ticketing::knowledge()->save(new ArticleData(title: 'Refund policy', body: 'Refund requests within thirty days, refund policy details.', locale: 'en'))));
+    Ticketing::knowledge()->publish(Ticketing::knowledge()->save(new ArticleData(title: 'Politique de remboursement', body: 'Refund requests within thirty days, politique de remboursement.', locale: 'fr')));
+
+    $found = array_map(fn (RagHit $hit): string => $hit->title, app(RagKnowledge::class)->search('refund requests within thirty days', KnowledgeAudience::public(), 1, 'fr'));
+
+    expect($found)->toEqualCanonicalizing(['Refund policy', 'Politique de remboursement']);
 });
 
 it('indexes resolved tickets as internal knowledge, without internal notes', function (): void {

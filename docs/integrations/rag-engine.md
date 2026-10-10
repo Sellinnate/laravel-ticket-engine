@@ -60,14 +60,16 @@ Each document carries filterable metadata: `type`, `visibility`, `audience` (`*`
 
 ## Fail-closed by construction {#security}
 
-- **Tenants**: each ticketing tenant is its own RAG tenant (`tk-<tenant>`; shared rows in `tk-shared`, which
-  every tenant also searches when `tenancy.allow_shared` is on). The engine forces the tenant into every
-  query, so a search cannot reach another tenant.
+- **Tenants**: each ticketing tenant is its own RAG tenant, named one-to-one — `tk-n-42` for a plain id,
+  `tk-b-<base64url>` for any other, `tk-shared` for shared rows, which every tenant also searches when
+  `tenancy.allow_shared` is on. The engine forces the tenant into every query, so a search cannot reach
+  another tenant.
 - **Audience**: searches only use positive conditions — `visibility IN (what this audience may read)`,
   `audience IN ('*', this client)`, `type IN (…)`. A document with missing or unexpected metadata matches
   nothing.
-- **Double check**: the semantic knowledge-base search re-reads every hit from the database through the
-  article audience scope, so an article unpublished or restricted since it was indexed is never returned.
+- **Double check**: every hit is re-read from the database — articles through the audience scope, tickets
+  for agents only — before anyone sees its text, the AI's prompt included. The index follows the help desk
+  asynchronously; an article unpublished, restricted or moved since it was indexed is never used.
 - **Prompt injection**: retrieved passages and the conversation are fenced as untrusted data in the prompt.
 
 ## The `rag-engine` AI driver {#driver}

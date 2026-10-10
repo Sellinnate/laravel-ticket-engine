@@ -631,7 +631,7 @@ return [
     |--------------------------------------------------------------------------
     |
     | Keeps published articles and resolved tickets in a RAG index — each
-    | ticketing tenant in its own RAG tenant ("tenant_prefix" + id) — and
+    | ticketing tenant in its own RAG tenant ("tenant_prefix" + n-<id>) — and
     | powers the "rag-engine" AI driver, similar tickets and, with
     | "knowledge_search", the semantic Ticketing::knowledge()->search().
     | Searches filter on visibility and audience with positive conditions only
