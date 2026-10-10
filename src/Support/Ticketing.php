@@ -72,6 +72,7 @@ use Selli\Ticketing\Models\TicketParticipant;
 use Selli\Ticketing\Models\TicketType;
 use Selli\Ticketing\Models\WidgetKey;
 use Selli\Ticketing\Query\TicketQuery;
+use Selli\Ticketing\Reporting\Metrics;
 use Selli\Ticketing\Tenancy\TenantContext;
 
 /**
@@ -464,6 +465,15 @@ class Ticketing
         bool $notifyCustomer = false,
     ): Ticket {
         return $this->container->make(EscalateTicket::class)->handle($ticket, $reason, $actor, $notifyCustomer);
+    }
+
+    /**
+     * Support KPIs for a period (the last 30 days by default), for the current
+     * tenant: `Ticketing::metrics()->between($from, $to)->filter([...])->summary()`.
+     */
+    public function metrics(): Metrics
+    {
+        return new Metrics;
     }
 
     /**

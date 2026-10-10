@@ -50,6 +50,14 @@ and wire it yourself.
 | `POST /kb/articles/{article}/publish` / `…/archive` | change visibility — agents |
 | `POST /kb/articles/{article}/feedback` | `{helpful, comment?}` |
 
+### Reports {#reports}
+
+| Method & path | Action |
+| --- | --- |
+| `GET /reports/metrics?from=&to=&…filters` | every [KPI](/concepts/reporting) of the period — agents |
+| `GET /reports/breakdown/{dimension}` | per `agent`, `team`, `channel`, `category`, `priority` or `type`; `format=csv` for a download — agents |
+| `GET /reports/tickets?from=&to=&…filters` | the tickets of the period as a streamed CSV — agents |
+
 Ticket responses include `channel`, `language`, `sentiment` and an `ai` block (`status`, `exchanges`,
 `escalation_reason`, `escalated_at`, `first_response_at`); AI-written messages carry `ai.sources` and
 `ai.confidence`. Polymorphic ids (`subject.id`, `assignee.id`, `author.id`) are always strings.

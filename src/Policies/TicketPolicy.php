@@ -111,6 +111,12 @@ class TicketPolicy
         return $this->view($user, $ticket);
     }
 
+    /** Read the support KPIs and exports (of the current tenant): agents only. */
+    public function viewReports(Authenticatable $user): bool
+    {
+        return $user instanceof CanActOnTickets;
+    }
+
     public function delete(Authenticatable $user, Ticket $ticket): bool
     {
         return $this->isTenantAgent($user, $ticket);

@@ -9,6 +9,7 @@ use Selli\Ticketing\Http\Controllers\Api\AttachmentController;
 use Selli\Ticketing\Http\Controllers\Api\CsatController;
 use Selli\Ticketing\Http\Controllers\Api\KnowledgeController;
 use Selli\Ticketing\Http\Controllers\Api\MessageController;
+use Selli\Ticketing\Http\Controllers\Api\ReportController;
 use Selli\Ticketing\Http\Controllers\Api\TicketController;
 use Selli\Ticketing\Http\Controllers\Api\TransitionController;
 
@@ -43,3 +44,7 @@ Route::patch('kb/articles/{article}', [KnowledgeController::class, 'update'])->n
 Route::post('kb/articles/{article}/publish', [KnowledgeController::class, 'publish'])->name('ticketing.kb.articles.publish');
 Route::post('kb/articles/{article}/archive', [KnowledgeController::class, 'archive'])->name('ticketing.kb.articles.archive');
 Route::post('kb/articles/{article}/feedback', [KnowledgeController::class, 'feedback'])->name('ticketing.kb.articles.feedback');
+
+Route::get('reports/metrics', [ReportController::class, 'metrics'])->name('ticketing.reports.metrics');
+Route::get('reports/breakdown/{dimension}', [ReportController::class, 'breakdown'])->name('ticketing.reports.breakdown');
+Route::get('reports/tickets', [ReportController::class, 'tickets'])->name('ticketing.reports.tickets');

@@ -34,6 +34,7 @@ use Selli\Ticketing\Enums\Priority;
  * @method static \Selli\Ticketing\Models\Ticket escalate(\Selli\Ticketing\Models\Ticket $ticket, \Selli\Ticketing\Enums\EscalationReason $reason = \Selli\Ticketing\Enums\EscalationReason::Manual, ?\Illuminate\Database\Eloquent\Model $actor = null, bool $notifyCustomer = false)
  * @method static \Selli\Ticketing\Contacts\ContactDirectory contacts()
  * @method static \Selli\Ticketing\Mail\MailboxManager mailboxes()
+ * @method static \Selli\Ticketing\Reporting\Metrics metrics()
  * @method static \Selli\Ticketing\Knowledge\KnowledgeBase knowledge()
  * @method static \Selli\Ticketing\Conversations\ConversationService conversations()
  * @method static \Selli\Ticketing\Conversations\WidgetKeys widgetKeys()

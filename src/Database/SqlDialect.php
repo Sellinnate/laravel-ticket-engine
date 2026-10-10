@@ -56,6 +56,22 @@ final class SqlDialect
     }
 
     /**
+     * `avg(<expression>)`.
+     */
+    public static function average(Expression $expression): Expression
+    {
+        return self::fragment(fn (Grammar $grammar): string => 'avg('.$expression->getValue($grammar).')');
+    }
+
+    /**
+     * An expression with a column alias, for select lists.
+     */
+    public static function alias(Expression $expression, string $alias): Expression
+    {
+        return self::fragment(fn (Grammar $grammar): string => $expression->getValue($grammar).' as '.$grammar->wrap($alias));
+    }
+
+    /**
      * The calendar day (YYYY-MM-DD) of a timestamp column, for daily series.
      */
     public static function day(string $column): Expression

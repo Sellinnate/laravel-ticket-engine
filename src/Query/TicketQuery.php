@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Selli\Ticketing\Query;
 
 use Carbon\CarbonInterface;
+use Closure;
 use Illuminate\Contracts\Pagination\CursorPaginator;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
@@ -60,6 +61,14 @@ class TicketQuery
     public static function make(): static
     {
         return new static;
+    }
+
+    /**
+     * A clone narrows independently of the original.
+     */
+    public function __clone()
+    {
+        $this->query = clone $this->query;
     }
 
     /**
@@ -144,6 +153,27 @@ class TicketQuery
      */
     public function state(string $semantic): static
     {
+        $this->query->where($this->stateConstraint($semantic));
+
+        return $this;
+    }
+
+    /**
+     * Tickets whose status does NOT map to this semantic — e.g. the backlog
+     * is everything not `closed`.
+     */
+    public function notState(string $semantic): static
+    {
+        $this->query->whereNot($this->stateConstraint($semantic));
+
+        return $this;
+    }
+
+    /**
+     * @return Closure(Builder<Ticket>): void
+     */
+    protected function stateConstraint(string $semantic): Closure
+    {
         if (! in_array($semantic, ['open', 'closed', 'paused'], true)) {
             throw new InvalidArgumentException("Unknown ticket state semantic [{$semantic}].");
         }
@@ -152,7 +182,7 @@ class TicketQuery
         $driver = app(WorkflowDriver::class);
         $typeModel = Ticketing::ticketTypeModel();
 
-        $this->query->where(function (Builder $query) use ($driver, $semantic, $typeModel): void {
+        return function (Builder $query) use ($driver, $semantic, $typeModel): void {
             // No workflow at all: match nothing rather than everything.
             $query->whereRaw('1 = 0');
 
@@ -176,9 +206,7 @@ class TicketQuery
                             ->select((new $typeModel)->getKeyName()));
                 });
             }
-        });
-
-        return $this;
+        };
     }
 
     /**
