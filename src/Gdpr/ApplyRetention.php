@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Selli\Ticketing\Contacts\ContactDirectory;
+use Selli\Ticketing\Events\TicketAnonymized;
 use Selli\Ticketing\Events\TicketErased;
 use Selli\Ticketing\Knowledge\KnowledgeBase;
 use Selli\Ticketing\Models\Ticket;
@@ -52,10 +53,13 @@ class ApplyRetention
 
             $erased = [];
 
-            DB::transaction(function () use ($type, $cutoff, $action, &$count, &$erased): void {
+            $anonymized = [];
+
+            DB::transaction(function () use ($type, $cutoff, $action, &$count, &$erased, &$anonymized): void {
                 // Per attempt: a re-run transaction must not announce the
                 // tickets of an attempt that rolled back.
                 $erased = [];
+                $anonymized = [];
 
                 // Re-select (and lock) inside the transaction so a ticket reopened
                 // between selection and action isn't erased on a stale snapshot.
@@ -67,6 +71,7 @@ class ApplyRetention
                         $erased[] = $ticket;
                     } else {
                         $this->anonymize($ticket);
+                        $anonymized[] = $ticket;
                     }
                 }
 
@@ -77,6 +82,10 @@ class ApplyRetention
             // only purge what is really gone.
             foreach ($erased as $ticket) {
                 TicketErased::dispatch($ticket->getKey(), $ticket->getAttribute($ticket->getTenantColumn()));
+            }
+
+            foreach ($anonymized as $ticket) {
+                TicketAnonymized::dispatch($ticket->getKey(), $ticket->getAttribute($ticket->getTenantColumn()));
             }
 
             $results[] = ['type' => $type, 'action' => $action, 'count' => $count];

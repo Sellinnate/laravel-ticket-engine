@@ -14,9 +14,11 @@ use Selli\Ticketing\Enums\ArticleStatus;
 use Selli\Ticketing\Enums\ArticleType;
 use Selli\Ticketing\Enums\BodyFormat;
 use Selli\Ticketing\Enums\KnowledgeVisibility;
+use Selli\Ticketing\Enums\MessageSource;
 use Selli\Ticketing\Enums\MessageVisibility;
 use Selli\Ticketing\Gdpr\RequesterTickets;
 use Selli\Ticketing\Knowledge\KnowledgeAudience;
+use Selli\Ticketing\Models\CannedResponse;
 use Selli\Ticketing\Models\KbArticle;
 use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Models\TicketMessage;
@@ -26,6 +28,7 @@ use Selli\Ticketing\Tenancy\TenantContext;
 use Sellinnate\RagEngine\Data\SearchHit;
 use Sellinnate\RagEngine\Facades\Rag;
 use Sellinnate\RagEngine\Models\Document;
+use Sellinnate\RagEngine\Retrieval\SearchBuilder;
 use Sellinnate\RagEngine\Security\CryptoShredder;
 
 /**
@@ -47,12 +50,15 @@ class RagKnowledge
 
     public const TYPE_TICKET = 'ticket';
 
+    public const TYPE_CANNED = 'canned_response';
+
     /** The audit event that keeps a ticket out of the index for good. */
     public const EXCLUDED = 'rag.excluded';
 
     public function __construct(
         protected TenantContext $tenants,
         protected AiRequestFactory $requests,
+        protected PiiScrubber $pii = new PiiScrubber,
     ) {}
 
     /**
@@ -192,26 +198,20 @@ class RagKnowledge
             return;
         }
 
-        $lines = [$ticket->title];
+        // Knowledge, not a record: the customer's question and the final
+        // answer — never an internal note — with the personal data taken out.
+        [$question, $answer] = $this->questionAndAnswer($ticket);
 
-        // A long conversation keeps its opening (the problem) and its latest
-        // 199 messages (where the solution is).
-        $public = fn () => $ticket->messages()->withoutTenancy()->with('author')->where('visibility', MessageVisibility::Public->value);
-        $messages = $public()->latest()->orderByDesc((new (Ticketing::ticketMessageModel()))->getKeyName())->limit(199)->get()->reverse()->values();
-        $first = $public()->oldest()->orderBy((new (Ticketing::ticketMessageModel()))->getKeyName())->first();
+        if ($question === null || $answer === null) {
+            $this->purge($tenant, self::TYPE_TICKET.':'.$ticket->getKey());
 
-        if ($first instanceof TicketMessage && ! $messages->contains(fn (TicketMessage $message): bool => $message->is($first))) {
-            $messages->prepend($first);
+            return;
         }
 
-        /** @var TicketMessage $message */
-        foreach ($messages as $message) {
-            $role = $message->author instanceof CanActOnTickets ? 'Agent' : ($message->author_id === null && $message->source->value === 'ai' ? 'Assistant' : 'Customer');
-            $body = $message->body_format === BodyFormat::Html ? $this->plain($message->body) : $message->body;
-            $lines[] = $role.': '.trim($body);
-        }
+        $names = $this->peopleOn($ticket);
+        $text = $this->pii->scrub($ticket->title."\n\nQuestion: ".$question."\n\nAnswer: ".$answer, $names);
 
-        $this->put($tenant, self::TYPE_TICKET, $ticket->getKey(), $ticket->reference.' '.$ticket->title, implode("\n\n", $lines), [
+        $this->put($tenant, self::TYPE_TICKET, $ticket->getKey(), $ticket->reference.' '.$this->pii->scrub($ticket->title, $names), $text, [
             'visibility' => KnowledgeVisibility::Internal->value,
             'audience' => '*',
             'locale' => $ticket->language ?? SaveArticle::defaultLocale(),
@@ -219,6 +219,84 @@ class RagKnowledge
             // Checked at search time, like an article's version.
             'version' => $this->revisions([$ticket->getKey()])[(string) $ticket->getKey()] ?? '0',
         ]);
+    }
+
+    /**
+     * The first message of the customer and the last public answer of an
+     * agent or the AI.
+     *
+     * @return array{0: string|null, 1: string|null}
+     */
+    protected function questionAndAnswer(Ticket $ticket): array
+    {
+        $model = Ticketing::ticketMessageModel();
+        $key = (new $model)->getKeyName();
+        $public = fn () => $ticket->messages()->withoutTenancy()->with('author')->where('visibility', MessageVisibility::Public->value);
+        $isAnswer = fn (TicketMessage $message): bool => $message->author instanceof CanActOnTickets || $message->source === MessageSource::Ai;
+
+        $question = $public()->oldest()->orderBy($key)->limit(20)->get()->first(fn (TicketMessage $message): bool => ! $isAnswer($message));
+        $answer = $public()->latest()->orderByDesc($key)->limit(20)->get()->first($isAnswer);
+
+        $text = fn (?TicketMessage $message): ?string => $message === null ? null
+            : trim($message->body_format === BodyFormat::Html ? $this->plain($message->body) : $message->body);
+
+        return [$text($question), $text($answer)];
+    }
+
+    /**
+     * The names of the requesters and contacts on a ticket.
+     *
+     * @return list<string>
+     */
+    protected function peopleOn(Ticket $ticket): array
+    {
+        $names = [];
+
+        foreach ($ticket->participants()->withoutTenancy()->with('participant')->get() as $participant) {
+            $person = $participant->participant;
+            $name = $person instanceof Model && ! $person instanceof CanActOnTickets ? $person->getAttribute('name') : null;
+
+            if (is_string($name) && $name !== '') {
+                $names[] = $name;
+
+                foreach (preg_split('/\s+/', $name) ?: [] as $part) {
+                    $names[] = $part;
+                }
+            }
+        }
+
+        return array_values(array_unique($names));
+    }
+
+    /**
+     * Index an active canned response as internal knowledge for agents (an
+     * inactive or deleted one is removed), read under the document's lock.
+     */
+    public function syncCannedResponse(int|string $id, int|string|null $tenant): void
+    {
+        $key = self::TYPE_CANNED.':'.$id;
+
+        $this->locked($tenant, $key, function () use ($id, $tenant, $key): void {
+            $canned = Ticketing::cannedResponseModel()::query()->withoutTenancy()->find($id);
+
+            if (! $canned instanceof CannedResponse || ! $canned->is_active) {
+                $this->purge($tenant, $key);
+
+                return;
+            }
+
+            $this->put($canned->getAttribute($canned->getTenantColumn()), self::TYPE_CANNED, $canned->getKey(), $canned->name, $canned->name."\n\n".$canned->body, [
+                'visibility' => KnowledgeVisibility::Internal->value,
+                'audience' => '*',
+                'locale' => SaveArticle::defaultLocale(),
+                'version' => $this->cannedVersion($canned),
+            ]);
+        });
+    }
+
+    protected function cannedVersion(CannedResponse $canned): string
+    {
+        return hash('xxh128', $canned->name."\0".$canned->body);
     }
 
     public function forgetTicket(int|string $ticketId, int|string|null $tenant): void
@@ -288,6 +366,26 @@ class RagKnowledge
     }
 
     /**
+     * Keep one ticket out of the index for good (an audited exclusion) and
+     * purge it — a purge that fails is retried on the queue.
+     */
+    public function exclude(int|string $ticketId, int|string|null $tenant, string $reason): void
+    {
+        $ticket = Ticketing::ticketModel()::query()->withoutTenancy()->find($ticketId);
+
+        if ($ticket instanceof Ticket && ! $this->excluded($ticket)) {
+            app(AuditLogger::class)->record(ticket: $ticket, event: self::EXCLUDED, context: ['reason' => $reason]);
+        }
+
+        try {
+            $this->syncTicket($ticketId, $tenant);
+        } catch (\Throwable $exception) {
+            report($exception);
+            RagSyncJob::dispatch(self::TYPE_TICKET, $ticketId, $tenant);
+        }
+    }
+
+    /**
      * Whether a ticket must stay out of the index: its requester was erased.
      */
     public function excluded(Ticket $ticket): bool
@@ -336,71 +434,119 @@ class RagKnowledge
             $tenant === null || $this->tenants->allowsShared() ? $this->ragTenant(null) : null,
         ]));
 
+        $hybrid = config('ticketing.rag.hybrid', true) !== false;
         $best = [];
+        $ranks = [];
 
         foreach ($ragTenants as $ragTenant) {
-            /** @var list<SearchHit> $hits */
-            $hits = Rag::forTenant($ragTenant, function () use ($text, $audience, $locale, $limit, $minScore, $types, $articleType, $categoryId): array {
-                $search = Rag::search($text)
-                    ->namespace($this->namespace())
-                    // Positive conditions only: unknown or missing metadata never matches.
-                    ->where('type', ['in' => $types])
-                    ->where('visibility', ['in' => array_map(fn (KnowledgeVisibility $visibility): string => $visibility->value, $audience->visibilities())])
-                    ->threshold($minScore)
-                    ->topK($limit * 3);
+            /** @var array{0: list<SearchHit>, 1: array<string, int>} $found */
+            $found = Rag::forTenant($ragTenant, function () use ($text, $audience, $locale, $limit, $minScore, $types, $articleType, $categoryId, $hybrid): array {
+                $base = fn () => $this->filtered(Rag::search($text)->namespace($this->namespace())->topK($limit * 3), $audience, $types, $locale, $articleType, $categoryId);
 
-                if (! $audience->agent) {
-                    $search->where('audience', ['in' => array_values(array_unique(['*', $audience->scopeKey()]))]);
+                // Relevance is decided on the vector score (a threshold means
+                // something there); the order, when hybrid, also weighs the
+                // exact words (BM25, fused by reciprocal rank).
+                $relevant = $base()->threshold($minScore)->get();
+
+                if (! $hybrid || $relevant === []) {
+                    return [$relevant, []];
                 }
 
-                if ($locale !== null && $locale !== '') {
-                    $search->where('locale', ['in' => array_values(array_unique([$locale, SaveArticle::defaultLocale()]))]);
+                $positions = [];
+                foreach ($base()->hybrid()->fetch($limit * 6)->get() as $position => $hit) {
+                    $positions[$hit->chunkId ?? $hit->id] ??= $position;
                 }
 
-                if ($articleType !== null) {
-                    $search->where('article_type', $articleType->value);
-                }
-
-                if ($categoryId !== null) {
-                    $search->where('category', (string) $categoryId);
-                }
-
-                return $search->get();
+                return [$relevant, $positions];
             });
+
+            [$hits, $positions] = $found;
 
             foreach ($hits as $hit) {
                 $type = $hit->metadata['type'] ?? null;
                 $id = $hit->metadata['source_id'] ?? null;
 
-                if (! is_string($type) || ! is_string($id)) {
-                    continue;
-                }
-
-                $key = $type.':'.$id;
-
-                if (! isset($best[$key]) || $hit->score > $best[$key]->score) {
-                    $url = $hit->metadata['url'] ?? null;
-                    $hitLocale = $hit->metadata['locale'] ?? null;
-                    $title = $hit->metadata['title'] ?? null;
-                    $version = $hit->metadata['version'] ?? null;
-
-                    $best[$key] = new RagHit(
-                        type: $type,
-                        id: $id,
-                        title: is_string($title) ? $title : $id,
-                        score: $hit->score,
-                        excerpt: mb_strimwidth(trim($hit->content), 0, 600, '…'),
-                        url: is_string($url) && $url !== '' ? $url : null,
-                        locale: is_string($hitLocale) ? $hitLocale : null,
-                        version: is_string($version) ? $version : null,
-                    );
+                if (is_string($type) && is_string($id)) {
+                    $ranks[$type.':'.$id] = min($ranks[$type.':'.$id] ?? PHP_INT_MAX, $positions[$hit->chunkId ?? $hit->id] ?? PHP_INT_MAX);
                 }
             }
+
+            $this->collect($best, $hits);
         }
 
-        usort($best, fn (RagHit $a, RagHit $b): int => $b->score <=> $a->score);
+        usort($best, fn (RagHit $a, RagHit $b): int => $hybrid
+            ? [$ranks[$a->type.':'.$a->id] ?? PHP_INT_MAX, $b->score] <=> [$ranks[$b->type.':'.$b->id] ?? PHP_INT_MAX, $a->score]
+            : $b->score <=> $a->score);
 
         return array_slice($this->verified($best, $audience, $tenant, $locale, $articleType, $categoryId), 0, $limit);
+    }
+
+    /**
+     * The audience, type and article filters — positive conditions only:
+     * unknown or missing metadata never matches.
+     *
+     * @param  list<string>  $types
+     */
+    protected function filtered(SearchBuilder $search, KnowledgeAudience $audience, array $types, ?string $locale, ?ArticleType $articleType, int|string|null $categoryId): SearchBuilder
+    {
+        $search->where('type', ['in' => $types])
+            ->where('visibility', ['in' => array_map(fn (KnowledgeVisibility $visibility): string => $visibility->value, $audience->visibilities())]);
+
+        if (! $audience->agent) {
+            $search->where('audience', ['in' => array_values(array_unique(['*', $audience->scopeKey()]))]);
+        }
+
+        if ($locale !== null && $locale !== '') {
+            $search->where('locale', ['in' => array_values(array_unique([$locale, SaveArticle::defaultLocale()]))]);
+        }
+
+        if ($articleType !== null) {
+            $search->where('article_type', $articleType->value);
+        }
+
+        if ($categoryId !== null) {
+            $search->where('category', (string) $categoryId);
+        }
+
+        return $search;
+    }
+
+    /**
+     * Keep the best passage of each document.
+     *
+     * @param  array<string, RagHit>  $best
+     * @param  list<SearchHit>  $hits
+     */
+    protected function collect(array &$best, array $hits): void
+    {
+        foreach ($hits as $hit) {
+            $type = $hit->metadata['type'] ?? null;
+            $id = $hit->metadata['source_id'] ?? null;
+
+            if (! is_string($type) || ! is_string($id)) {
+                continue;
+            }
+
+            $key = $type.':'.$id;
+
+            if (! isset($best[$key]) || $hit->score > $best[$key]->score) {
+                $url = $hit->metadata['url'] ?? null;
+                $hitLocale = $hit->metadata['locale'] ?? null;
+                $title = $hit->metadata['title'] ?? null;
+                $version = $hit->metadata['version'] ?? null;
+
+                $best[$key] = new RagHit(
+                    type: $type,
+                    id: $id,
+                    title: is_string($title) ? $title : $id,
+                    score: $hit->score,
+                    excerpt: mb_strimwidth(trim($hit->content), 0, 600, '…'),
+                    url: is_string($url) && $url !== '' ? $url : null,
+                    locale: is_string($hitLocale) ? $hitLocale : null,
+                    version: is_string($version) ? $version : null,
+                );
+            }
+        }
     }
 
     /**
@@ -420,7 +566,7 @@ class RagKnowledge
         ?ArticleType $articleType = null,
         int|string|null $categoryId = null,
     ): array {
-        $ids = [self::TYPE_ARTICLE => [], self::TYPE_TICKET => []];
+        $ids = [self::TYPE_ARTICLE => [], self::TYPE_TICKET => [], self::TYPE_CANNED => []];
 
         foreach ($hits as $hit) {
             if (isset($ids[$hit->type])) {
@@ -428,7 +574,7 @@ class RagKnowledge
             }
         }
 
-        $allowed = [self::TYPE_ARTICLE => [], self::TYPE_TICKET => []];
+        $allowed = [self::TYPE_ARTICLE => [], self::TYPE_TICKET => [], self::TYPE_CANNED => []];
 
         // Articles: readable by this audience now, and the indexed version is
         // the current one (an edit not synced yet must not leak the old text).
@@ -474,6 +620,15 @@ class RagKnowledge
             // The conversation as indexed must still be the current one (a
             // split, an edit, a late reply not synced yet).
             $versions += $this->revisions(array_values($allowed[self::TYPE_TICKET]));
+        }
+
+        // Canned responses: agents only, still active, as indexed.
+        if ($ids[self::TYPE_CANNED] !== [] && $audience->agent) {
+            foreach ($this->inTenant(Ticketing::cannedResponseModel()::query()->withoutTenancy(), $tenant)->whereKey($ids[self::TYPE_CANNED])->where('is_active', true)->get() as $canned) {
+                /** @var CannedResponse $canned */
+                $allowed[self::TYPE_CANNED][] = (string) $canned->getKey();
+                $versions[self::TYPE_CANNED.':'.$canned->getKey()] = $this->cannedVersion($canned);
+            }
         }
 
         return array_values(array_filter($hits, fn (RagHit $hit): bool => in_array($hit->id, $allowed[$hit->type] ?? [], true)

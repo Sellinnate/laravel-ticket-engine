@@ -24,7 +24,8 @@ class RagIndexCommand extends Command
 {
     protected $signature = 'ticketing:rag:index
         {--articles : Only the knowledge-base articles}
-        {--tickets : Only the resolved and closed tickets}';
+        {--tickets : Only the resolved and closed tickets}
+        {--canned : Only the canned responses}';
 
     protected $description = 'Index the knowledge base and resolved tickets in the RAG engine.';
 
@@ -36,7 +37,7 @@ class RagIndexCommand extends Command
             return self::FAILURE;
         }
 
-        $all = ! $this->option('articles') && ! $this->option('tickets');
+        $all = ! $this->option('articles') && ! $this->option('tickets') && ! $this->option('canned');
 
         if ($all || $this->option('articles')) {
             $count = 0;
@@ -68,6 +69,20 @@ class RagIndexCommand extends Command
                 });
 
             $this->line("  tickets — {$count}");
+        }
+
+        if ($all || $this->option('canned')) {
+            $count = 0;
+            Ticketing::cannedResponseModel()::query()->withoutTenancy()
+                ->where('is_active', true)
+                ->chunkById(200, function ($responses) use ($rag, &$count): void {
+                    foreach ($responses as $response) {
+                        $rag->syncCannedResponse($response->getKey(), $response->getAttribute($response->getTenantColumn()));
+                        $count++;
+                    }
+                });
+
+            $this->line("  canned responses — {$count}");
         }
 
         return self::SUCCESS;

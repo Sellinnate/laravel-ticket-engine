@@ -41,8 +41,10 @@ class RagSyncJob implements ShouldQueue
 
     public function handle(RagKnowledge $rag): void
     {
-        $this->kind === RagKnowledge::TYPE_ARTICLE
-            ? $rag->syncArticle($this->id, $this->tenantId)
-            : $rag->syncTicket($this->id, $this->tenantId);
+        match ($this->kind) {
+            RagKnowledge::TYPE_ARTICLE => $rag->syncArticle($this->id, $this->tenantId),
+            RagKnowledge::TYPE_CANNED => $rag->syncCannedResponse($this->id, $this->tenantId),
+            default => $rag->syncTicket($this->id, $this->tenantId),
+        };
     }
 }

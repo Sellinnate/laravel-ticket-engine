@@ -44,15 +44,22 @@ php artisan ticketing:rag:index           # --articles / --tickets for one kind 
 ```
 
 From then on the index follows the help desk by itself (queued, after commit): an article is indexed when
-published or saved and removed when archived; a ticket is indexed when resolved or closed and removed when
-reopened, merged away or erased.
+published or saved and removed when archived; a ticket is indexed when resolved or closed (and refreshed on a
+late public reply, a split or a merge) and removed when reopened, merged away, anonymised or erased; a canned
+response follows its saves. Choose which with `rag.index.articles`, `.tickets`, `.canned_responses`.
+
+**Retrieval** is hybrid by default (`rag.hybrid`): passages must clear `min_score` on the vector similarity —
+a score a threshold means something on — and are then ordered by vectors and exact words together (BM25,
+fused by reciprocal rank), so product names and error codes rank well. For generation, the engine's LLM
+driver is used — an Anthropic model is the recommended choice.
 
 ## What is indexed {#documents}
 
 | Document | Content | Visible to |
 | --- | --- | --- |
 | Published article | title, summary, body | its [audience](/concepts/knowledge-base#audiences): `public`, `customer`, `internal`, and its client scope if restricted |
-| Resolved / closed ticket | title and the **public** conversation — never an internal note | agents only (`internal`), while it stays resolved |
+| Resolved / closed ticket | title, the customer's question and the final public answer (agent or AI) — never an internal note — with emails, phone, card and IBAN numbers and the names of the people on the ticket removed | agents only (`internal`), while it stays resolved |
+| Active canned response | name and body | agents only (`internal`) |
 
 Each document carries filterable metadata: `type`, `visibility`, `audience` (`*` or the client scope),
 `locale`, `article_type`, `category`, `source_id`, `url`. Editing an article replaces its indexed version
@@ -81,7 +88,7 @@ Each document carries filterable metadata: `type`, `visibility`, `audience` (`*`
         'rag-engine' => [
             'llm' => null,              // a rag-engine LLM name; null = its default
             'classify' => true,         // classify each message through the LLM (JSON)
-            'include_tickets' => false, // agents' drafts may also cite resolved tickets
+            'internal_sources' => false, // an assistant for agents may also cite resolved tickets and canned responses
         ],
     ],
 ],
@@ -110,7 +117,8 @@ $articles = Ticketing::knowledge()->suggest($question, KnowledgeAudience::public
 - Anonymising a requester (or a contact) purges the vectors of **their** tickets right away — their words do
   not survive in the index — and records `rag.excluded` in each ticket's audit trail, so no backfill or late
   job ever indexes them again.
-- A ticket erased by retention (`delete`), merged away or reopened is removed from the index.
+- A ticket anonymised or erased by retention, merged away or reopened is removed from the index (the new
+  `TicketAnonymized` event tells integrations about retention anonymisation).
 - Deleting a whole tenant: `app(RagKnowledge::class)->shredTenant($tenantId, 'reason')` crypto-shreds it in
   the engine (vectors, chunks and keys; the engine refuses any later ingest for that tenant).
 

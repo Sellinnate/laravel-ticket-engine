@@ -11,6 +11,7 @@ use Selli\Ticketing\Events\ArticlePublished;
 use Selli\Ticketing\Events\ArticleSaved;
 use Selli\Ticketing\Events\MessagePosted;
 use Selli\Ticketing\Events\RequesterAnonymized;
+use Selli\Ticketing\Events\TicketAnonymized;
 use Selli\Ticketing\Events\TicketClosed;
 use Selli\Ticketing\Events\TicketErased;
 use Selli\Ticketing\Events\TicketMerged;
@@ -98,6 +99,15 @@ class RagSubscriber implements Subscriber
     }
 
     /**
+     * Retention anonymised it: out of the index for good, like an erased
+     * requester's ticket.
+     */
+    public function onTicketAnonymized(TicketAnonymized $event): void
+    {
+        $this->rag->exclude($event->ticketId, $event->tenantId, 'retention_anonymized');
+    }
+
+    /**
      * Right away (after commit), not queued: an erasure is not deferred.
      */
     public function onAnonymized(RequesterAnonymized $event): void
@@ -119,6 +129,7 @@ class RagSubscriber implements Subscriber
             TicketReopened::class => 'onTicket',
             MessagePosted::class => 'onMessage',
             TicketErased::class => 'onErased',
+            TicketAnonymized::class => 'onTicketAnonymized',
             TicketMerged::class => 'onMerged',
             TicketSplit::class => 'onSplit',
             RequesterAnonymized::class => 'onAnonymized',

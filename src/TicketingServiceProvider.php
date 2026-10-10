@@ -8,6 +8,7 @@ use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Auth\Factory;
 use Illuminate\Contracts\Http\Kernel as HttpKernel;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Http\Kernel as FoundationHttpKernel;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Broadcast;
@@ -46,7 +47,9 @@ use Selli\Ticketing\Conversations\NullVisitorResolver;
 use Selli\Ticketing\Conversations\WidgetKeys;
 use Selli\Ticketing\Http\Middleware\ResolveWidgetKey;
 use Selli\Ticketing\Http\Middleware\WidgetCors;
+use Selli\Ticketing\Integrations\RagEngine\RagKnowledge;
 use Selli\Ticketing\Integrations\RagEngine\RagKnowledgeSearch;
+use Selli\Ticketing\Integrations\RagEngine\RagSyncJob;
 use Selli\Ticketing\Knowledge\KeywordKnowledgeSearch;
 use Selli\Ticketing\Knowledge\KnowledgeBase;
 use Selli\Ticketing\Listeners\AiSubscriber;
@@ -263,6 +266,14 @@ class TicketingServiceProvider extends PackageServiceProvider
 
         if ($this->ragEnabled()) {
             $this->subscribe($this->app->make(RagSubscriber::class));
+
+            // Canned responses have no domain events: their model events sync them.
+            if (config('ticketing.rag.index.canned_responses', true) !== false) {
+                $canned = Ticketing::cannedResponseModel();
+                $sync = fn (Model $response) => RagSyncJob::sync(RagKnowledge::TYPE_CANNED, $response->getKey(), $response->getAttribute($canned::make()->getTenantColumn()));
+                $canned::saved($sync);
+                $canned::deleted($sync);
+            }
         }
 
         if (config('ticketing.broadcasting.enabled', false) === true) {

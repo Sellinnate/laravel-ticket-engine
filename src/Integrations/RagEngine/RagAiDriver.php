@@ -33,7 +33,7 @@ class RagAiDriver implements AiDriver
     public const NO_ANSWER = 'NO_ANSWER';
 
     /**
-     * @param  array<string, mixed>  $config  llm, classify, include_tickets
+     * @param  array<string, mixed>  $config  llm, classify, internal_sources
      */
     public function __construct(
         protected RagKnowledge $knowledge,
@@ -84,8 +84,11 @@ class RagAiDriver implements AiDriver
     {
         $types = [RagKnowledge::TYPE_ARTICLE];
 
-        if (($this->config['include_tickets'] ?? false) === true && $request->audience->agent) {
+        // An assistant for agents may also draw on resolved tickets and canned
+        // responses; customers are only ever answered from articles.
+        if (($this->config['internal_sources'] ?? false) === true && $request->audience->agent) {
             $types[] = RagKnowledge::TYPE_TICKET;
+            $types[] = RagKnowledge::TYPE_CANNED;
         }
 
         $hits = $this->knowledge->search(

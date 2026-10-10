@@ -67,6 +67,7 @@ ticket.
 | `RequesterAnonymized` | a requester's PII was scrubbed (anonymise the host model here) |
 | `ContactAnonymized` | a contact's personal data was erased |
 | `TicketErased` | retention permanently deleted a ticket (scalars only) |
+| `TicketAnonymized` | retention anonymised a ticket (scalars only) — integrations holding copies drop them |
 
 ## Listening
 
