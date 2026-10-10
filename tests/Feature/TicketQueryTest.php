@@ -287,3 +287,14 @@ it('refuses a channel the column cannot hold', function (string $channel): void 
     'blank' => ['   '],
     'too long' => [str_repeat('c', 33)],
 ]);
+
+it('finds non-ASCII titles on every driver, whatever the capitalisation used', function (): void {
+    Ticketing::open(type: 'support', title: 'ÉCHEC imprimante');
+    Ticketing::open(type: 'support', title: 'Échec de connexion');
+    Ticketing::open(type: 'support', title: 'Città non trovata');
+
+    expect(titles(Ticketing::tickets()->search('ÉCHEC')->get()))->toBe(['ÉCHEC imprimante', 'Échec de connexion'])
+        ->and(titles(Ticketing::tickets()->search('échec')->get()))->toBe(['ÉCHEC imprimante', 'Échec de connexion'])
+        ->and(titles(Ticketing::tickets()->search('città')->get()))->toBe(['Città non trovata'])
+        ->and(titles(Ticketing::tickets()->search('CITTÀ')->get()))->toBe(['Città non trovata']);
+});

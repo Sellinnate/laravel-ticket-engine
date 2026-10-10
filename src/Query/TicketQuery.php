@@ -371,13 +371,15 @@ class TicketQuery
     public function search(string $term): static
     {
         $term = trim($term);
-        // "!" as the LIKE escape character: a backslash literal is parsed
-        // differently by MySQL than by PostgreSQL/SQLite.
-        $like = '%'.str_replace(['!', '%', '_'], ['!!', '!%', '!_'], mb_strtolower($term)).'%';
-
-        $this->query->where(function (Builder $query) use ($term, $like): void {
+        $this->query->where(function (Builder $query) use ($term): void {
             $query->where('reference', $term)
-                ->orWhereRaw("LOWER(title) LIKE ? ESCAPE '!'", [$like]);
+                ->orWhereRaw("LOWER(title) LIKE ? ESCAPE '!'", [self::like(mb_strtolower($term))]);
+
+            // SQLite's LOWER() folds only ASCII: try the usual spellings of a
+            // non-ASCII term too (its LIKE is case-insensitive for ASCII only).
+            foreach (SqlDialect::caseVariants($term) as $variant) {
+                $query->orWhereRaw("title LIKE ? ESCAPE '!'", [self::like($variant)]);
+            }
         });
 
         return $this;
@@ -511,6 +513,15 @@ class TicketQuery
 
         $this->query->where('assignee_type', substr($assignee, 0, $separator))
             ->where('assignee_id', substr($assignee, $separator + 1));
+    }
+
+    /**
+     * A LIKE pattern for a literal substring. "!" is the escape character: a
+     * backslash literal is parsed differently by MySQL than by PostgreSQL/SQLite.
+     */
+    protected static function like(string $value): string
+    {
+        return '%'.str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $value).'%';
     }
 
     protected static function clampPerPage(int $perPage): int

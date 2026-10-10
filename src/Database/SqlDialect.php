@@ -73,6 +73,30 @@ final class SqlDialect
     }
 
     /**
+     * Case variants of a search term for LIKE matching. LOWER() folds only
+     * ASCII on SQLite (no ICU), so a non-ASCII term is also tried as typed, in
+     * lower case, capitalised and in upper case — covering the spellings text
+     * actually uses. ASCII terms need no variants.
+     *
+     * @return list<string>
+     */
+    public static function caseVariants(string $term): array
+    {
+        if (preg_match('/[^\x00-\x7F]/', $term) !== 1) {
+            return [];
+        }
+
+        $lower = mb_strtolower($term);
+
+        return array_values(array_unique([
+            $term,
+            $lower,
+            mb_strtoupper(mb_substr($lower, 0, 1)).mb_substr($lower, 1),
+            mb_strtoupper($term),
+        ]));
+    }
+
+    /**
      * @param  Closure(Grammar): string  $render
      */
     private static function fragment(Closure $render): Expression
