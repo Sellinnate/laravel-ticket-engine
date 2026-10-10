@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Illuminate\Support\Carbon;
 use Selli\Ticketing\Facades\Ticketing;
+use Selli\Ticketing\Tenancy\TenantContext;
 use Selli\Ticketing\Tests\Fixtures\TestRequester;
 
 beforeEach(function (): void {
@@ -41,6 +42,19 @@ it('converts offset dates to the application timezone', function (): void {
     $this->getJson(API.'/reports/metrics?from='.urlencode('2026-03-01T00:00:00+02:00').'&to=2026-03-31')
         ->assertOk()
         ->assertJsonPath('data.period.from', Carbon::parse('2026-02-28 22:00:00')->toIso8601String());
+});
+
+it('keeps an agent of another tenant out of the reports', function (): void {
+    app(TenantContext::class)->forTenant(1, function (): void {
+        Ticketing::open(type: 'support', title: 'Tenant one');
+        $this->actingAs(makeUser(['tenant_id' => 2]));
+
+        $this->getJson(API.'/reports/metrics')->assertForbidden();
+        $this->getJson(API.'/reports/tickets')->assertForbidden();
+
+        $this->actingAs(makeUser(['tenant_id' => 1]));
+        $this->getJson(API.'/reports/metrics')->assertOk()->assertJsonPath('data.volume.created', 1);
+    });
 });
 
 it('validates the period and the dimension', function (): void {
