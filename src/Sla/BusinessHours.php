@@ -72,7 +72,9 @@ final class BusinessHours
                     $available = $this->minutes($cursor, $close);
 
                     if ($remaining <= $available) {
-                        return $cursor->addMinutes($remaining);
+                        // Elapsed-time addition, matching minutes(): Carbon 2's
+                        // addMinutes() is wall-clock across a DST change.
+                        return $cursor->setTimestamp($cursor->getTimestamp() + $remaining * 60);
                     }
 
                     $remaining -= $available;
