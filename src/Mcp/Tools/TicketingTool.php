@@ -59,7 +59,24 @@ abstract class TicketingTool extends Tool
         }
 
         $model = Ticketing::ticketModel();
-        $ticket = $model::query()->where('reference', $value)->first();
+
+        // References are unique per tenant: a shared ticket may carry the same
+        // one as the tenant's own, which wins; anything else is ambiguous.
+        // Only tickets this user may read take part.
+        $gate = Gate::forUser($user);
+        $matches = $model::query()->where('reference', $value)->limit(5)->get()
+            ->filter(fn (Ticket $match): bool => $gate->allows('view', $match));
+        $column = (new $model)->getTenantColumn();
+        $own = $matches->filter(fn (Ticket $match): bool => $match->getAttribute($column) !== null);
+        $ticket = match (true) {
+            $matches->count() === 1 => $matches->first(),
+            $own->count() === 1 => $own->first(),
+            default => null,
+        };
+
+        if ($ticket === null && $matches->count() > 1) {
+            throw ValidationException::withMessages(['ticket' => "Reference [{$value}] matches several tickets: use the ticket id."]);
+        }
 
         if (! $ticket instanceof Ticket && $this->isKey($value)) {
             $ticket = $model::query()->whereKey($value)->first();

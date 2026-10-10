@@ -77,6 +77,15 @@ it('reads a ticket with internal notes for agents only, and hides what the user 
     TicketingServer::actingAs($customer)->tool(GetTicketTool::class, ['ticket' => $other->reference])
         ->assertHasErrors(["Ticket [{$other->reference}] not found."]);
 
+    // A shared ticket with the same reference as the tenant's own: the tenant's wins.
+    $context = app(TenantContext::class);
+    $own = $context->forTenant(4, fn () => Ticketing::open(type: 'support', title: 'Tenant four printer'));
+    $shared = Ticketing::open(type: 'support', title: 'Shared printer');
+    $shared->forceFill(['reference' => $own->reference])->save();
+    $context->forTenant(4, fn () => TicketingServer::actingAs(makeUser(['tenant_id' => 4]))
+        ->tool(GetTicketTool::class, ['ticket' => $own->reference])
+        ->assertSee('Tenant four printer'));
+
     // Values that cannot be a key of the configured type are simply unknown.
     foreach (['01ARZ3NDEKTSV4RRFFQ69G5FAV', '99999999999999999999999'] as $value) {
         TicketingServer::actingAs(makeUser())->tool(GetTicketTool::class, ['ticket' => $value])->assertHasErrors(["Ticket [{$value}] not found."]);
