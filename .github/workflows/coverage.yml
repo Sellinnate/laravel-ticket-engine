@@ -42,4 +42,26 @@ jobs:
         run: composer update --prefer-dist --no-interaction
 
       - name: Execute tests with coverage gate
-        run: vendor/bin/pest --coverage --min=90 --ci
+        # shell: bash runs with -o pipefail, so the gate's exit code survives tee.
+        shell: bash
+        run: |
+          mkdir -p build
+          vendor/bin/pest --coverage --min=90 --ci --coverage-clover build/coverage.xml | tee build/coverage.txt
+
+      - name: Coverage summary
+        if: always()
+        run: |
+          {
+            echo '## Code coverage'
+            echo '```'
+            grep -E 'Total:|%' build/coverage.txt | tail -n 40 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: coverage-clover
+          path: build/coverage.xml
+          if-no-files-found: ignore
