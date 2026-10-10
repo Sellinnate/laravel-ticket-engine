@@ -370,6 +370,26 @@ it('never takes the requester\'s own reply for the answer', function (): void {
         ->and($content)->not->toContain('Ottavia');
 });
 
+it('finds the answer however many follow-ups came after it', function (): void {
+    $ticket = Ticketing::open(type: 'support', title: 'Tablet will not charge');
+    foreach (range(1, 25) as $i) {
+        Ticketing::postMessage($ticket, makeUser(), "Agent note {$i}.");
+    }
+    Ticketing::postMessage($ticket, null, 'The tablet will not charge at all.');
+    Ticketing::postMessage($ticket, makeUser(), 'Use the original charger, the cable is faulty.');
+    foreach (range(1, 25) as $i) {
+        Ticketing::postMessage($ticket, null, "Ok {$i}.");
+    }
+    Ticketing::transition($ticket, 'resolve');
+
+    $content = Rag::forTenant('tk-shared', fn () => Rag::ingestor()->content(
+        Document::query()->withoutGlobalScopes()->where('metadata->document_key', 'ticket:'.$ticket->getKey())->sole(),
+    ));
+
+    expect($content)->toContain('Question: The tablet will not charge at all.')
+        ->and($content)->toContain('Answer: Use the original charger');
+});
+
 it('indexes active canned responses for agents only', function (): void {
     $canned = CannedResponse::factory()->create(['name' => 'Password reset steps', 'body' => 'Send the password reset steps: settings, security, reset link.']);
     $question = 'password reset steps settings security';

@@ -245,8 +245,9 @@ class RagKnowledge
             ? $message->source === MessageSource::Ai
             : ! isset($requesters[$message->author_type.':'.$message->author_id]) && $message->author instanceof CanActOnTickets;
 
-        $question = $public()->oldest()->orderBy($key)->limit(20)->get()->first(fn (TicketMessage $message): bool => ! $isAnswer($message));
-        $answer = $public()->latest()->orderByDesc($key)->limit(20)->get()->first($isAnswer);
+        // Scanned lazily, in batches, until found: however long the ticket.
+        $question = $public()->lazyById(50, $key)->first(fn (TicketMessage $message): bool => ! $isAnswer($message));
+        $answer = $public()->lazyByIdDesc(50, $key)->first($isAnswer);
 
         $text = fn (?TicketMessage $message): ?string => $message === null ? null
             : trim($message->body_format === BodyFormat::Html ? $this->plain($message->body) : $message->body);
@@ -705,7 +706,9 @@ class RagKnowledge
      */
     protected function inTenant(Builder $query, int|string|null $tenant): Builder
     {
-        $column = $this->tenants->column();
+        // The model's own tenant column (a host model may rename it).
+        $model = $query->getModel();
+        $column = method_exists($model, 'getQualifiedTenantColumn') ? $model->getQualifiedTenantColumn() : $this->tenants->column();
 
         return $query->where(function ($scoped) use ($column, $tenant): void {
             $tenant === null ? $scoped->whereNull($column) : $scoped->where($column, $tenant);
