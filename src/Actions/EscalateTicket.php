@@ -278,9 +278,11 @@ class EscalateTicket
         DB::transaction(function () use ($ticket, $kind, $post): void {
             $locked = Ticketing::ticketModel()::query()->withoutTenancy()->lockForUpdate()->whereKey($ticket->getKey())->first();
 
-            // An agent who took over meanwhile owns the conversation now: no
-            // AI hand-off message or summary after that.
-            if (! $locked instanceof Ticket || $locked->ai_status === AiStatus::Suspended) {
+            // An agent who took over meanwhile owns the conversation now, and a
+            // ticket resolved meanwhile needs nobody: no AI hand-off message or
+            // summary after that.
+            if (! $locked instanceof Ticket || $locked->ai_status === AiStatus::Suspended
+                || $this->container->make(AiRequestFactory::class)->isClosed($locked)) {
                 return;
             }
 

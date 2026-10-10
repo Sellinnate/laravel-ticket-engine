@@ -11,10 +11,12 @@ use Selli\Ticketing\Ai\AiAssistant;
 use Selli\Ticketing\Ai\AiClassification;
 use Selli\Ticketing\Ai\AiManager;
 use Selli\Ticketing\Ai\AiRequest;
+use Selli\Ticketing\Ai\AiRequestFactory;
 use Selli\Ticketing\Ai\AiSource;
 use Selli\Ticketing\Ai\AiSummary;
 use Selli\Ticketing\Ai\AiUsage;
 use Selli\Ticketing\Ai\Drivers\FakeAiDriver;
+use Selli\Ticketing\Ai\TicketSummarizer;
 use Selli\Ticketing\Contracts\AiDriver;
 use Selli\Ticketing\Data\ArticleData;
 use Selli\Ticketing\Enums\AiMode;
@@ -842,6 +844,25 @@ it('does not count a draft-only ticket as resolved by the AI', function (): void
     Ticketing::transition($ticket, 'resolve');
 
     expect($ticket->refresh()->ai_status)->toBe(AiStatus::Active);
+});
+
+it('posts no summary on a ticket resolved while the summary was written', function (): void {
+    $ticket = Ticketing::open(type: 'support', title: 'Slow summary');
+    app()->bind(TicketSummarizer::class, fn ($app) => new class(app(AiManager::class), app(AiRequestFactory::class), $app) extends TicketSummarizer
+    {
+        public function generate(Ticket $ticket): ?AiSummary
+        {
+            $summary = parent::generate($ticket);
+            Ticketing::transition($ticket->refresh(), 'resolve');
+
+            return $summary;
+        }
+    });
+
+    Ticketing::escalate($ticket, notifyCustomer: true);
+
+    expect($ticket->messages()->where('meta->ai->kind', 'summary')->exists())->toBeFalse()
+        ->and($ticket->messages()->where('meta->ai->kind', 'handoff')->count())->toBe(1);
 });
 
 it('posts no hand-off message or summary once an agent took over', function (): void {

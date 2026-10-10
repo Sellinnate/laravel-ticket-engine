@@ -36,7 +36,7 @@ class TakeOverTicket
             throw CrossTenantException::forAssignment('agent');
         }
 
-        $result = DB::transaction(function () use ($ticket, $agent): array {
+        $result = DB::transaction(function () use ($ticket, $agent, $assign): array {
             /** @var Ticket $locked */
             $locked = Ticketing::ticketModel()::query()->withoutTenancy()
                 ->lockForUpdate()
@@ -63,19 +63,21 @@ class TakeOverTicket
                 );
             }
 
+            // Under the same lock: an assignment another agent made meanwhile
+            // is never overwritten.
+            if ($assign && $locked->assignee_id === null) {
+                $locked = $this->container->make(AssignTicket::class)->handle(new AssignTicketData(
+                    ticket: $locked,
+                    assignee: $agent,
+                    actor: $agent,
+                ));
+            }
+
             return [$locked, $previous, $handedOver];
         });
 
         /** @var array{0: Ticket, 1: AiStatus|null, 2: bool} $result */
         [$locked, $previous, $handedOver] = $result;
-
-        if ($assign && $locked->assignee_id === null) {
-            $locked = $this->container->make(AssignTicket::class)->handle(new AssignTicketData(
-                ticket: $locked,
-                assignee: $agent,
-                actor: $agent,
-            ));
-        }
 
         if ($handedOver) {
             HumanTookOver::dispatch($locked, $agent, $previous);
