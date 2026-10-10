@@ -30,6 +30,13 @@ use Selli\Ticketing\Enums\Priority;
  * @method static string|null replyAddressFor(\Selli\Ticketing\Models\Ticket $ticket)
  * @method static int anonymiseRequester(\Illuminate\Database\Eloquent\Model $requester)
  * @method static list<array<string, mixed>> exportRequesterData(\Illuminate\Database\Eloquent\Model $requester)
+ * @method static \Selli\Ticketing\Models\Ticket takeOver(\Selli\Ticketing\Models\Ticket $ticket, \Illuminate\Database\Eloquent\Model $agent, bool $assign = true)
+ * @method static \Selli\Ticketing\Models\Ticket escalate(\Selli\Ticketing\Models\Ticket $ticket, \Selli\Ticketing\Enums\EscalationReason $reason = \Selli\Ticketing\Enums\EscalationReason::Manual, ?\Illuminate\Database\Eloquent\Model $actor = null, bool $notifyCustomer = false)
+ * @method static \Selli\Ticketing\Contacts\ContactDirectory contacts()
+ * @method static \Selli\Ticketing\Knowledge\KnowledgeBase knowledge()
+ * @method static \Selli\Ticketing\Conversations\ConversationService conversations()
+ * @method static \Selli\Ticketing\Conversations\WidgetKeys widgetKeys()
+ * @method static \Selli\Ticketing\Ai\AiManager ai()
  * @method static void useUlids(bool $enabled = true)
  * @method static class-string<\Selli\Ticketing\Models\Ticket> ticketModel()
  *

@@ -5,7 +5,8 @@
   "description": "Documentation site for the selli/ticketing Laravel package (built with docmd).",
   "scripts": {
     "docs:dev": "docmd dev",
-    "docs:build": "docmd build"
+    "docs:build": "docmd build",
+    "test:js": "node --test tests/js/widget-client.test.cjs"
   },
   "repository": {
     "type": "git",

@@ -29,9 +29,14 @@ class TicketMessageResource extends JsonResource
             'source' => $this->source->value,
             'author' => [
                 'type' => $this->author_type,
-                'id' => $this->author_id,
+                'id' => $this->author_id !== null ? (string) $this->author_id : null,
             ],
             'created_at' => $this->created_at?->toIso8601String(),
+            // The sources and confidence behind an AI-written message.
+            'ai' => $this->when(is_array($this->meta['ai'] ?? null), fn (): array => [
+                'sources' => $this->meta['ai']['sources'] ?? [],
+                'confidence' => $this->meta['ai']['confidence'] ?? null,
+            ]),
         ];
     }
 }

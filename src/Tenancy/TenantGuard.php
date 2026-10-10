@@ -19,7 +19,17 @@ class TenantGuard
 {
     public function belongsToTicketTenant(Model $model, Ticket $ticket): bool
     {
-        $column = $ticket->getTenantColumn();
+        return $this->belongsToTenantOf($model, $ticket, $ticket->getTenantColumn());
+    }
+
+    /**
+     * The same check against any tenant-scoped owner (an article, a widget
+     * key, …): the model must carry no tenant column, be shared (when sharing
+     * is on) or belong to the owner's tenant.
+     */
+    public function belongsToTenantOf(Model $model, Model $owner, ?string $column = null): bool
+    {
+        $column ??= (string) config('ticketing.tenancy.column', 'tenant_id');
 
         // A model whose table has no tenant column is not scoped by us. Detect
         // this on the model's own attributes (we always load full rows) — a model
@@ -29,7 +39,7 @@ class TenantGuard
         }
 
         $modelTenant = $model->getAttribute($column);
-        $ticketTenant = $ticket->getAttribute($column);
+        $ownerTenant = $owner->getAttribute($column);
         $allowShared = config('ticketing.tenancy.allow_shared', true) !== false;
 
         // A shared (null-tenant) model is allowed only when sharing is enabled.
@@ -39,6 +49,6 @@ class TenantGuard
 
         // Otherwise the tenants must match. Compare as strings to avoid loose
         // null/0/numeric-string coercion between int and string keys.
-        return (string) $modelTenant === (string) $ticketTenant;
+        return (string) $modelTenant === (string) $ownerTenant;
     }
 }

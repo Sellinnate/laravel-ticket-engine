@@ -1,0 +1,36 @@
+name: js-client
+
+on:
+  push:
+    paths:
+      - 'resources/js/**'
+      - 'tests/js/**'
+      - '.github/workflows/js-client.yml'
+  pull_request:
+    paths:
+      - 'resources/js/**'
+      - 'tests/js/**'
+      - '.github/workflows/js-client.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Widget client (Node)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Run the widget client protocol tests
+        run: node --test tests/js/widget-client.test.cjs

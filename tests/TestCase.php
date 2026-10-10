@@ -49,6 +49,18 @@ class TestCase extends Orchestra
         config()->set('ticketing.api.enabled', true);
         config()->set('ticketing.api.middleware', []);
 
+        // The AI layer is wired for the whole suite (so its listeners run next to
+        // every other subsystem) but off until a test picks a mode; turns run
+        // inline on the deterministic fake driver.
+        config()->set('ticketing.ai.enabled', true);
+        config()->set('ticketing.ai.driver', 'fake');
+        config()->set('ticketing.ai.queue', false);
+        config()->set('ticketing.ai.mode', 'off');
+
+        // The public widget API, mounted without the host's "api" group.
+        config()->set('ticketing.widget.enabled', true);
+        config()->set('ticketing.widget.middleware', []);
+
         config()->set('database.default', 'testing');
         config()->set('database.connections.testing', self::databaseConnection());
     }

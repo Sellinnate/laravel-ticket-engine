@@ -88,6 +88,24 @@ class TicketPolicy
         return $this->isTenantAgent($user, $ticket);
     }
 
+    /** Hand the ticket to humans: anyone on it may ask for a person. */
+    public function escalate(Authenticatable $user, Ticket $ticket): bool
+    {
+        return $this->view($user, $ticket);
+    }
+
+    /** Take the ticket over from the AI: agents only. */
+    public function takeOver(Authenticatable $user, Ticket $ticket): bool
+    {
+        return $this->isTenantAgent($user, $ticket);
+    }
+
+    /** Link a knowledge-base article to the ticket: agents only. */
+    public function linkArticle(Authenticatable $user, Ticket $ticket): bool
+    {
+        return $this->isTenantAgent($user, $ticket);
+    }
+
     public function submitCsat(Authenticatable $user, Ticket $ticket): bool
     {
         return $this->view($user, $ticket);

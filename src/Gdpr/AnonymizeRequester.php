@@ -7,8 +7,10 @@ namespace Selli\Ticketing\Gdpr;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
+use Selli\Ticketing\Contacts\ContactDirectory;
 use Selli\Ticketing\Contracts\CanRequestTickets;
 use Selli\Ticketing\Events\RequesterAnonymized;
+use Selli\Ticketing\Models\Contact;
 use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Models\TicketMessage;
 use Selli\Ticketing\Support\AuditLogger;
@@ -25,7 +27,10 @@ use Selli\Ticketing\Support\Ticketing;
  */
 class AnonymizeRequester
 {
-    public function __construct(protected AuditLogger $audit) {}
+    public function __construct(
+        protected AuditLogger $audit,
+        protected ContactDirectory $contacts,
+    ) {}
 
     public function handle(Model $requester): int
     {
@@ -39,7 +44,11 @@ class AnonymizeRequester
 
         DB::transaction(function () use ($requester, $email, $label, &$touched): void {
             foreach (RequesterTickets::query($requester)->cursor() as $ticket) {
-                if (! $this->scrubMessages($ticket, $requester, $email, $label)) {
+                // The AI keeps a short excerpt of each customer question for the
+                // knowledge-gap report: a copy of the requester's words.
+                $scrubbedTurns = $this->scrubAiQuestions($ticket);
+
+                if (! $this->scrubMessages($ticket, $requester, $email, $label) && ! $scrubbedTurns) {
                     continue;
                 }
 
@@ -54,9 +63,23 @@ class AnonymizeRequester
             }
         });
 
+        // A package contact is ours to anonymise too (a host model is the
+        // host's job, via RequesterAnonymized).
+        if ($requester instanceof Contact) {
+            $this->contacts->scrub($requester);
+        }
+
         RequesterAnonymized::dispatch($requester, $touched);
 
         return $touched;
+    }
+
+    protected function scrubAiQuestions(Ticket $ticket): bool
+    {
+        return Ticketing::aiTurnModel()::query()->withoutTenancy()
+            ->where('ticket_id', $ticket->getKey())
+            ->whereNotNull('question')
+            ->update(['question' => null]) > 0;
     }
 
     protected function scrubMessages(Ticket $ticket, Model $requester, ?string $email, string $label): bool

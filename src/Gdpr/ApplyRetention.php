@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Selli\Ticketing\Events\TicketErased;
 use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Models\TicketType;
 use Selli\Ticketing\Support\Ticketing;
@@ -47,17 +48,30 @@ class ApplyRetention
 
             $count = 0;
 
-            DB::transaction(function () use ($type, $cutoff, $action, &$count): void {
+            $erased = [];
+
+            DB::transaction(function () use ($type, $cutoff, $action, &$count, &$erased): void {
                 // Re-select (and lock) inside the transaction so a ticket reopened
                 // between selection and action isn't erased on a stale snapshot.
                 $tickets = $this->dueTickets($type, $cutoff)->lockForUpdate()->get();
 
                 foreach ($tickets as $ticket) {
-                    $action === 'delete' ? $this->delete($ticket) : $this->anonymize($ticket);
+                    if ($action === 'delete') {
+                        $this->delete($ticket);
+                        $erased[] = $ticket;
+                    } else {
+                        $this->anonymize($ticket);
+                    }
                 }
 
                 $count = $tickets->count();
             });
+
+            // After commit, so integrations holding copies (search/vector indexes)
+            // only purge what is really gone.
+            foreach ($erased as $ticket) {
+                TicketErased::dispatch($ticket->getKey(), $ticket->getAttribute($ticket->getTenantColumn()));
+            }
 
             $results[] = ['type' => $type, 'action' => $action, 'count' => $count];
         }
@@ -104,6 +118,10 @@ class ApplyRetention
         if (RequesterTickets::softDeletes(Ticketing::ticketMessageModel())) {
             $relation->withTrashed();
         }
+
+        Ticketing::aiTurnModel()::query()->withoutTenancy()
+            ->where('ticket_id', $ticket->getKey())
+            ->update(['question' => null]);
 
         foreach ($relation->get() as $message) {
             $meta = $message->meta ?? [];
@@ -158,6 +176,17 @@ class ApplyRetention
             ->where('taggable_id', $ticket->getKey())
             ->delete();
 
+        // A conversation that escalated into this ticket, and its messages.
+        $conversationModel = new (Ticketing::conversationModel());
+        $conversationIds = DB::table($conversationModel->getTable())
+            ->where('ticket_id', $ticket->getKey())
+            ->pluck($conversationModel->getKeyName());
+
+        if ($conversationIds->isNotEmpty()) {
+            DB::table($this->tableFor(Ticketing::conversationMessageModel()))->whereIn('conversation_id', $conversationIds)->delete();
+            DB::table($conversationModel->getTable())->whereIn($conversationModel->getKeyName(), $conversationIds)->delete();
+        }
+
         // Every ticket_id-owned child, by its bound model's table.
         foreach ([
             Ticketing::ticketMessageModel(),
@@ -166,6 +195,8 @@ class ApplyRetention
             Ticketing::slaClockModel(),
             Ticketing::ticketLinkModel(),
             Ticketing::satisfactionRatingModel(),
+            Ticketing::aiTurnModel(),
+            Ticketing::kbArticleLinkModel(),
         ] as $model) {
             DB::table($this->tableFor($model))->where('ticket_id', $ticket->getKey())->delete();
         }

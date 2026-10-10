@@ -6,6 +6,9 @@ namespace Selli\Ticketing\Http\Controllers\Api;
 
 use Closure;
 use Illuminate\Contracts\Auth\Authenticatable;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 use Selli\Ticketing\Exceptions\AttachmentRejectedException;
@@ -55,10 +58,37 @@ abstract class Controller
      */
     protected function resolveTicket(string $key): Ticket
     {
+        self::assertKey($key);
+
         /** @var Ticket $ticket */
         $ticket = Ticketing::ticketModel()::query()->findOrFail($key);
 
         return $ticket;
+    }
+
+    /**
+     * A route key that cannot be a primary key of the configured type is a 404
+     * up front — PostgreSQL would otherwise fail the bigint cast with a 500.
+     */
+    protected static function assertKey(string $key): void
+    {
+        $valid = config('ticketing.ids.type') === 'ulid'
+            ? preg_match('/^[0-9A-Za-z]{26}$/', $key) === 1
+            : filter_var($key, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) !== false;
+
+        if (! $valid) {
+            throw (new ModelNotFoundException)->setModel(Ticketing::ticketModel());
+        }
+    }
+
+    /**
+     * The authenticated user as an Eloquent model (the package's actor type).
+     */
+    protected function actor(Request $request): ?Model
+    {
+        $user = $request->user();
+
+        return $user instanceof Model ? $user : null;
     }
 
     /**

@@ -16,8 +16,9 @@ use Selli\Ticketing\Models\Concerns\ConfiguresTicketingTable;
 use Selli\Ticketing\Support\Ticketing;
 
 /**
- * Membership of an agent in a team, carrying skills for skill-based routing and
- * a last-assigned timestamp for round-robin.
+ * Membership of an agent in a team, carrying skills for skill-based routing, a
+ * last-assigned timestamp for round-robin and a role ("lead" members are
+ * notified when the AI escalates a ticket to the team).
  *
  * @property int|string $id
  * @property int|string|null $tenant_id
@@ -27,9 +28,14 @@ use Selli\Ticketing\Support\Ticketing;
  * @property list<string>|null $skills
  * @property bool $is_active
  * @property Carbon|null $last_assigned_at
+ * @property string $role
  */
 class TeamMember extends Model
 {
+    public const ROLE_MEMBER = 'member';
+
+    public const ROLE_LEAD = 'lead';
+
     use BelongsToTenant;
     use ConfiguresTicketingTable;
 
