@@ -82,6 +82,15 @@ abstract class Controller
     }
 
     /**
+     * A validated route/body key in the configured id type (int for
+     * auto-increment ids), so responses serialise it consistently.
+     */
+    protected static function castKey(string $key): int|string
+    {
+        return config('ticketing.ids.type') === 'ulid' ? $key : (int) $key;
+    }
+
+    /**
      * The authenticated user as an Eloquent model (the package's actor type).
      */
     protected function actor(Request $request): ?Model

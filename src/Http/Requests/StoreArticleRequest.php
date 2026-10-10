@@ -10,6 +10,7 @@ use Illuminate\Validation\Rule;
 use Selli\Ticketing\Enums\ArticleType;
 use Selli\Ticketing\Enums\BodyFormat;
 use Selli\Ticketing\Enums\KnowledgeVisibility;
+use Selli\Ticketing\Support\Ticketing;
 
 /**
  * @internal
@@ -38,8 +39,14 @@ class StoreArticleRequest extends FormRequest
             'keywords' => ['nullable', 'array', 'max:30'],
             'keywords.*' => ['string', 'max:60'],
             'category_id' => ['nullable', function (string $attribute, mixed $value, Closure $fail): void {
-                if (! is_scalar($value)) {
-                    $fail('The category id must be a scalar value.');
+                // A key of the configured type, naming a category the current
+                // tenant can see (another tenant's category does not exist here).
+                $valid = is_scalar($value) && (config('ticketing.ids.type') === 'ulid'
+                    ? preg_match('/^[0-9A-Za-z]{26}$/', (string) $value) === 1
+                    : filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) !== false);
+
+                if (! $valid || ! Ticketing::kbCategoryModel()::query()->whereKey((string) $value)->exists()) {
+                    $fail('The selected category does not exist.');
                 }
             }],
             'visibility' => ['nullable', Rule::enum(KnowledgeVisibility::class)],

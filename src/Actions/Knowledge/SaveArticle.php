@@ -56,6 +56,7 @@ class SaveArticle
 
         $locale = $data->locale ?? self::defaultLocale();
         $model = Ticketing::kbArticleModel();
+        $this->assertCategory($data->categoryId);
 
         // A translation lives in the same tenant as the article it translates.
         if ($data->translationOf !== null && ! $this->inCurrentTenant($data->translationOf)) {
@@ -89,6 +90,8 @@ class SaveArticle
 
     protected function update(KbArticle $article, ArticleData $data, ?Model $author): KbArticle
     {
+        $this->assertCategory($data->categoryId);
+
         $changes = array_filter([
             'type' => $data->type,
             'title' => $data->title !== null ? trim($data->title) : null,
@@ -184,6 +187,21 @@ class SaveArticle
         }
 
         throw new \RuntimeException("No free slug for [{$base}] in locale [{$locale}].");
+    }
+
+    /**
+     * A category must exist for the current tenant (the scoped query hides
+     * other tenants' categories).
+     */
+    protected function assertCategory(int|string|null $categoryId): void
+    {
+        if ($categoryId === null) {
+            return;
+        }
+
+        if (! Ticketing::kbCategoryModel()::query()->whereKey($categoryId)->exists()) {
+            throw new InvalidArgumentException("Knowledge-base category [{$categoryId}] does not exist.");
+        }
     }
 
     protected function inCurrentTenant(KbArticle $article): bool

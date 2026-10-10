@@ -151,7 +151,7 @@ class KnowledgeController extends Controller
             slug: $string('slug'),
             summary: $string('summary'),
             keywords: is_array($keywords) ? array_values(array_map('strval', $keywords)) : null,
-            categoryId: $request->filled('category_id') ? (string) $request->input('category_id') : null,
+            categoryId: $request->filled('category_id') ? self::castKey((string) $request->input('category_id')) : null,
             visibility: KnowledgeVisibility::tryFrom((string) $request->input('visibility')),
             bodyFormat: BodyFormat::tryFrom((string) $request->input('body_format')),
         );

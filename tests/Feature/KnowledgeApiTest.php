@@ -9,6 +9,7 @@ use Selli\Ticketing\Enums\EscalationReason;
 use Selli\Ticketing\Enums\KnowledgeVisibility;
 use Selli\Ticketing\Facades\Ticketing;
 use Selli\Ticketing\Models\KbArticle;
+use Selli\Ticketing\Models\KbCategory;
 use Selli\Ticketing\Tenancy\TenantContext;
 use Selli\Ticketing\Tests\Fixtures\TestRequester;
 
@@ -136,4 +137,23 @@ it('never shows another tenant\'s articles to an agent, even by direct Gate chec
 
     expect(Gate::forUser($foreignAgent)->allows('view', $article))->toBeFalse()
         ->and(Gate::forUser($ownAgent)->allows('view', $article))->toBeTrue();
+});
+
+it('validates the category of an article', function (): void {
+    $own = KbCategory::query()->create(['name' => 'Billing']);
+    $foreign = app(TenantContext::class)->forTenant(7, fn () => KbCategory::query()->create(['name' => 'Other']));
+    $this->actingAs(makeUser());
+
+    foreach (['abc', '999999', (string) $foreign->getKey()] as $bad) {
+        $this->postJson(API.'/kb/articles', ['title' => 'T', 'body' => 'B', 'category_id' => $bad])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('category_id');
+    }
+
+    $this->postJson(API.'/kb/articles', ['title' => 'T', 'body' => 'B', 'category_id' => $own->getKey()])
+        ->assertCreated()
+        ->assertJsonPath('data.category_id', $own->getKey());
+
+    expect(fn () => Ticketing::knowledge()->save(new ArticleData(title: 'X', body: 'Y', categoryId: 999999)))
+        ->toThrow(InvalidArgumentException::class);
 });
