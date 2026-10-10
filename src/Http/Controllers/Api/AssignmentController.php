@@ -12,6 +12,9 @@ use Selli\Ticketing\Http\Resources\TicketResource;
 use Selli\Ticketing\Models\Team;
 use Selli\Ticketing\Support\Ticketing as TicketingManager;
 
+/**
+ * @internal
+ */
 class AssignmentController extends Controller
 {
     public function store(StoreAssignmentRequest $request, string $ticket): TicketResource

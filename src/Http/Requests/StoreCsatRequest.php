@@ -7,6 +7,9 @@ namespace Selli\Ticketing\Http\Requests;
 use Illuminate\Foundation\Http\FormRequest;
 use Selli\Ticketing\Support\Csat;
 
+/**
+ * @internal
+ */
 class StoreCsatRequest extends FormRequest
 {
     public function authorize(): bool

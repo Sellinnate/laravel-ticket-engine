@@ -10,6 +10,8 @@ use Selli\Ticketing\Sla\SlaManager;
 /**
  * Sweeps SLA clocks for thresholds and breaches. Schedule it (e.g. every
  * minute) to drive escalations.
+ *
+ * @internal
  */
 class EscalateCommand extends Command
 {

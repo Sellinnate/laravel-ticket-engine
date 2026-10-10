@@ -19,6 +19,8 @@ use Selli\Ticketing\Support\Ticketing;
  *
  * @phpstan-type ExportedMessage array{body: string, source: string, created_at: string|null}
  * @phpstan-type ExportedTicket array{reference: string, title: string, status: string, category: string|null, created_at: string|null, messages: list<ExportedMessage>, satisfaction: array{rating: int|null, comment: string|null}|null}
+ *
+ * @internal
  */
 class ExportRequesterData
 {

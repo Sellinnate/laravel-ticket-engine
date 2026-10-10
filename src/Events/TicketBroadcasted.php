@@ -9,14 +9,13 @@ use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Broadcasting\PrivateChannel;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
 use Selli\Ticketing\Broadcasting\Channels;
-use Selli\Ticketing\Listeners\BroadcastSubscriber;
 use Selli\Ticketing\Models\Ticket;
 
 /**
  * A queued, minimal realtime notice of a ticket change. The payload is just the
  * ids + the delta (status, the message id, …); a subscribed client reloads the
- * full detail through the API. Dispatched by {@see BroadcastSubscriber}
- * off the domain events, so the domain events themselves stay broadcast-free.
+ * full detail through the API. Dispatched by the package's broadcast
+ * subscriber off the domain events, so the domain events themselves stay broadcast-free.
  *
  * It carries SCALAR SNAPSHOTS (not the Ticket model) taken at dispatch time. A
  * queued ShouldBroadcast that held the model would, via SerializesModels,

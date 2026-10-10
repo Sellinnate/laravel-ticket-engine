@@ -10,6 +10,8 @@ use Selli\Ticketing\Models\SatisfactionRating;
 
 /**
  * @mixin SatisfactionRating
+ *
+ * @internal
  */
 class SatisfactionRatingResource extends JsonResource
 {

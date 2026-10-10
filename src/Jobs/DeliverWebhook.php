@@ -19,6 +19,8 @@ use Throwable;
  * Delivers an outbound webhook off the request: signs the JSON body with HMAC,
  * POSTs it, and retries on failure. When the retries are exhausted it emits
  * {@see WebhookFailed} (dead-letter) so the host can alert or replay.
+ *
+ * @internal
  */
 class DeliverWebhook implements ShouldQueue
 {

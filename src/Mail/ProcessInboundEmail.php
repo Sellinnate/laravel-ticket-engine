@@ -33,6 +33,8 @@ use Selli\Ticketing\Tenancy\TenantContext;
  * both) a new ticket via the configured route. The method is loop- and
  * duplicate-safe: automated mail is dropped, a sender is rate limited, and the
  * same Message-ID is never ingested twice.
+ *
+ * @internal
  */
 class ProcessInboundEmail
 {
@@ -303,13 +305,21 @@ class ProcessInboundEmail
     protected function importAttachments(TicketMessage $message, InboundEmail $email): void
     {
         foreach ($email->attachments as $attachment) {
-            $path = tempnam(sys_get_temp_dir(), 'ticketing-inbound');
+            // An anonymous temp file, removed by the OS when the handle closes.
+            $handle = tmpfile();
 
-            if ($path === false) {
+            if ($handle === false) {
                 continue;
             }
 
-            file_put_contents($path, $attachment['content']);
+            fwrite($handle, $attachment['content']);
+            $path = stream_get_meta_data($handle)['uri'] ?? null;
+
+            if (! is_string($path)) {
+                fclose($handle);
+
+                continue;
+            }
 
             try {
                 $this->addAttachment->handle(new AddAttachmentData(
@@ -321,7 +331,7 @@ class ProcessInboundEmail
                 // failing the whole email.
                 report($exception);
             } finally {
-                @unlink($path);
+                fclose($handle);
             }
         }
     }
@@ -355,7 +365,7 @@ class ProcessInboundEmail
 
     protected function rateLimitKey(InboundEmail $email): string
     {
-        return 'ticketing:inbound:'.sha1(strtolower(trim($email->from)));
+        return 'ticketing:inbound:'.hash('sha256', strtolower(trim($email->from)));
     }
 
     protected function normaliseId(string $id): string

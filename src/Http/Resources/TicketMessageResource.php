@@ -10,6 +10,8 @@ use Selli\Ticketing\Models\TicketMessage;
 
 /**
  * @mixin TicketMessage
+ *
+ * @internal
  */
 class TicketMessageResource extends JsonResource
 {

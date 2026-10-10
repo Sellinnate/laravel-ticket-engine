@@ -14,6 +14,8 @@ use Selli\Ticketing\Support\Ticketing;
 
 /**
  * @extends Factory<TicketMessage>
+ *
+ * @internal
  */
 class TicketMessageFactory extends Factory
 {

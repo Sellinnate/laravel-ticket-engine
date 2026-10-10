@@ -17,6 +17,8 @@ use Selli\Ticketing\Exceptions\ImmutableAuditException;
  * @template TModel of Model
  *
  * @extends Builder<TModel>
+ *
+ * @internal
  */
 class ImmutableBuilder extends Builder
 {

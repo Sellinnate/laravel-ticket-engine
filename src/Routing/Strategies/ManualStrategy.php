@@ -10,6 +10,8 @@ use Selli\Ticketing\Models\Ticket;
 
 /**
  * No automatic assignee — triage is left to a human.
+ *
+ * @internal
  */
 class ManualStrategy extends AbstractStrategy
 {

@@ -16,6 +16,8 @@ use Selli\Ticketing\Models\Ticket;
  * Seeds one working example ticket — a reply and an internal note — so a
  * developer can see the engine produce a real reference and conversation
  * within minutes of installing (spec §18, time-to-first-ticket).
+ *
+ * @internal
  */
 class DemoCommand extends Command
 {

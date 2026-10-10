@@ -16,6 +16,8 @@ use Selli\Ticketing\Tenancy\TenantGuard;
 
 /**
  * Shared helpers for the built-in assignment strategies.
+ *
+ * @internal
  */
 abstract class AbstractStrategy implements AssignmentStrategy
 {

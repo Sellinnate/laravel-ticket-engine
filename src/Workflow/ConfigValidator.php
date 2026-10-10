@@ -11,6 +11,8 @@ use Selli\Ticketing\Exceptions\InvalidConfigurationException;
  * Validates the workflow configuration at boot so a typo (a transition that
  * points at a non-existent state, a type that references an unknown workflow)
  * fails fast rather than at runtime.
+ *
+ * @internal
  */
 class ConfigValidator
 {

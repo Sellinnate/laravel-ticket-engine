@@ -8,6 +8,8 @@ use Selli\Ticketing\Models\Ticket;
 
 /**
  * Sent to an actor when they're added to a ticket (e.g. via an @mention).
+ *
+ * @internal
  */
 class ParticipantAddedNotification extends TicketNotification
 {

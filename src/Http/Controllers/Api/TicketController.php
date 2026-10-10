@@ -21,6 +21,8 @@ use Selli\Ticketing\Query\TicketQuery;
 /**
  * Tickets resource. Reads are tenant-scoped by the engine's global scope, so a
  * caller only ever sees its own tenant's tickets.
+ *
+ * @internal
  */
 class TicketController extends Controller
 {

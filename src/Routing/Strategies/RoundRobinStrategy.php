@@ -12,6 +12,8 @@ use Selli\Ticketing\Models\Ticket;
 /**
  * Cyclic, fair distribution: the least-recently-assigned member is chosen. The
  * AssignTicket action stamps `last_assigned_at` so the rotation advances.
+ *
+ * @internal
  */
 class RoundRobinStrategy extends AbstractStrategy
 {

@@ -12,6 +12,8 @@ use Selli\Ticketing\Models\Ticket;
 /**
  * Assigns to the member with the fewest unresolved tickets (real load
  * balancing), breaking ties by least-recently-assigned then key.
+ *
+ * @internal
  */
 class LeastBusyStrategy extends AbstractStrategy
 {

@@ -20,6 +20,8 @@ use Selli\Ticketing\Support\Ticketing;
  * tickets for statistics. The host's requester model is the host's to anonymise
  * — it listens to {@see RequesterAnonymized}. Each touched ticket gets an audit
  * entry, so the anonymisation itself is traceable.
+ *
+ * @internal
  */
 class AnonymizeRequester
 {

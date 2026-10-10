@@ -17,6 +17,8 @@ use Selli\Ticketing\Tenancy\TenantContext;
  * numbers — independent of soft-deleted rows or an engine's NULL-uniqueness
  * behaviour. This avoids the pitfalls of deriving the next number from a row
  * count.
+ *
+ * @internal
  */
 class ReferenceGenerator
 {

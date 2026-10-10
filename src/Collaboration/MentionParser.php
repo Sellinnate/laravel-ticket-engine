@@ -7,6 +7,8 @@ namespace Selli\Ticketing\Collaboration;
 /**
  * Extracts @mention handles from a message body. Agnostic on the user model —
  * resolution happens via a MentionResolver.
+ *
+ * @internal
  */
 class MentionParser
 {

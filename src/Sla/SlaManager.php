@@ -27,6 +27,8 @@ use Selli\Ticketing\Workflow\WorkflowManager;
  * the first-response clock on the first agent reply, pausing/resuming while a
  * ticket waits on the customer, completing the resolution clock on resolution,
  * and sweeping for thresholds and breaches.
+ *
+ * @internal
  */
 class SlaManager
 {

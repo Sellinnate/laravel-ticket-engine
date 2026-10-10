@@ -11,6 +11,8 @@ use Selli\Ticketing\Support\Ticketing;
 
 /**
  * @extends Factory<Tag>
+ *
+ * @internal
  */
 class TagFactory extends Factory
 {

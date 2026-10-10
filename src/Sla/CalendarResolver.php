@@ -15,6 +15,8 @@ use Selli\Ticketing\Support\Ticketing;
  * holidays. A policy with no calendar is treated as 24/7; a policy that
  * references a calendar which cannot be found fails loudly rather than silently
  * degrading to 24/7 (which would move deadlines earlier).
+ *
+ * @internal
  */
 class CalendarResolver
 {

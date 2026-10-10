@@ -26,6 +26,8 @@ use Selli\Ticketing\Support\Ticketing;
  * 500; here we translate exactly that set into a 422 validation error keyed to
  * the offending field. Tenant/security errors (CrossTenant, MissingTenant) are
  * intentionally NOT caught — they must not be reported back as input problems.
+ *
+ * @internal
  */
 abstract class Controller
 {

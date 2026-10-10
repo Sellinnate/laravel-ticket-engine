@@ -11,6 +11,8 @@ use Selli\Ticketing\Models\Ticket;
  * Resolves the host models to notify for a ticket. Agnostic about the user model
  * (it follows the polymorphic assignee/participant relations); the resolved
  * models are whatever the host attached, which carry the Notifiable trait.
+ *
+ * @internal
  */
 class RecipientResolver
 {

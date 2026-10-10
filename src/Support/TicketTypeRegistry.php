@@ -17,6 +17,8 @@ use Selli\Ticketing\Tenancy\TenantContext;
  *
  * When both a tenant-specific and a shared (null-tenant) type share the same
  * key, the tenant-specific row wins deterministically.
+ *
+ * @internal
  */
 class TicketTypeRegistry
 {

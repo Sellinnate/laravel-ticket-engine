@@ -10,6 +10,8 @@ use Selli\Ticketing\Support\Ticketing;
 
 /**
  * @extends Factory<TicketLink>
+ *
+ * @internal
  */
 class TicketLinkFactory extends Factory
 {

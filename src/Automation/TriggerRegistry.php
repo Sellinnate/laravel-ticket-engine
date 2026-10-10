@@ -22,6 +22,8 @@ use Selli\Ticketing\Models\Ticket;
 /**
  * Maps the domain events that can trigger automation to stable string keys (used
  * in rule config), and pulls the ticket/actor out of each event uniformly.
+ *
+ * @internal
  */
 class TriggerRegistry
 {

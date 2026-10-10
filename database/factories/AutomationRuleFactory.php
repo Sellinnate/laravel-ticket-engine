@@ -10,6 +10,8 @@ use Selli\Ticketing\Support\Ticketing;
 
 /**
  * @extends Factory<AutomationRule>
+ *
+ * @internal
  */
 class AutomationRuleFactory extends Factory
 {

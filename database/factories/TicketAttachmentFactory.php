@@ -11,6 +11,8 @@ use Selli\Ticketing\Support\Ticketing;
 
 /**
  * @extends Factory<TicketAttachment>
+ *
+ * @internal
  */
 class TicketAttachmentFactory extends Factory
 {

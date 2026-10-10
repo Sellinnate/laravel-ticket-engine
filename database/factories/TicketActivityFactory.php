@@ -10,6 +10,8 @@ use Selli\Ticketing\Models\TicketActivity;
 
 /**
  * @extends Factory<TicketActivity>
+ *
+ * @internal
  */
 class TicketActivityFactory extends Factory
 {

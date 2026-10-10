@@ -28,6 +28,8 @@ use Selli\Ticketing\Notifications\TicketNotification;
  * Turns domain events into Laravel notifications to the relevant ticket actors.
  * Channel selection (and digesting) happens inside each notification, so this
  * only resolves WHO to notify.
+ *
+ * @internal
  */
 class NotificationSubscriber implements Subscriber
 {

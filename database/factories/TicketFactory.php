@@ -12,6 +12,8 @@ use Selli\Ticketing\Models\TicketType;
 
 /**
  * @extends Factory<Ticket>
+ *
+ * @internal
  */
 class TicketFactory extends Factory
 {

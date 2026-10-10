@@ -16,6 +16,8 @@ use RuntimeException;
  *
  * The schedule is keyed by ISO weekday (1 = Monday … 7 = Sunday); each day holds
  * a list of [start, end] "HH:MM" windows. "24:00" denotes end-of-day.
+ *
+ * @internal
  */
 final class BusinessHours
 {

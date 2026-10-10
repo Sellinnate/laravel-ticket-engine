@@ -16,6 +16,8 @@ use Selli\Ticketing\Exceptions\InvalidConfigurationException;
  * without storing per-thread state, and a forged token can't point at an
  * arbitrary ticket. There is no expiry — a customer may reply to a thread at
  * any time, and the token alone never grants access, only correlation.
+ *
+ * @internal
  */
 class MailThreadToken
 {

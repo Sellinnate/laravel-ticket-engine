@@ -13,6 +13,8 @@ use Selli\Ticketing\Support\Ticketing;
  * type+priority match wins over type-only, which wins over priority-only, which
  * wins over the catch-all. At equal specificity a tenant-owned policy beats a
  * shared one, and remaining ties break deterministically on the key.
+ *
+ * @internal
  */
 class SlaPolicyResolver
 {

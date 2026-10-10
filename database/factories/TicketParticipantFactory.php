@@ -12,6 +12,8 @@ use Selli\Ticketing\Models\TicketParticipant;
 
 /**
  * @extends Factory<TicketParticipant>
+ *
+ * @internal
  */
 class TicketParticipantFactory extends Factory
 {

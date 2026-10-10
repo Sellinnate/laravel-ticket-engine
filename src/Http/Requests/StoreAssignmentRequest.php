@@ -9,6 +9,9 @@ use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Selli\Ticketing\Routing\AssignmentManager;
 
+/**
+ * @internal
+ */
 class StoreAssignmentRequest extends FormRequest
 {
     public function authorize(): bool
