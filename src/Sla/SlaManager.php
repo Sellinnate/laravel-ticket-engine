@@ -30,6 +30,14 @@ use Selli\Ticketing\Workflow\WorkflowManager;
  */
 class SlaManager
 {
+    /**
+     * Calendars built during the current sweep, keyed by business-hours id
+     * (null outside a sweep, so request-time math always reads fresh data).
+     *
+     * @var array<string, BusinessHours>|null
+     */
+    protected ?array $sweepCalendars = null;
+
     public function __construct(
         protected SlaPolicyResolver $policies,
         protected CalendarResolver $calendars,
@@ -436,28 +444,42 @@ class SlaManager
     /**
      * Sweep running clocks for thresholds and breaches. Each clock is processed
      * within its own tenant so policies/calendars resolve correctly.
+     *
+     * Each chunk eager-loads its tickets in one query and every calendar is
+     * built once per sweep, so the cost stays flat as the number of running
+     * clocks grows (no per-clock ticket or calendar queries).
      */
     public function sweep(int $thresholdPercent = 75, int $chunk = 200): void
     {
         $model = Ticketing::slaClockModel();
         $now = now();
 
-        $model::query()
-            ->withoutTenancy()
-            ->whereNull('completed_at')
-            ->whereNull('paused_at')
-            ->where(function ($query) use ($now): void {
-                $query->where('due_at', '<=', $now)
-                    ->orWhere('threshold_notified', false);
-            })
-            ->chunkById($chunk, function ($clocks) use ($thresholdPercent, $now): void {
-                foreach ($clocks as $clock) {
-                    $this->tenant->forTenant(
-                        $clock->getAttribute($this->tenant->column()),
-                        fn () => $this->evaluate($clock, $thresholdPercent, $now),
-                    );
-                }
-            });
+        $this->sweepCalendars = [];
+
+        try {
+            $model::query()
+                ->withoutTenancy()
+                ->whereNull('completed_at')
+                ->whereNull('paused_at')
+                ->where(function ($query) use ($now): void {
+                    $query->where('due_at', '<=', $now)
+                        ->orWhere('threshold_notified', false);
+                })
+                ->chunkById($chunk, function ($clocks) use ($thresholdPercent, $now): void {
+                    // Unscoped (the sweep runs with no tenant context); a
+                    // soft-deleted ticket stays unloaded and its clock is stopped.
+                    $clocks->load(['ticket' => fn ($query) => $query->withoutTenancy()]);
+
+                    foreach ($clocks as $clock) {
+                        $this->tenant->forTenant(
+                            $clock->getAttribute($this->tenant->column()),
+                            fn () => $this->evaluate($clock, $thresholdPercent, $now),
+                        );
+                    }
+                });
+        } finally {
+            $this->sweepCalendars = null;
+        }
     }
 
     /**
@@ -552,7 +574,8 @@ class SlaManager
 
     protected function evaluate(SlaClock $clock, int $thresholdPercent, Carbon $now): void
     {
-        $ticket = $this->loadTicket($clock);
+        $ticket = $clock->relationLoaded('ticket') ? $clock->getRelation('ticket') : $this->loadTicket($clock);
+        $ticket = $ticket instanceof Ticket ? $ticket : null;
 
         if ($ticket === null) {
             // The ticket is gone (e.g. soft-deleted) — stop the orphaned clock so
@@ -662,7 +685,13 @@ class SlaManager
      */
     protected function calendarFor(SlaClock $clock): BusinessHours
     {
-        return $this->calendars->forBusinessHoursId($clock->business_hours_id);
+        if ($this->sweepCalendars === null) {
+            return $this->calendars->forBusinessHoursId($clock->business_hours_id);
+        }
+
+        $key = (string) ($clock->business_hours_id ?? '');
+
+        return $this->sweepCalendars[$key] ??= $this->calendars->forBusinessHoursId($clock->business_hours_id);
     }
 
     /**
