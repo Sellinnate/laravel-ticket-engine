@@ -26,12 +26,13 @@ fails fast.
 | `automation` / `webhooks` | rule engine + SSRF-guarded outbound — see [Automation](/concepts/automation) |
 | `notifications` | channels, preferences, throttle, Slack — see [Notifications](/concepts/notifications) |
 | `api` | the opt-in [REST API](/channels/rest-api) |
-| `mail` | inbound routing + outbound threading — see [Email-to-ticket](/channels/email) |
+| `mail` | inbound routing, quote stripping, Cc participants, IMAP mailboxes, outbound threading — see [Email-to-ticket](/channels/email) |
 | `broadcasting` | realtime channels — see [Broadcasting](/channels/broadcasting) |
 | `authorization` | policy registration — see [Authorization](/security/authorization) |
 | `gdpr` | anonymisation label + retention rules — see [GDPR](/security/gdpr) |
 | `contacts` | resolve inbound email senders to contacts — see [Contacts](/concepts/contacts) |
 | `knowledge` | default locale and keyword-search tuning — see [Knowledge base](/concepts/knowledge-base) |
+| `rag` | the optional [RAG Engine bridge](/integrations/rag-engine): indexing, semantic search, thresholds |
 | `ai` | driver, modes per tenant/type, classification, escalation rules — see [AI assistance](/concepts/ai) |
 | `widget` | the public chat/widget API, rate limits and abuse protection — see [Chat & widget](/channels/widget) |
 | `queue` | the connection/queue for side effects (notifications, webhooks, sweeps) |
