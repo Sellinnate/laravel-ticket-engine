@@ -562,17 +562,24 @@ class Metrics
     }
 
     /**
-     * The AI turns of the period (of the filtered tickets, when filtered).
+     * The AI turns of the period — when filtered, those of the matching
+     * tickets and of the widget conversations that became one of them.
      *
      * @return Builder<AiTurn>
      */
     protected function aiTurns(): Builder
     {
         $model = Ticketing::aiTurnModel();
+        $conversation = Ticketing::conversationModel();
 
         return $model::query()
             ->whereBetween('created_at', $this->period())
-            ->when($this->filtered, fn (Builder $query) => $query->whereIn('ticket_id', $this->ticketKeys()));
+            ->when($this->filtered, fn (Builder $query) => $query->where(function (Builder $turns) use ($conversation): void {
+                $turns->whereIn('ticket_id', $this->ticketKeys())
+                    ->orWhereIn('conversation_id', $conversation::query()->withoutTenancy()
+                        ->whereIn('ticket_id', $this->ticketKeys())
+                        ->select((new $conversation)->getKeyName()));
+            }));
     }
 
     /**

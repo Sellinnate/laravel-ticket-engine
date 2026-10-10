@@ -217,7 +217,24 @@ it('reports the AI share of the work for a filtered set of tickets', function ()
         ]);
     }
 
+    // A widget conversation that became an email-channel ticket: its turns follow the ticket.
+    $c = pastTicket(['ai_status' => 'escalated', 'channel' => 'email']);
+    $conversation = DB::table((new (Ticketing::conversationModel()))->getTable())->insertGetId([
+        'public_id' => 'cw', 'channel' => 'widget', 'token_hash' => 'hw', 'status' => 'escalated', 'resolved_by_ai' => false,
+        'ticket_id' => $c, 'created_at' => '2026-03-02 08:00:00', 'updated_at' => '2026-03-02 08:00:00',
+    ]);
+    DB::table((new (Ticketing::aiTurnModel()))->getTable())->insert([
+        'conversation_id' => $conversation, 'trigger_key' => 'conversation_message:w1', 'mode' => 'auto', 'status' => 'done', 'driver' => 'fake',
+        'outcome' => 'escalated', 'cost' => 0.05, 'currency' => 'EUR', 'created_at' => '2026-03-02 08:00:00', 'updated_at' => '2026-03-02 08:00:00',
+    ]);
+
     $ai = Ticketing::metrics()->between(...period())->filter(['channel' => 'email'])->ai();
+
+    expect($ai['turns'])->toBe(2)
+        ->and($ai['cost'])->toBe(['EUR' => 0.06])
+        ->and($ai['tickets'])->toBe(2);
+
+    $ai = Ticketing::metrics()->between(...period())->filter(['channel' => 'email'])->where(fn (TicketQuery $query) => $query->where(fn ($builder) => $builder->whereKey($a)))->ai();
 
     expect($ai['turns'])->toBe(1)
         ->and($ai['tickets'])->toBe(1)
