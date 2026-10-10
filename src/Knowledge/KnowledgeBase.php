@@ -72,7 +72,11 @@ class KnowledgeBase
         $locales = array_values(array_unique(array_filter([$locale, SaveArticle::defaultLocale()])));
 
         foreach ($locales as $candidate) {
-            $article = $model::query()->visibleTo($audience)->where('slug', $slug)->where('locale', $candidate)->first();
+            // A tenant article and a shared one may share a slug (slugs are
+            // unique per tenant): the tenant's own wins, deterministically.
+            $article = $model::query()->visibleTo($audience)->where('slug', $slug)->where('locale', $candidate)->get()
+                ->sortBy(fn (KbArticle $found): int => $found->getAttribute($found->getTenantColumn()) === null ? 1 : 0)
+                ->first();
 
             if ($article instanceof KbArticle) {
                 return $article;

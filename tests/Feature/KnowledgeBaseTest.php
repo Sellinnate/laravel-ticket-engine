@@ -393,3 +393,12 @@ it('lets every agent write when tenancy is off', function (): void {
     expect(Gate::forUser($agent)->allows('update', $article))->toBeTrue()
         ->and(Gate::forUser($agent)->allows('view', $article))->toBeTrue();
 });
+
+it('prefers the tenant\'s own article over a shared one with the same slug', function (): void {
+    article('Billing', 'Shared billing answer');
+    $own = app(TenantContext::class)->forTenant(3, fn () => article('Billing', 'Tenant billing answer'));
+
+    $found = app(TenantContext::class)->forTenant(3, fn () => Ticketing::knowledge()->find('billing', KnowledgeAudience::public()));
+
+    expect($found?->getKey())->toBe($own->getKey());
+});
