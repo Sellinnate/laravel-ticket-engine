@@ -340,3 +340,16 @@ it('moves an article to another locale, re-checking the slug there', function ()
     expect($moved->locale)->toBe('it')
         ->and($moved->slug)->toBe('billing-2');
 });
+
+it('checks an updated category against the article\'s own tenant', function (): void {
+    $context = app(TenantContext::class);
+    [$article, $own] = $context->forTenant(1, fn () => [article('A', 'B', publish: false), KbCategory::query()->create(['name' => 'Own'])]);
+    $foreign = $context->forTenant(2, fn () => KbCategory::query()->create(['name' => 'Foreign']));
+
+    $context->forTenant(2, function () use ($article, $own, $foreign): void {
+        expect(fn () => Ticketing::knowledge()->save(new ArticleData(categoryId: $foreign->getKey()), $article))
+            ->toThrow(InvalidArgumentException::class);
+
+        expect(Ticketing::knowledge()->save(new ArticleData(categoryId: $own->getKey()), $article)->category_id)->toBe($own->getKey());
+    });
+});

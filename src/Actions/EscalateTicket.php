@@ -128,9 +128,39 @@ class EscalateTicket
 
         $escalated->refresh();
 
-        TicketEscalated::dispatch($escalated, $reason, $actor);
+        // Announced once per escalation: the marker is written in the same
+        // transaction that dispatches the (after-commit) event, so a resumed
+        // hand-over does not notify the team a second time.
+        DB::transaction(function () use ($escalated, $reason, $actor): void {
+            Ticketing::ticketModel()::query()->withoutTenancy()->lockForUpdate()->whereKey($escalated->getKey())->first();
+
+            if ($this->announced($escalated)) {
+                return;
+            }
+
+            $this->audit->record(
+                ticket: $escalated,
+                event: 'ticket.escalation_announced',
+                actor: $actor,
+                context: ['reason' => $reason->value],
+            );
+
+            TicketEscalated::dispatch($escalated, $reason, $actor);
+        });
 
         return $escalated;
+    }
+
+    /**
+     * Whether the current escalation was already announced.
+     */
+    protected function announced(Ticket $ticket): bool
+    {
+        return Ticketing::ticketActivityModel()::query()->withoutTenancy()
+            ->where('ticket_id', $ticket->getKey())
+            ->where('event', 'ticket.escalation_announced')
+            ->when($ticket->escalated_at !== null, fn ($query) => $query->where('created_at', '>=', $ticket->escalated_at))
+            ->exists();
     }
 
     /**

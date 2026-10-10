@@ -90,7 +90,7 @@ class SaveArticle
 
     protected function update(KbArticle $article, ArticleData $data, ?Model $author): KbArticle
     {
-        $this->assertCategory($data->categoryId);
+        $this->assertCategory($data->categoryId, $article);
 
         $changes = array_filter([
             'type' => $data->type,
@@ -199,16 +199,30 @@ class SaveArticle
     }
 
     /**
-     * A category must exist for the current tenant (the scoped query hides
-     * other tenants' categories).
+     * A category must exist in the article's tenant (or be shared, when
+     * sharing is on) — for a new article, the current tenant's.
      */
-    protected function assertCategory(int|string|null $categoryId): void
+    protected function assertCategory(int|string|null $categoryId, ?KbArticle $article = null): void
     {
         if ($categoryId === null) {
             return;
         }
 
-        if (! Ticketing::kbCategoryModel()::query()->whereKey($categoryId)->exists()) {
+        $column = $this->tenant->column();
+        $tenant = $article !== null ? $article->getAttribute($article->getTenantColumn()) : $this->tenant->current();
+
+        $exists = Ticketing::kbCategoryModel()::query()->withoutTenancy()
+            ->whereKey($categoryId)
+            ->when($this->tenant->enabled(), fn ($query) => $query->where(function ($scoped) use ($column, $tenant): void {
+                $scoped->where($column, $tenant);
+
+                if ($this->tenant->allowsShared()) {
+                    $scoped->orWhereNull($column);
+                }
+            }))
+            ->exists();
+
+        if (! $exists) {
             throw new InvalidArgumentException("Knowledge-base category [{$categoryId}] does not exist.");
         }
     }
