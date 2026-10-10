@@ -286,20 +286,24 @@ class TicketQuery
     public function taggedWith(array|string $slugs): static
     {
         $ticket = $this->query->getModel();
-        $tag = new (Ticketing::tagModel());
+        $tagModel = Ticketing::tagModel();
         $prefix = (string) config('ticketing.tables.prefix', '');
         $pivot = $prefix.(string) config('ticketing.tables.taggables', 'taggables');
 
-        // An explicit EXISTS rather than whereHas('tags'): the pivot's
-        // taggable_id is a string (agnostic to host key types), and PostgreSQL
-        // refuses to compare it with a numeric ticket key without a cast.
-        $this->query->whereExists(function ($exists) use ($ticket, $tag, $pivot, $slugs): void {
+        // The tags come from the configured model's own query, so its global
+        // scopes (tenancy incl. allow_shared, soft deletes, host scopes) apply
+        // exactly as on the ticket's tags() relation. The EXISTS on the pivot
+        // replaces whereHas('tags'): taggable_id is a string (agnostic to host
+        // key types) and PostgreSQL refuses to compare it with a numeric key
+        // without a cast.
+        $tags = $tagModel::query()->whereIn('slug', (array) $slugs)->select((new $tagModel)->getKeyName());
+
+        $this->query->whereExists(function ($exists) use ($ticket, $pivot, $tags): void {
             $exists->selectRaw('1')
                 ->from($pivot)
-                ->join($tag->getTable(), $tag->qualifyColumn($tag->getKeyName()), '=', $pivot.'.tag_id')
                 ->where($pivot.'.taggable_type', $ticket->getMorphClass())
                 ->where($pivot.'.taggable_id', '=', SqlDialect::castToString($ticket->getQualifiedKeyName()))
-                ->whereIn($tag->qualifyColumn('slug'), (array) $slugs);
+                ->whereIn($pivot.'.tag_id', $tags);
         });
 
         return $this;

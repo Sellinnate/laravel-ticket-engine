@@ -304,3 +304,26 @@ it('finds non-ASCII titles on every driver, whatever the capitalisation used', f
         ->and(titles(Ticketing::tickets()->search('città')->get()))->toBe(['Città non trovata'])
         ->and(titles(Ticketing::tickets()->search('CITTÀ')->get()))->toBe(['Città non trovata']);
 });
+
+it('applies the tag model scopes in the tag filter', function (): void {
+    config()->set('ticketing.tenancy.allow_shared', false);
+    app()->forgetInstance(TenantContext::class);
+    $context = app(TenantContext::class);
+
+    // A shared (null-tenant) tag on a tenant-1 ticket: invisible to tenant 1
+    // when sharing is off, exactly as through $ticket->tags.
+    $ticket = $context->forTenant(1, fn () => Ticketing::open(type: 'support', title: 'tagged with a shared tag'));
+    $shared = Ticketing::tagModel()::query()->withoutTenancy()->create(['name' => 'Shared', 'slug' => 'shared', 'tenant_id' => null]);
+    $ticket->tags()->attach($shared->getKey());
+
+    $context->forTenant(1, function (): void {
+        expect(Ticketing::tickets()->taggedWith('shared')->count())->toBe(0);
+    });
+
+    config()->set('ticketing.tenancy.allow_shared', true);
+    app()->forgetInstance(TenantContext::class);
+
+    app(TenantContext::class)->forTenant(1, function (): void {
+        expect(Ticketing::tickets()->taggedWith('shared')->count())->toBe(1);
+    });
+});
