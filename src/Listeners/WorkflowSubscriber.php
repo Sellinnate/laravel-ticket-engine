@@ -13,7 +13,6 @@ use Selli\Ticketing\Data\TransitionData;
 use Selli\Ticketing\Enums\MessageVisibility;
 use Selli\Ticketing\Events\MessagePosted;
 use Selli\Ticketing\Exceptions\TicketingException;
-use Selli\Ticketing\Models\Contact;
 use Selli\Ticketing\Support\Ticketing;
 
 /**
@@ -43,7 +42,8 @@ class WorkflowSubscriber implements Subscriber
 
         $author = $message->author;
 
-        if (! $author instanceof Model || (! $author instanceof Contact && ! $this->requests->isRequester($ticket, $author))) {
+        // Only the requester reopens (a CC'd contact or a watcher does not).
+        if (! $author instanceof Model || ! $this->requests->isRequester($ticket, $author)) {
             return;
         }
 

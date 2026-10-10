@@ -89,3 +89,13 @@ it('hands a reopened AI-resolved ticket back to the AI', function (): void {
         ->and($ticket->ai_status)->toBe(AiStatus::Active)
         ->and($ticket->messages()->where('body', 'Second')->exists())->toBeTrue();
 });
+
+it('does not reopen for a contact who is not the requester', function (): void {
+    $requester = TestRequester::query()->create(['name' => 'Customer']);
+    $ticket = resolvedFor($requester);
+    $cc = Ticketing::contacts()->remember('cc@example.com');
+
+    Ticketing::postMessage($ticket, $cc, 'I was only in CC');
+
+    expect($ticket->refresh()->status)->toBe('resolved');
+});

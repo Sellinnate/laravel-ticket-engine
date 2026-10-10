@@ -584,3 +584,42 @@ it('resumes a hand-over whose escalation never committed', function (): void {
     expect($ticket->refresh()->ai_status)->toBe(AiStatus::Escalated)
         ->and($ticket->escalation_reason)->toBe(EscalationReason::AiError);
 });
+
+it('re-checks the exchange limit under the lock', function (): void {
+    config()->set('ticketing.ai.escalation.max_exchanges', 2);
+    $customer = Ticketing::contacts()->remember('customer@example.com');
+    $ticket = Ticketing::open(type: 'support', title: 'Busy', requester: $customer);
+    config()->set('ticketing.ai.mode', 'off');
+    $question = Ticketing::postMessage($ticket, $customer, 'Question');
+    config()->set('ticketing.ai.mode', 'auto');
+
+    // While this turn waits on the driver, concurrent turns use up the budget.
+    app(AiManager::class)->extend('busy', fn () => new class($ticket) implements AiDriver
+    {
+        public function __construct(private Ticket $ticket) {}
+
+        public function classify(AiRequest $request): AiClassification
+        {
+            return AiClassification::none();
+        }
+
+        public function answer(AiRequest $request): AiAnswer
+        {
+            Ticket::query()->whereKey($this->ticket->getKey())->update(['ai_exchanges' => 2, 'ai_status' => 'active']);
+
+            return confidentAnswer('One too many');
+        }
+
+        public function summarize(AiRequest $request): AiSummary
+        {
+            return new AiSummary('');
+        }
+    });
+    config()->set('ticketing.ai.driver', 'busy');
+
+    $turn = app(AiAssistant::class)->respondToTicket($ticket, $question);
+
+    expect($turn?->escalation_reason)->toBe(EscalationReason::TooManyExchanges)
+        ->and($ticket->messages()->where('body', 'One too many')->exists())->toBeFalse()
+        ->and($ticket->refresh()->ai_exchanges)->toBe(2);
+});

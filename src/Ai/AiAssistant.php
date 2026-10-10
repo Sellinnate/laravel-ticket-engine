@@ -206,6 +206,11 @@ class AiAssistant
                 return null;
             }
 
+            // A concurrent turn may have used the last allowed answer.
+            if ($escalation === null && $this->policy->exchangesExhausted($locked->ai_exchanges)) {
+                $escalation = EscalationReason::TooManyExchanges;
+            }
+
             if ($escalation !== null || $answer === null) {
                 // Recorded as a pending hand-over: a retry resumes it if this
                 // worker dies before the conversation becomes a ticket.
@@ -292,6 +297,11 @@ class AiAssistant
                 }
 
                 return $draft;
+            }
+
+            // A concurrent turn may have used the last allowed answer.
+            if ($reason === null && $this->policy->exchangesExhausted($locked->ai_exchanges)) {
+                $reason = EscalationReason::TooManyExchanges;
             }
 
             if ($reason !== null || $answer === null) {

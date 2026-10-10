@@ -37,13 +37,22 @@ class EscalationPolicy
             return EscalationReason::NegativeSentiment;
         }
 
-        $max = (int) config('ticketing.ai.escalation.max_exchanges', 3);
-
-        if ($max > 0 && $exchanges >= $max) {
+        if ($this->exchangesExhausted($exchanges)) {
             return EscalationReason::TooManyExchanges;
         }
 
         return null;
+    }
+
+    /**
+     * Whether the AI already gave its last allowed answer (re-checked under
+     * the row lock, where concurrent turns serialise).
+     */
+    public function exchangesExhausted(int $exchanges): bool
+    {
+        $max = (int) config('ticketing.ai.escalation.max_exchanges', 3);
+
+        return $max > 0 && $exchanges >= $max;
     }
 
     /**
