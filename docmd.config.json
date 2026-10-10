@@ -52,6 +52,7 @@
       "icon": "book-open",
       "children": [
         { "title": "Multi-tenancy", "path": "/concepts/tenancy", "icon": "layers" },
+        { "title": "Listing & filtering", "path": "/concepts/querying", "icon": "filter" },
         { "title": "Types & workflow", "path": "/concepts/workflow", "icon": "git-branch" },
         { "title": "SLA & escalation", "path": "/concepts/sla", "icon": "clock" },
         { "title": "Routing & assignment", "path": "/concepts/routing", "icon": "users" },
@@ -93,7 +94,9 @@
         { "title": "Facade & actions", "path": "/reference/facade", "icon": "terminal" },
         { "title": "Events", "path": "/reference/events", "icon": "zap" },
         { "title": "Artisan commands", "path": "/reference/commands", "icon": "command" },
-        { "title": "Database schema", "path": "/reference/database-schema", "icon": "database" }
+        { "title": "Database schema", "path": "/reference/database-schema", "icon": "database" },
+        { "title": "Public API", "path": "/reference/public-api", "icon": "shield-check" },
+        { "title": "Versioning & support", "path": "/reference/versioning", "icon": "tag" }
       ]
     },
     { "title": "GitHub", "path": "https://github.com/Sellinnate/laravel-ticket-engine", "icon": "github", "external": true }

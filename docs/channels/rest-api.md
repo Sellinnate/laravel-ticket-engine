@@ -37,6 +37,30 @@ and wire it yourself.
 | `POST /tickets/{ticket}/attachments` | upload an attachment |
 | `POST /tickets/{ticket}/csat` | submit a satisfaction rating |
 
+## Listing and filtering {#listing}
+
+`GET /tickets` accepts the [TicketQuery](/concepts/querying) filters as query parameters, plus `per_page`
+(1–100, default 25):
+
+```bash
+GET /ticketing/api/v1/tickets?state=open&assignee=me&priority=30,40&tag=vip&q=printer&sort=-created_at
+```
+
+| Parameter | Example | Meaning |
+| --- | --- | --- |
+| `state` | `open` | `open`, `closed` or `paused`, per each type's workflow |
+| `status` | `new,triaged` | Raw workflow states |
+| `priority` | `30,40` | Priority weights |
+| `type`, `category`, `channel`, `tag` | `incident` | Any-of filters (comma list or `key[]=…`) |
+| `assignee` | `me`, `none`, `App\Models\User:5` | Current assignee |
+| `team` | `3` | Owning team |
+| `created_from`, `created_to` | `2026-01-01` | Creation date range |
+| `q` | `printer` | Exact reference or title substring |
+| `sort` | `-priority` | `created_at`, `updated_at`, `priority`, `due_at`, `resolved_at`, `reference`; `-` for descending |
+
+Malformed values never widen the result (a nested array is dropped, `assignee=me` for an anonymous caller
+matches nothing), and a requester still only sees their own tickets.
+
 ## Behaviour
 
 - **Tenant-scoped binding.** `{ticket}` resolves through the configured model under the tenant scope, so a

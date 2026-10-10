@@ -12,8 +12,9 @@ class you can resolve and unit-test directly.
 ## Tickets
 
 ```php
-Ticketing::open(type, title, requester?, priority?, subject?, category?, attributes?): Ticket
+Ticketing::open(type, title, requester?, priority?, subject?, category?, attributes?, channel?): Ticket
 Ticketing::for($subject): PendingTicket        // ->open(...), ->postMessage(...)
+Ticketing::tickets(): TicketQuery              // filterable, tenant-scoped listing
 Ticketing::transition(ticket, transition, actor?, note?, params?): Ticket
 Ticketing::changePriority(ticket, Priority, actor?): Ticket
 Ticketing::assign(ticket, assignee?, team?, strategy?, actor?): Ticket
@@ -29,13 +30,16 @@ Ticketing::addAttachment(attachable, UploadedFile, disk?, uploadedBy?): TicketAt
 ## Collaboration
 
 ```php
+Ticketing::tag(ticket, names): Ticket;  Ticketing::untag(ticket, names): Ticket
 Ticketing::applyMacro(ticket, macro, actor?): Ticket
-Ticketing::merge(...); Ticketing::split(...);
+Ticketing::merge(target, sources, actor?): Ticket
+Ticketing::split(source, messageIds, title?, actor?): Ticket
 ```
 
 ## CSAT
 
 ```php
+Ticketing::requestCsat(ticket, actor?): SatisfactionRating
 Ticketing::csatToken(ticket, ttl?): string
 Ticketing::submitCsat(ticket, rating, comment?, submittedBy?): SatisfactionRating
 Ticketing::submitCsatByToken(token, rating, comment?, submittedBy?): SatisfactionRating
@@ -52,7 +56,8 @@ Ticketing::exportRequesterData($requester): array
 
 ## Model binding
 
-Swap any model the engine uses, at runtime or via `config('ticketing.models')`:
+Swap any model the engine uses, at runtime or via `config('ticketing.models')` — every bindable model has a
+typed `use*Model()` setter:
 
 ```php
 Ticketing::useTicketModel(\App\Models\Ticket::class);
