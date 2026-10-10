@@ -136,6 +136,33 @@ it('keeps the retry bookkeeping when acknowledging a message fails', function ()
     expect($calls)->toHaveCount(1)->and($calls[0])->toContain('sticky');
 });
 
+it('starts a fresh retry bookkeeping when the folder\'s UIDVALIDITY changes', function (): void {
+    $folder = new class('inbox') extends FakeFolder
+    {
+        public string $validity = '1';
+
+        public function status(): array
+        {
+            return ['UIDVALIDITY' => $this->validity];
+        }
+    };
+    $folder->addMessage(new FakeMessage(1, [], rawEmail('poison@client.test')));
+    $mailbox = new ImapMailbox(new FakeMailbox(folders: [$folder]));
+    $calls = 0;
+    $handler = function () use (&$calls): void {
+        $calls++;
+
+        throw new RuntimeException('cannot parse');
+    };
+
+    $mailbox->poll($handler);
+    $mailbox->poll($handler);         // waiting under UIDVALIDITY 1
+    $folder->validity = '2';          // the folder was recreated: UID 1 is another message
+    $mailbox->poll($handler);
+
+    expect($calls)->toBe(2);
+});
+
 it('sets a message aside after repeated failures, with a growing delay in between', function (): void {
     $poison = new FakeMessage(1, [], rawEmail('poison@client.test'));
     $mailbox = new ImapMailbox(fakeImap([$poison]), maxAttempts: 3);

@@ -133,11 +133,13 @@ it('reports SLA compliance per target', function (): void {
     $clock(pastTicket(), 'first_response', null, '2026-03-02 09:00:00');
     $clock(pastTicket(), 'first_response', null, '2026-03-02 10:00:00');
     $clock(pastTicket(), 'first_response', '2026-03-02 12:00:00', '2026-03-02 13:00:00');
+    // Answered late, before any sweep marked the breach.
+    $clock(pastTicket(), 'first_response', null, '2026-03-02 12:30:00');
     $clock(pastTicket(), 'resolution', null, null);
     $clock(pastTicket(['created_at' => '2026-02-01 08:00:00']), 'resolution', '2026-02-02 08:00:00', null);
 
     expect(Ticketing::metrics()->between(...period())->sla())->toBe([
-        'first_response' => ['met' => 2, 'breached' => 1, 'running' => 0, 'compliance' => 0.6667],
+        'first_response' => ['met' => 2, 'breached' => 2, 'running' => 0, 'compliance' => 0.5],
         'resolution' => ['met' => 0, 'breached' => 0, 'running' => 1, 'compliance' => null],
     ]);
 });

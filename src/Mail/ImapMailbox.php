@@ -9,6 +9,7 @@ use DirectoryTree\ImapEngine\Address;
 use DirectoryTree\ImapEngine\Attachment;
 use DirectoryTree\ImapEngine\Connection\RawQueryValue;
 use DirectoryTree\ImapEngine\Enums\ImapSearchKey;
+use DirectoryTree\ImapEngine\FolderInterface;
 use DirectoryTree\ImapEngine\Mailbox;
 use DirectoryTree\ImapEngine\MailboxInterface;
 use DirectoryTree\ImapEngine\Message;
@@ -45,6 +46,9 @@ class ImapMailbox implements InboundMailbox
         'list-id', 'list-unsubscribe', 'content-type', 'x-failed-recipients', 'return-path', 'x-ticketing-mailer',
     ];
 
+    /** The UIDVALIDITY of the folder being polled. */
+    protected ?string $uidValidity = null;
+
     public function __construct(
         protected MailboxInterface $mailbox,
         protected string $folder = 'INBOX',
@@ -80,6 +84,7 @@ class ImapMailbox implements InboundMailbox
         $limit = max(1, $limit);
         $folder = strtoupper($this->folder) === 'INBOX' ? $this->mailbox->inbox() : $this->mailbox->folders()->findOrFail($this->folder);
         $now = now()->getTimestamp();
+        $this->uidValidity = $this->uidValidity($folder);
         $state = $this->state();
 
         // The messages still waiting for a retry are left out of the search, so
@@ -233,7 +238,27 @@ class ImapMailbox implements InboundMailbox
         $host = $this->mailbox->config('host');
         $user = $this->mailbox->config('username');
 
-        return 'ticketing:imap:'.hash('sha256', (is_scalar($host) ? (string) $host : '').'|'.(is_scalar($user) ? (string) $user : '').'|'.$this->folder);
+        // UIDs are only meaningful within one UIDVALIDITY: a recreated folder
+        // starts a fresh bookkeeping.
+        return 'ticketing:imap:'.hash('sha256', implode('|', [
+            is_scalar($host) ? (string) $host : '',
+            is_scalar($user) ? (string) $user : '',
+            $this->folder,
+            $this->uidValidity ?? '',
+        ]));
+    }
+
+    protected function uidValidity(FolderInterface $folder): ?string
+    {
+        try {
+            $status = $folder->status();
+        } catch (Throwable) {
+            return null;
+        }
+
+        $validity = $status['UIDVALIDITY'] ?? $status['uidvalidity'] ?? null;
+
+        return is_scalar($validity) ? (string) $validity : null;
     }
 
     protected function store(): Repository
