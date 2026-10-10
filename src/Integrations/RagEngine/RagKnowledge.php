@@ -482,8 +482,9 @@ class RagKnowledge
 
     /**
      * A revision of each ticket's public conversation — how many messages,
-     * the last one, the last change — that changes whenever what is indexed
-     * would.
+     * the first and the last — that changes when messages are added, split
+     * off or merged in (messages are never edited; a metadata-only update,
+     * such as retention scrubbing an email sender, leaves it alone).
      *
      * @param  list<int|string>  $ticketIds
      * @return array<string, string> "ticket:<id>" and "<id>" keys
@@ -501,8 +502,8 @@ class RagKnowledge
             ->toBase()
             ->select('ticket_id')
             ->selectRaw('count(*) as messages')
+            ->selectRaw('min(id) as first_id')
             ->selectRaw('max(id) as last_id')
-            ->selectRaw('max(updated_at) as last_change')
             ->groupBy('ticket_id')
             ->get();
 
@@ -512,7 +513,7 @@ class RagKnowledge
         }
 
         foreach ($rows as $row) {
-            $revisions[(string) $row->ticket_id] = hash('xxh128', $row->messages.'|'.$row->last_id.'|'.$row->last_change);
+            $revisions[(string) $row->ticket_id] = hash('xxh128', $row->messages.'|'.$row->first_id.'|'.$row->last_id);
         }
 
         $keyed = [];

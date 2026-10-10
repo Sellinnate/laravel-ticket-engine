@@ -291,6 +291,18 @@ it('drops a ticket passage whose conversation changed since indexing', function 
         ->and(app(RagKnowledge::class)->similarTickets('docking station loses network', null))->toBe([]);
 });
 
+it('keeps a ticket whose messages only had their metadata scrubbed', function (): void {
+    $ticket = Ticketing::open(type: 'support', title: 'Cloud sync stuck');
+    Ticketing::postMessage($ticket, null, 'Cloud sync stuck at ninety percent.', meta: ['from' => 'jane@example.test']);
+    Ticketing::transition($ticket, 'resolve');
+
+    // What retention anonymisation does to an email message.
+    config()->set('ticketing.rag.index.tickets', false);
+    $ticket->messages()->sole()->forceFill(['meta' => ['from' => '[anonymized]']])->save();
+
+    expect(app(RagKnowledge::class)->similarTickets('cloud sync stuck ninety percent', null))->toHaveCount(1);
+});
+
 it('re-checks the search filters on the current article', function (): void {
     $article = kb('Export data', 'Export your data as a spreadsheet from reports export.');
 
