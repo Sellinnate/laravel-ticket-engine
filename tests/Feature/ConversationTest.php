@@ -399,6 +399,21 @@ it('enforces message limits', function (): void {
         ->and(fn () => Ticketing::conversations()->post($conversation, '   '))->toThrow(ConversationException::class, 'empty');
 });
 
+it('moves a shared conversation into the tenant of the ticket it is merged into', function (): void {
+    config()->set('ticketing.ai.mode', 'off');
+    config()->set('ticketing.widget.require_email_to_escalate', false);
+    ['key' => $key] = widgetKey();
+    ['conversation' => $conversation] = Ticketing::conversations()->start($key);
+    Ticketing::conversations()->post($conversation, 'Printer broken');
+    $source = Ticket::query()->sole();
+    $target = app(TenantContext::class)->forTenant(4, fn () => Ticketing::open(type: 'support', title: 'Tenant four'));
+
+    Ticketing::for($target)->mergeFrom([$source]);
+
+    expect((string) $conversation->refresh()->getAttribute($conversation->getTenantColumn()))->toBe('4')
+        ->and($conversation->ticket_id)->toBe($target->getKey());
+});
+
 it('lets the visitor keep answering past the cap once a person handles the ticket', function (): void {
     config()->set('ticketing.widget.max_messages_per_conversation', 2);
     config()->set('ticketing.ai.mode', 'off');
@@ -444,6 +459,7 @@ it('follows its ticket when an agent merges it into another', function (): void 
     Ticketing::conversations()->post($conversation->refresh(), 'Thanks!');
 
     expect($conversation->refresh()->ticket_id)->toBe($target->getKey())
+        ->and($conversation->getAttribute($conversation->getTenantColumn()))->toBe($target->getAttribute($target->getTenantColumn()))
         ->and($target->messages()->pluck('body')->all())->toContain('Printer broken', 'We are on it.', 'Thanks!')
         ->and(array_column(Ticketing::conversations()->timeline($conversation), 'body'))->toContain('We are on it.', 'Thanks!');
 });

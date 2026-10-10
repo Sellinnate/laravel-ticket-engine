@@ -76,7 +76,7 @@ class MergeTickets
                 // visitor keeps writing to, and reading, the merged ticket.
                 Ticketing::conversationModel()::query()->withoutTenancy()
                     ->where('ticket_id', $source->getKey())
-                    ->update(['ticket_id' => $target->getKey()]);
+                    ->update(array_merge(['ticket_id' => $target->getKey()], $target->tenantAttributes()));
 
                 $this->audit->record($target, 'ticket.merged_from', $actor, context: ['source_id' => $source->getKey()]);
                 $this->audit->record($source, 'ticket.merged_into', $actor, context: ['target_id' => $target->getKey()]);

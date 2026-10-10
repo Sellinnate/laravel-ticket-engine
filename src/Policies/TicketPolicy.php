@@ -127,7 +127,9 @@ class TicketPolicy
     /** The ticket's subject (the for() target) or an explicit participant. */
     protected function isOnTicket(Authenticatable $user, Ticket $ticket): bool
     {
-        if (! $user instanceof Model) {
+        // Someone of another tenant is never "on" this ticket, whatever row
+        // names them.
+        if (! $user instanceof Model || ! $this->tenants->belongsToTicketTenant($user, $ticket)) {
             return false;
         }
 

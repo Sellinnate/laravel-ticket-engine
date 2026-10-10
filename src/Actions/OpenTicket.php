@@ -11,6 +11,7 @@ use Selli\Ticketing\Data\OpenTicketData;
 use Selli\Ticketing\Enums\ParticipantRole;
 use Selli\Ticketing\Enums\TicketChannel;
 use Selli\Ticketing\Events\TicketOpened;
+use Selli\Ticketing\Exceptions\CrossTenantException;
 use Selli\Ticketing\Exceptions\InvalidConfigurationException;
 use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Models\TicketType;
@@ -19,6 +20,7 @@ use Selli\Ticketing\Support\ReferenceGenerator;
 use Selli\Ticketing\Support\Ticketing;
 use Selli\Ticketing\Support\TicketTypeRegistry;
 use Selli\Ticketing\Tenancy\TenantContext;
+use Selli\Ticketing\Tenancy\TenantGuard;
 
 /**
  * Creates a ticket: resolves its type & initial workflow state, generates a
@@ -83,6 +85,12 @@ class OpenTicket
             $ticket = $this->persistTicket($data, $type, $initialState);
 
             if ($data->requester !== null) {
+                // A requester of another tenant would see this ticket (and be
+                // notified about it): refused, and the open rolls back.
+                if (! app(TenantGuard::class)->belongsToTicketTenant($data->requester, $ticket)) {
+                    throw CrossTenantException::forRequester();
+                }
+
                 $this->attachRequester($ticket, $data);
             }
 

@@ -14,4 +14,9 @@ class CrossTenantException extends TicketingException
     {
         return new self("Refusing to assign a ticket to a {$what} from another tenant.");
     }
+
+    public static function forRequester(): self
+    {
+        return new self('Refusing to open a ticket for a requester from another tenant.');
+    }
 }

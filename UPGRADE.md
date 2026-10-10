@@ -63,6 +63,9 @@ documented recipes on the [Multi-tenancy](https://laravel-ticketing.selli.io/con
 - **REST ids are strings.** `subject.id`, `assignee.id` and `author.id` are always serialised as strings
   (they are string columns); a freshly assigned ticket used to return an integer.
 - **Message sources** gain `ai` and `widget`.
+- **Requesters are checked against the ticket's tenant**: opening a ticket for a requester of another tenant
+  throws `CrossTenantException`, and the ticket policy no longer lets a user of another tenant in through a
+  participant row.
 - **Inbound email rate-limit keys** are hashed with SHA-256 instead of SHA-1. Counters in flight at the
   moment of the upgrade restart from zero (at most one minute of flood allowance).
 
