@@ -109,7 +109,7 @@ class TicketQuery
         $this->applyAssigneeFilter($filters['assignee'] ?? null, $actor);
 
         $from = self::date($filters['created_from'] ?? null);
-        $to = self::date($filters['created_to'] ?? null);
+        $to = self::date($filters['created_to'] ?? null, endOfDay: true);
 
         if ($from !== null || $to !== null) {
             $this->createdBetween($from, $to);
@@ -538,9 +538,14 @@ class TicketQuery
         return $out;
     }
 
-    protected static function date(mixed $value): ?Carbon
+    /**
+     * An ISO-8601 date ("2026-03-31") or date-time; anything else — including
+     * the many free-form strings Carbon would happily guess at — is ignored. A
+     * bare date used as an upper bound covers that whole day.
+     */
+    protected static function date(mixed $value, bool $endOfDay = false): ?Carbon
     {
-        if (! is_string($value) || $value === '') {
+        if (! is_string($value) || preg_match('/^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/', $value) !== 1) {
             return null;
         }
 
@@ -550,7 +555,10 @@ class TicketQuery
             return null;
         }
 
-        // Out-of-range years would overflow some engines' timestamp types.
-        return $date->year >= 1970 && $date->year <= 9999 ? $date : null;
+        if ($date->format('Y-m-d') !== substr($value, 0, 10)) {
+            return null; // an impossible calendar date such as 2026-02-31
+        }
+
+        return $endOfDay && strlen($value) === 10 ? $date->endOfDay() : $date;
     }
 }

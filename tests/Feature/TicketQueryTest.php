@@ -126,7 +126,10 @@ it('filters by creation date range', function (): void {
     expect(titles(Ticketing::tickets()->createdBetween(Carbon::parse('2026-04-01'), null)->get()))->toBe(['may'])
         ->and(titles(Ticketing::tickets()->filter(['created_from' => '2026-02-01', 'created_to' => '2026-03-31'])->get()))->toBe(['march'])
         ->and(Ticketing::tickets()->filter(['created_from' => 'not a date'])->count())->toBe(2)
-        ->and(Ticketing::tickets()->filter(['created_to' => '99999-01-01'])->count())->toBe(2);
+        ->and(Ticketing::tickets()->filter(['created_to' => '99999-01-01'])->count())->toBe(2)
+        ->and(Ticketing::tickets()->filter(['created_to' => '2026-02-31'])->count())->toBe(2)
+        ->and(titles(Ticketing::tickets()->filter(['created_from' => '2026-03-01', 'created_to' => '2026-03-01'])->get()))->toBe(['march'])
+        ->and(titles(Ticketing::tickets()->filter(['created_from' => '2026-04-30T23:00:00Z'])->get()))->toBe(['may']);
 });
 
 it('searches the exact reference or a case-insensitive title substring', function (): void {
