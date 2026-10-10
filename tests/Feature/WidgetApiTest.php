@@ -275,3 +275,14 @@ it('publishes the reference widget client and the widget routes', function (): v
 
     @unlink($path);
 });
+
+it('lets the browser read a rate-limit response (CORS on 429)', function (): void {
+    config()->set('ticketing.widget.rate_limits.per_ip', '2,1');
+    [$key] = widget();
+
+    $this->getJson(WIDGET.'/config', widgetHeaders($key))->assertOk();
+    $this->getJson(WIDGET.'/config', widgetHeaders($key))->assertOk();
+    $this->getJson(WIDGET.'/config', widgetHeaders($key))
+        ->assertStatus(429)
+        ->assertHeader('Access-Control-Allow-Origin', 'https://acme.example');
+});

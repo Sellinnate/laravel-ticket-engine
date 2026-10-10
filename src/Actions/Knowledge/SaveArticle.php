@@ -95,11 +95,15 @@ class SaveArticle
             'summary' => $data->summary,
             'body' => $data->body,
             'body_format' => $data->bodyFormat,
-            'keywords' => $data->keywords !== null ? self::keywords($data->keywords) : null,
             'category_id' => $data->categoryId,
             'visibility' => $data->visibility,
             'meta' => $data->meta,
         ], fn (mixed $value): bool => $value !== null);
+
+        // An explicit empty list clears the keywords (null means "unchanged").
+        if ($data->keywords !== null) {
+            $changes['keywords'] = self::keywords($data->keywords);
+        }
 
         if ($data->audience !== null) {
             $changes = array_merge($changes, $this->morph('audience', $data->audience));

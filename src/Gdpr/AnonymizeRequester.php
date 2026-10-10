@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\DB;
 use Selli\Ticketing\Contacts\ContactDirectory;
 use Selli\Ticketing\Contracts\CanRequestTickets;
 use Selli\Ticketing\Events\RequesterAnonymized;
+use Selli\Ticketing\Knowledge\KnowledgeBase;
 use Selli\Ticketing\Models\Contact;
 use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Models\TicketMessage;
@@ -62,6 +63,12 @@ class AnonymizeRequester
                 $touched++;
             }
         });
+
+        // Feedback comments the person left on articles (their vote stays).
+        Ticketing::kbArticleFeedbackModel()::query()->withoutTenancy()
+            ->where('voter_key', KnowledgeBase::voterKey($requester))
+            ->whereNotNull('comment')
+            ->update(['comment' => null]);
 
         // A package contact is ours to anonymise too (a host model is the
         // host's job, via RequesterAnonymized). A verified host user's widget

@@ -40,6 +40,7 @@ use Selli\Ticketing\Contracts\WorkflowDriver;
 use Selli\Ticketing\Conversations\ConversationService;
 use Selli\Ticketing\Conversations\NullVisitorResolver;
 use Selli\Ticketing\Conversations\WidgetKeys;
+use Selli\Ticketing\Http\Middleware\ResolveWidgetKey;
 use Selli\Ticketing\Http\Middleware\WidgetCors;
 use Selli\Ticketing\Knowledge\KeywordKnowledgeSearch;
 use Selli\Ticketing\Knowledge\KnowledgeBase;
@@ -348,7 +349,9 @@ class TicketingServiceProvider extends PackageServiceProvider
 
         $middleware = array_values(array_unique(array_merge(
             (array) config('ticketing.widget.middleware', ['api']),
-            [WidgetCors::class, 'throttle:ticketing-widget'],
+            // CORS first (it answers preflights), then the key — so even a 429
+            // carries the allowed origin and the browser lets the client see it.
+            [WidgetCors::class, ResolveWidgetKey::class, 'throttle:ticketing-widget'],
         )));
 
         Route::group(['prefix' => $prefix, 'middleware' => $middleware], function (): void {

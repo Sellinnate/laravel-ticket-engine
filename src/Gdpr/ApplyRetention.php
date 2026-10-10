@@ -200,6 +200,12 @@ class ApplyRetention
             DB::table($conversationModel->getTable())->whereIn($conversationModel->getKeyName(), $conversationIds)->delete();
         }
 
+        // Votes given in the context of this ticket stay (they are the article's
+        // statistics), but lose the link and the free-text comment.
+        DB::table($this->tableFor(Ticketing::kbArticleFeedbackModel()))
+            ->where('ticket_id', $ticket->getKey())
+            ->update(['ticket_id' => null, 'comment' => null]);
+
         // Every ticket_id-owned child, by its bound model's table.
         foreach ([
             Ticketing::ticketMessageModel(),

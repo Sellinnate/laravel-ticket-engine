@@ -291,3 +291,35 @@ it('keeps each tenant\'s knowledge base apart', function (): void {
         expect(resultTitles(Ticketing::knowledge()->search('secret', KnowledgeAudience::agent())))->toBe(['Tenant one secret']);
     });
 });
+
+it('clears keywords on an explicit empty list and keeps them when omitted', function (): void {
+    $article = article('Keywords', 'Body', ['keywords' => ['one', 'two']], publish: false);
+    $kb = Ticketing::knowledge();
+
+    expect($kb->save(new ArticleData(title: 'Keywords v2'), $article)->keywords)->toBe('one, two')
+        ->and($kb->save(new ArticleData(keywords: []), $article)->keywords)->toBeNull();
+});
+
+it('keeps votes but drops the ticket link and comment when the ticket is erased or the voter anonymised', function (): void {
+    config()->set('ticketing.gdpr.retention', [['type' => '*', 'after_days' => 30, 'action' => 'delete']]);
+    $article = article('Votes', 'Body');
+    $ticket = Ticketing::open(type: 'support', title: 'x');
+    $contact = Ticketing::contacts()->remember('jane@example.com');
+
+    Ticketing::knowledge()->feedback($article, true, 'session-1', 'My order 123 for Jane', $ticket);
+    Ticketing::knowledge()->feedback($article, false, $contact, 'Jane here, still broken');
+
+    Ticketing::transition($ticket, 'close');
+    $this->travel(31)->days();
+    $this->artisan('ticketing:prune')->assertSuccessful();
+    Ticketing::contacts()->anonymize($contact);
+
+    $feedback = $article->feedback()->orderBy('id')->get();
+
+    expect($feedback)->toHaveCount(2)
+        ->and($feedback[0]->ticket_id)->toBeNull()
+        ->and($feedback[0]->comment)->toBeNull()
+        ->and($feedback[1]->comment)->toBeNull()
+        ->and($article->refresh()->helpful_count)->toBe(1)
+        ->and($article->not_helpful_count)->toBe(1);
+});
