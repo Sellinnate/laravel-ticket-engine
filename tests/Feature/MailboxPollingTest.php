@@ -106,7 +106,8 @@ it('leaves the messages waiting for a retry out of the IMAP search', function ()
     };
 
     expect($mailbox->searchFor([]))->toBe('UNSEEN')
-        ->and($mailbox->searchFor([9, 3, 4, 5]))->toBe('UNSEEN NOT UID 3:5,9');
+        // Older imapengine releases list the set, newer ones collapse ranges.
+        ->and($mailbox->searchFor([9, 3, 4, 5]))->toBeIn(['UNSEEN NOT UID 3:5,9', 'UNSEEN NOT UID 3,4,5,9']);
 });
 
 it('keeps the retry bookkeeping when acknowledging a message fails', function (): void {
