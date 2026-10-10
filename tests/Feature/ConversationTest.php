@@ -7,14 +7,19 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Notification;
 use Selli\Ticketing\Ai\AiAnswer;
+use Selli\Ticketing\Ai\AiAssistant;
 use Selli\Ticketing\Ai\AiClassification;
 use Selli\Ticketing\Ai\AiManager;
+use Selli\Ticketing\Ai\AiRequest;
 use Selli\Ticketing\Ai\AiSource;
+use Selli\Ticketing\Ai\AiSummary;
 use Selli\Ticketing\Ai\Drivers\FakeAiDriver;
+use Selli\Ticketing\Contracts\AiDriver;
 use Selli\Ticketing\Contracts\VisitorResolver;
 use Selli\Ticketing\Conversations\VisitorIdentity;
 use Selli\Ticketing\Conversations\WidgetKeys;
 use Selli\Ticketing\Data\ArticleData;
+use Selli\Ticketing\Enums\AiOutcome;
 use Selli\Ticketing\Enums\AiStatus;
 use Selli\Ticketing\Enums\ConversationRole;
 use Selli\Ticketing\Enums\ConversationStatus;
@@ -480,4 +485,59 @@ it('scrubs the claimed identity when the contact is erased', function (): void {
     Ticketing::contacts()->anonymize(Contact::query()->sole());
 
     expect($conversation->refresh()->meta)->toBeNull();
+});
+
+it('stops answering once a concurrent turn parked a hand-over', function (): void {
+    ['key' => $key] = widgetKey();
+    ['conversation' => $conversation] = Ticketing::conversations()->start($key);
+    config()->set('ticketing.ai.mode', 'off');
+    $message = Ticketing::conversationMessageModel()::query()->create([
+        'conversation_id' => $conversation->getKey(), 'role' => 'visitor', 'body' => 'Question',
+    ]);
+    config()->set('ticketing.ai.mode', 'auto');
+
+    // Another turn parks the hand-over while this one waits on the driver.
+    $driver = new class implements AiDriver
+    {
+        public ?Conversation $conversation = null;
+
+        public function classify(AiRequest $request): AiClassification
+        {
+            return AiClassification::none();
+        }
+
+        public function answer(AiRequest $request): AiAnswer
+        {
+            $this->conversation?->forceFill(['meta' => ['handoff_pending' => true]])->save();
+
+            return sure('Should not be sent');
+        }
+
+        public function summarize(AiRequest $request): AiSummary
+        {
+            return new AiSummary('');
+        }
+    };
+    $driver->conversation = $conversation;
+    app(AiManager::class)->extend('racing', fn () => $driver);
+    config()->set('ticketing.ai.driver', 'racing');
+
+    $turn = app(AiAssistant::class)->respondToConversation($conversation, $message);
+
+    expect($turn?->outcome)->toBe(AiOutcome::Skipped)
+        ->and(Ticketing::conversationMessageModel()::query()->where('body', 'Should not be sent')->exists())->toBeFalse();
+});
+
+it('clears the comments of widget votes when the visitor is erased', function (): void {
+    ['key' => $key] = widgetKey();
+    ['conversation' => $conversation] = Ticketing::conversations()->start($key, new VisitorIdentity(email: 'jane@example.com'));
+    $kb = Ticketing::knowledge();
+    $article = $kb->publish($kb->save(new ArticleData(title: 'A', body: 'B')));
+    $kb->feedback($article, false, 'conversation:'.$conversation->public_id, 'Jane from flat 4B');
+    Ticketing::conversations()->escalate($conversation, EscalationReason::HumanRequested);
+
+    Ticketing::contacts()->anonymize(Contact::query()->sole());
+
+    expect($article->feedback()->sole()->comment)->toBeNull()
+        ->and($article->refresh()->not_helpful_count)->toBe(1);
 });

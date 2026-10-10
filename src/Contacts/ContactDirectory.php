@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\DB;
 use Selli\Ticketing\Enums\ConversationRole;
 use Selli\Ticketing\Events\ContactAnonymized;
 use Selli\Ticketing\Gdpr\ExportRequesterData;
+use Selli\Ticketing\Knowledge\KnowledgeBase;
 use Selli\Ticketing\Models\Contact;
 use Selli\Ticketing\Models\Conversation;
 use Selli\Ticketing\Models\ConversationMessage;
@@ -193,14 +194,20 @@ class ContactDirectory
             ->whereIn('conversation_id', $conversationIds)
             ->update(['question' => null]);
 
-        // The name/email a visitor typed in (an unverified claim) goes too;
-        // any other conversation state is kept.
-        $claimed = Ticketing::conversationModel()::query()->withoutTenancy()
+        $conversations = Ticketing::conversationModel()::query()->withoutTenancy()
             ->whereIn((new (Ticketing::conversationModel()))->getKeyName(), $conversationIds)
-            ->whereNotNull('meta')
             ->get();
 
-        foreach ($claimed as $conversation) {
+        // Help-center votes given from these conversations keep their value but
+        // lose their free-text comment.
+        Ticketing::kbArticleFeedbackModel()::query()->withoutTenancy()
+            ->whereIn('voter_key', $conversations->map(fn (Conversation $conversation): string => KnowledgeBase::voterKey('conversation:'.$conversation->public_id))->all())
+            ->whereNotNull('comment')
+            ->update(['comment' => null]);
+
+        // The name/email a visitor typed in (an unverified claim) goes too;
+        // any other conversation state is kept.
+        foreach ($conversations as $conversation) {
             $meta = $conversation->meta ?? [];
 
             if (array_key_exists('claimed', $meta)) {

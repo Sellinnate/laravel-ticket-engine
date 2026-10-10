@@ -198,7 +198,9 @@ class AiAssistant
                 ->whereKey($conversation->getKey())
                 ->firstOrFail();
 
-            if (! $locked->isOpen()) {
+            // Closed, escalated, or a concurrent turn parked a hand-over: the AI
+            // must not answer any more.
+            if (! $locked->isOpen() || ($locked->meta['handoff_pending'] ?? false) === true) {
                 $this->finish($turn, AiOutcome::Skipped, null, $answer, $usage, $started);
 
                 return null;
