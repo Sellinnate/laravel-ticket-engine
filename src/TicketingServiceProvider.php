@@ -59,6 +59,7 @@ use Selli\Ticketing\Listeners\WorkflowSubscriber;
 use Selli\Ticketing\Mail\ConfigInboundMailRouter;
 use Selli\Ticketing\Mail\ContactInboundRequesterResolver;
 use Selli\Ticketing\Mail\NullInboundRequesterResolver;
+use Selli\Ticketing\Models\WidgetKey;
 use Selli\Ticketing\Notifications\ConfigNotificationPreferences;
 use Selli\Ticketing\Policies\KbArticlePolicy;
 use Selli\Ticketing\Policies\TicketPolicy;
@@ -334,11 +335,16 @@ class TicketingServiceProvider extends PackageServiceProvider
         }
 
         RateLimiter::for('ticketing-widget', function (Request $request): array {
-            $key = (string) $request->header('X-Ticketing-Key', '');
+            // Counted on the key ResolveWidgetKey resolved (the throttle runs
+            // after it), so no spelling of the header gets a counter of its own.
+            $key = $request->attributes->get(ResolveWidgetKey::ATTRIBUTE);
+            $counter = $key instanceof WidgetKey
+                ? 'id:'.$key->getKey()
+                : 'raw:'.hash('sha256', (string) $request->header('X-Ticketing-Key', ''));
 
             return [
                 self::limit((string) config('ticketing.widget.rate_limits.per_ip', '60,1'))->by('ip:'.$request->ip()),
-                self::limit((string) config('ticketing.widget.rate_limits.per_key', '1200,1'))->by('key:'.hash('sha256', $key)),
+                self::limit((string) config('ticketing.widget.rate_limits.per_key', '1200,1'))->by('key:'.$counter),
             ];
         });
 

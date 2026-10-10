@@ -278,6 +278,19 @@ it('publishes the reference widget client and the widget routes', function (): v
     @unlink($path);
 });
 
+it('counts the per-key limit on the resolved key, whatever the header spelling', function (): void {
+    config()->set('ticketing.widget.rate_limits.per_key', '2,1');
+    [$key] = widget();
+    $headers = fn (string $value): array => array_merge(widgetHeaders($key), ['X-Ticketing-Key' => $value]);
+
+    $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.1'])->getJson(WIDGET.'/config', $headers($key->public_key))->assertOk();
+    $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.2'])->getJson(WIDGET.'/config', $headers(' '.$key->public_key))->assertOk();
+    $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.3'])->getJson(WIDGET.'/config', $headers($key->public_key.' '))->assertStatus(429);
+
+    // Only the exact key resolves, even under a case-insensitive collation.
+    $this->getJson(WIDGET.'/config', $headers('tk_pub_'.strtoupper(substr($key->public_key, 7))))->assertStatus(401);
+});
+
 it('lets the browser read a rate-limit response (CORS on 429)', function (): void {
     config()->set('ticketing.widget.rate_limits.per_ip', '2,1');
     [$key] = widget();

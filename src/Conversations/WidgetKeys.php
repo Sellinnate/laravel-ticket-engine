@@ -70,7 +70,8 @@ class WidgetKeys
             ->where('public_key', $publicKey)
             ->first();
 
-        return $key instanceof WidgetKey ? $key : null;
+        // Exact match: a case-insensitive collation would accept other spellings.
+        return $key instanceof WidgetKey && hash_equals($key->public_key, $publicKey) ? $key : null;
     }
 
     public function revoke(WidgetKey $key): WidgetKey
