@@ -366,20 +366,30 @@ class TicketQuery
     }
 
     /**
-     * Exact reference match, or a case-insensitive substring of the title.
+     * Exact reference match, or a title containing every word of the term
+     * (case-insensitively, in any order).
      */
     public function search(string $term): static
     {
         $term = trim($term);
-        $this->query->where(function (Builder $query) use ($term): void {
-            $query->where('reference', $term)
-                ->orWhereRaw("LOWER(title) LIKE ? ESCAPE '!'", [self::like(mb_strtolower($term))]);
+        $words = array_slice(array_values(array_unique(preg_split('/\s+/u', $term) ?: [])), 0, 8);
 
-            // SQLite's LOWER() folds only ASCII: try the usual spellings of a
-            // non-ASCII term too (its LIKE is case-insensitive for ASCII only).
-            foreach (SqlDialect::caseVariants($term) as $variant) {
-                $query->orWhereRaw("title LIKE ? ESCAPE '!'", [self::like($variant)]);
-            }
+        $this->query->where(function (Builder $query) use ($term, $words): void {
+            $query->where('reference', $term)
+                ->orWhere(function (Builder $title) use ($words): void {
+                    foreach ($words as $word) {
+                        $title->where(function (Builder $match) use ($word): void {
+                            $match->whereRaw("LOWER(title) LIKE ? ESCAPE '!'", [self::like(mb_strtolower($word))]);
+
+                            // SQLite's LOWER() and LIKE fold only ASCII (no ICU):
+                            // a non-ASCII word is also tried in the spellings
+                            // text uses — as typed, lower, capitalised, upper.
+                            foreach (SqlDialect::caseVariants($word) as $variant) {
+                                $match->orWhereRaw("title LIKE ? ESCAPE '!'", [self::like($variant)]);
+                            }
+                        });
+                    }
+                });
         });
 
         return $this;

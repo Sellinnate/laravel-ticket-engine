@@ -293,8 +293,14 @@ it('finds non-ASCII titles on every driver, whatever the capitalisation used', f
     Ticketing::open(type: 'support', title: 'Échec de connexion');
     Ticketing::open(type: 'support', title: 'Città non trovata');
 
-    expect(titles(Ticketing::tickets()->search('ÉCHEC')->get()))->toBe(['ÉCHEC imprimante', 'Échec de connexion'])
-        ->and(titles(Ticketing::tickets()->search('échec')->get()))->toBe(['ÉCHEC imprimante', 'Échec de connexion'])
+    Ticketing::open(type: 'support', title: 'Erreur Échec réseau');
+
+    expect(titles(Ticketing::tickets()->search('erreur échec')->get()))->toBe(['Erreur Échec réseau'])
+        ->and(titles(Ticketing::tickets()->search('RÉSEAU erreur')->get()))->toBe(['Erreur Échec réseau'])
+        ->and(titles(Ticketing::tickets()->search('ÉCHEC imprimante')->get()))->toBe(['ÉCHEC imprimante']);
+
+    expect(titles(Ticketing::tickets()->search('ÉCHEC')->get()))->toBe(['Erreur Échec réseau', 'ÉCHEC imprimante', 'Échec de connexion'])
+        ->and(titles(Ticketing::tickets()->search('échec')->get()))->toBe(['Erreur Échec réseau', 'ÉCHEC imprimante', 'Échec de connexion'])
         ->and(titles(Ticketing::tickets()->search('città')->get()))->toBe(['Città non trovata'])
         ->and(titles(Ticketing::tickets()->search('CITTÀ')->get()))->toBe(['Città non trovata']);
 });

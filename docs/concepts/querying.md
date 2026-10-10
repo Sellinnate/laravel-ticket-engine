@@ -24,7 +24,7 @@ $page = Ticketing::tickets()
     ->priority([Priority::High, Priority::Urgent])
     ->assignedTo($agent)                    // or ->unassigned(), ->forTeam($team)
     ->taggedWith('vip')
-    ->search('printer')                     // exact reference, or title contains (case-insensitive)
+    ->search('printer jam')                 // exact reference, or title contains every word
     ->sort('priority', 'desc')
     ->paginate(25);                         // or ->cursorPaginate(25), ->get(), ->count()
 ```
@@ -46,7 +46,7 @@ $page = Ticketing::tickets()
 | `about($order)` | — | The polymorphic subject |
 | `involving($model)` | — | Subject **or** any participant — what a requester may list |
 | `createdBetween($from, $to)` | `created_from=2026-01-01&created_to=2026-01-31` | Creation date range |
-| `search('printer')` | `q=printer` | Exact reference, or a case-insensitive title substring (LIKE wildcards are escaped) |
+| `search('printer jam')` | `q=printer jam` | Exact reference, or a title containing every word (any order, case-insensitive; LIKE wildcards are escaped) |
 | `sort('priority', 'asc')` | `sort=priority`, `sort=-created_at` | `created_at`, `updated_at`, `priority`, `due_at`, `resolved_at`, `reference` |
 
 `filter(array $filters, ?Model $actor = null)` applies the loose keys from an HTTP query string or tool
@@ -59,6 +59,12 @@ For anything the object does not model, constrain the builder directly:
 ```php
 Ticketing::tickets()->where(fn ($query) => $query->where('custom_fields->vip', true))->get();
 ```
+
+::: callout info "Case-insensitive search on SQLite"
+MySQL and PostgreSQL fold case for every alphabet. SQLite without the ICU extension folds only ASCII, so for
+words with accented letters the search also tries the spellings text normally uses (as typed, lower case,
+capitalised, upper case).
+:::
 
 ## Performance
 
