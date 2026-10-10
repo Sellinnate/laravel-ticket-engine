@@ -541,3 +541,20 @@ it('clears the comments of widget votes when the visitor is erased', function ()
     expect($article->feedback()->sole()->comment)->toBeNull()
         ->and($article->refresh()->not_helpful_count)->toBe(1);
 });
+
+it('clears widget vote comments when retention erases the conversation', function (): void {
+    config()->set('ticketing.gdpr.retention', [['type' => '*', 'after_days' => 30, 'action' => 'delete']]);
+    ['key' => $key] = widgetKey();
+    ['conversation' => $conversation] = Ticketing::conversations()->start($key, new VisitorIdentity(email: 'jane@example.com'));
+    $kb = Ticketing::knowledge();
+    $article = $kb->publish($kb->save(new ArticleData(title: 'A', body: 'B')));
+    $kb->feedback($article, true, 'conversation:'.$conversation->public_id, 'Jane, flat 4B');
+
+    $ticket = Ticketing::conversations()->escalate($conversation, EscalationReason::HumanRequested);
+    Ticketing::transition($ticket, 'close');
+    $this->travel(31)->days();
+    $this->artisan('ticketing:prune')->assertSuccessful();
+
+    expect($article->feedback()->sole()->comment)->toBeNull()
+        ->and($article->refresh()->helpful_count)->toBe(1);
+});

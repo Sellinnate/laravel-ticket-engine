@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Selli\Ticketing\Events\TicketErased;
+use Selli\Ticketing\Knowledge\KnowledgeBase;
 use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Models\TicketType;
 use Selli\Ticketing\Support\Ticketing;
@@ -194,6 +195,18 @@ class ApplyRetention
             ->pluck($conversationModel->getKeyName());
 
         if ($conversationIds->isNotEmpty()) {
+            // Help-center votes given from the conversation keep their value but
+            // lose their free-text comment.
+            $voterKeys = DB::table($conversationModel->getTable())
+                ->whereIn($conversationModel->getKeyName(), $conversationIds)
+                ->pluck('public_id')
+                ->map(fn (mixed $publicId): string => KnowledgeBase::voterKey('conversation:'.$publicId))
+                ->all();
+
+            DB::table($this->tableFor(Ticketing::kbArticleFeedbackModel()))
+                ->whereIn('voter_key', $voterKeys)
+                ->update(['comment' => null]);
+
             // The conversation's own AI turns (before it became this ticket).
             DB::table($this->tableFor(Ticketing::aiTurnModel()))->whereIn('conversation_id', $conversationIds)->delete();
             DB::table($this->tableFor(Ticketing::conversationMessageModel()))->whereIn('conversation_id', $conversationIds)->delete();

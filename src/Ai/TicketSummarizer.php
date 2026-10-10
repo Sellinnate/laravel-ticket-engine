@@ -27,7 +27,11 @@ class TicketSummarizer
         protected Container $container,
     ) {}
 
-    public function summarize(Ticket $ticket): ?TicketMessage
+    /**
+     * The summary text, or null (no summary, or the driver failed). No lock is
+     * held while the model works.
+     */
+    public function generate(Ticket $ticket): ?AiSummary
     {
         try {
             $request = $this->requests->forTicket($ticket, null, $this->container->make(AiSettingsResolver::class)->audience($ticket));
@@ -38,10 +42,14 @@ class TicketSummarizer
             return null;
         }
 
-        if (trim($summary->body) === '') {
-            return null;
-        }
+        return trim($summary->body) === '' ? null : $summary;
+    }
 
+    /**
+     * Post a summary as an internal note.
+     */
+    public function post(Ticket $ticket, AiSummary $summary): TicketMessage
+    {
         return $this->container->make(PostMessage::class)->handle(new PostMessageData(
             ticket: $ticket,
             author: null,

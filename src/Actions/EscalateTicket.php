@@ -103,12 +103,27 @@ class EscalateTicket
     {
         $escalated = $this->ensureOwner($ticket, $actor);
 
-        if ($notifyCustomer && ! $this->alreadyPosted($escalated, 'handoff')) {
-            $this->handoffMessage($escalated);
+        $text = config('ticketing.ai.escalation.handoff_message');
+
+        if ($notifyCustomer && is_string($text) && trim($text) !== '') {
+            $this->postOnce($escalated, 'handoff', fn () => $this->container->make(PostMessage::class)->handle(new PostMessageData(
+                ticket: $escalated,
+                author: null,
+                body: $text,
+                visibility: MessageVisibility::Public,
+                source: MessageSource::Ai,
+                meta: ['ai' => ['kind' => 'handoff']],
+            )));
         }
 
         if (config('ticketing.ai.escalation.summarize', true) !== false && ! $this->alreadyPosted($escalated, 'summary')) {
-            $this->container->make(TicketSummarizer::class)->summarize($escalated);
+            // The model works without any lock; only the posting is claimed.
+            $summarizer = $this->container->make(TicketSummarizer::class);
+            $summary = $summarizer->generate($escalated);
+
+            if ($summary !== null) {
+                $this->postOnce($escalated, 'summary', fn () => $summarizer->post($escalated, $summary));
+            }
         }
 
         $escalated->refresh();
@@ -207,21 +222,20 @@ class EscalateTicket
         return $team instanceof Team ? $team : null;
     }
 
-    protected function handoffMessage(Ticket $ticket): void
+    /**
+     * Post an escalation message at most once, even when two recoveries race:
+     * the check and the post happen under the ticket's row lock.
+     *
+     * @param  \Closure(): mixed  $post
+     */
+    protected function postOnce(Ticket $ticket, string $kind, \Closure $post): void
     {
-        $text = config('ticketing.ai.escalation.handoff_message');
+        DB::transaction(function () use ($ticket, $kind, $post): void {
+            Ticketing::ticketModel()::query()->withoutTenancy()->lockForUpdate()->whereKey($ticket->getKey())->first();
 
-        if (! is_string($text) || trim($text) === '') {
-            return;
-        }
-
-        $this->container->make(PostMessage::class)->handle(new PostMessageData(
-            ticket: $ticket,
-            author: null,
-            body: $text,
-            visibility: MessageVisibility::Public,
-            source: MessageSource::Ai,
-            meta: ['ai' => ['kind' => 'handoff']],
-        ));
+            if (! $this->alreadyPosted($ticket, $kind)) {
+                $post();
+            }
+        });
     }
 }
