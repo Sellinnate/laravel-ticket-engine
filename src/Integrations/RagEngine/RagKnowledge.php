@@ -543,13 +543,16 @@ class RagKnowledge
 
     /**
      * One writer per document at a time: two workers re-indexing the same
-     * article must not each purge the other's fresh version.
+     * article must not each purge the other's fresh version. Keyed on the
+     * document alone (ids are unique across tenants), so a job that names
+     * another tenant — a merged-away shared ticket — still takes the same
+     * lock.
      *
      * @param  \Closure(): mixed  $callback
      */
     protected function locked(int|string|null $tenant, string $key, \Closure $callback): void
     {
-        Cache::lock('ticketing:rag:'.hash('sha256', $this->ragTenant($tenant).'|'.$key), 300)->block(60, $callback);
+        Cache::lock('ticketing:rag:'.hash('sha256', $key), 300)->block(60, $callback);
     }
 
     /**

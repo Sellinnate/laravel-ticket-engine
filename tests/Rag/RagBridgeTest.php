@@ -380,6 +380,10 @@ it('classifies through the model and survives a reply that is not JSON', functio
         ->and($classification->wantsHuman)->toBeTrue()
         ->and($classification->topics)->toBe(['billing']);
 
+    $llm = app(LlmManager::class)->driver('classifier');
+    $llm->reply = '{"priority": "normal"}';
+    expect($driver->classify(new AiRequest(question: 'Hi', audience: KnowledgeAudience::customer()))->priority)->toBe(Priority::Normal);
+
     // The default fake LLM does not answer in JSON: no classification.
     expect((new RagAiDriver(app(RagKnowledge::class)))->classify(new AiRequest(question: 'Hello', audience: KnowledgeAudience::customer()))->language)->toBeNull();
 });

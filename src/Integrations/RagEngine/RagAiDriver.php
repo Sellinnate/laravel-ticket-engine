@@ -67,6 +67,7 @@ class RagAiDriver implements AiDriver
             category: is_string($json['category'] ?? null) && $json['category'] !== '' ? mb_substr($json['category'], 0, 255) : null,
             priority: match ($json['priority'] ?? null) {
                 'low' => Priority::Low,
+                'normal' => Priority::Normal,
                 'high' => Priority::High,
                 'urgent' => Priority::Urgent,
                 default => null,
