@@ -23,19 +23,21 @@ concurrency:
 jobs:
   test:
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 5
+    timeout-minutes: 15
     strategy:
       fail-fast: true
       matrix:
         os: [ubuntu-latest, windows-latest]
         php: [8.5, 8.4, 8.3]
-        laravel: [13.*, 12.*]
+        laravel: [13.*, 12.*, 11.*]
         stability: [prefer-lowest, prefer-stable]
         include:
           - laravel: 13.*
             testbench: 11.*
           - laravel: 12.*
             testbench: 10.*
+          - laravel: 11.*
+            testbench: 9.*
 
     name: P${{ matrix.php }} - L${{ matrix.laravel }} - ${{ matrix.stability }} - ${{ matrix.os }}
 
@@ -66,4 +68,72 @@ jobs:
         run: composer show -D
 
       - name: Execute tests
+        run: vendor/bin/pest --ci
+
+  databases:
+    # The whole suite against real database servers: JSON paths, string/integer
+    # comparisons, unique NULLs and row locks behave differently from SQLite.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - database: mysql
+            port: 3306
+          - database: pgsql
+            port: 5432
+
+    name: ${{ matrix.database }} - P8.4 - L13
+
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: password
+          MYSQL_DATABASE: ticketing_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -ppassword"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: ticketing_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, pdo_mysql, pdo_pgsql, bcmath, intl, fileinfo
+          coverage: none
+
+      - name: Install dependencies
+        run: composer update --prefer-stable --prefer-dist --no-interaction
+
+      - name: Execute tests
+        env:
+          TICKETING_TEST_DB: ${{ matrix.database }}
+          TICKETING_TEST_DB_HOST: 127.0.0.1
+          TICKETING_TEST_DB_PORT: ${{ matrix.port }}
+          TICKETING_TEST_DB_DATABASE: ticketing_test
+          TICKETING_TEST_DB_USERNAME: ${{ matrix.database == 'pgsql' && 'postgres' || 'root' }}
+          TICKETING_TEST_DB_PASSWORD: password
         run: vendor/bin/pest --ci
