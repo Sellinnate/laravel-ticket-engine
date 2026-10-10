@@ -46,15 +46,18 @@ php artisan ticketing:install
 - **Workflow**: declare a type whose states match your statuses, so nothing is lost in the copy:
 
 ```php
-'workflows' => [
-    'support' => [
-        'initial' => 'new',
-        'states' => ['new', 'in_progress', 'waiting_customer', 'done', 'archived'],
-        'transitions' => [/* … */],
-        'semantics' => ['open' => ['new', 'in_progress'], 'paused' => ['waiting_customer'], 'closed' => ['done', 'archived']],
+// config/ticketing.php
+'workflow' => [
+    'workflows' => [
+        'support' => [
+            'initial' => 'new',
+            'states' => ['new', 'in_progress', 'waiting_customer', 'done', 'archived'],
+            'transitions' => [/* … */],
+            'semantics' => ['open' => ['new', 'in_progress'], 'paused' => ['waiting_customer'], 'closed' => ['done', 'archived']],
+        ],
     ],
 ],
-'types' => ['support' => ['workflow' => 'support']],
+'types' => ['support' => ['name' => 'Support', 'workflow' => 'support']],
 ```
 
 Nothing is user-facing yet; the old module keeps working.
@@ -77,8 +80,8 @@ Ticketing::postMessage($ticket, $user, $data['body']);
 
 ## 4. Copy the history
 
-Copy the old requests with a one-off command. Run it with the side effects off — no notifications, AI turns,
-automations or webhooks must fire for years-old requests — then rebuild the derived data:
+Copy the **closed** requests with a one-off command. Run it with the side effects off — no notifications,
+AI turns, automations, webhooks or SLA clocks for years-old requests:
 
 ```php
 use Illuminate\Support\Facades\Event;
@@ -116,10 +119,14 @@ Event::fakeFor(function () {
 ```
 
 ```bash
-php artisan ticketing:recalculate-sla      # SLA clocks for what is still open
 php artisan ticketing:rag:index            # if you use the RAG bridge
 ```
 
+- **Requests still open at the cut-over**: finish them in the old module, or open them through the normal
+  path (without `Event::fakeFor`, with notifications muted through your preferences) so their SLA clocks
+  start — at import time: the old deadlines are not carried over.
+- Copied tickets have no SLA clocks: they count in the response and resolution times (computed from the
+  timestamps you copy) but not in SLA compliance.
 - Keep the old ids (the `legacy_id` custom field, `meta.legacy_id` on messages) so links and conversations
   can be traced back.
 - Import the FAQ/help pages as articles with the right audience, and publish them.
