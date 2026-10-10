@@ -155,7 +155,8 @@ class RagAiDriver implements AiDriver
                 url: $hit->url,
                 excerpt: mb_strimwidth($hit->excerpt, 0, 200, '…'),
             ), $hits),
-            confidence: max(0.0, min(1.0, $hits[0]->score)),
+            // The best passage, whatever the (hybrid) order.
+            confidence: max(0.0, min(1.0, max(array_map(fn (RagHit $hit): float => $hit->score, $hits)))),
             usage: $this->usage(),
         );
     }

@@ -354,9 +354,9 @@ it('indexes the question and the final answer of a long conversation, without pe
 
 it('never takes the requester\'s own reply for the answer', function (): void {
     // makeUser() can both request and act on tickets.
-    $requester = makeUser(['name' => 'Requester']);
+    $requester = makeUser(['name' => 'Ottavia']);
     $ticket = Ticketing::open(type: 'support', title: 'Scanner offline', requester: $requester);
-    Ticketing::postMessage($ticket, $requester, 'The scanner is offline after the update.');
+    Ticketing::postMessage($ticket, $requester, 'The scanner is offline after the update. Ottavia');
     Ticketing::postMessage($ticket, makeUser(['name' => 'Agent']), 'Reinstall the scanner driver.');
     Ticketing::postMessage($ticket, $requester, 'Thanks, all good now.');
     Ticketing::transition($ticket, 'resolve');
@@ -365,8 +365,9 @@ it('never takes the requester\'s own reply for the answer', function (): void {
         Document::query()->withoutGlobalScopes()->where('metadata->document_key', 'ticket:'.$ticket->getKey())->sole(),
     ));
 
-    expect($content)->toContain('Question: The scanner is offline after the update.')
-        ->and($content)->toContain('Answer: Reinstall the scanner driver.');
+    expect($content)->toContain('Question: The scanner is offline after the update. [customer]')
+        ->and($content)->toContain('Answer: Reinstall the scanner driver.')
+        ->and($content)->not->toContain('Ottavia');
 });
 
 it('indexes active canned responses for agents only', function (): void {

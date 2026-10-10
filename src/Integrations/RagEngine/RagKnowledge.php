@@ -263,9 +263,13 @@ class RagKnowledge
     {
         $names = [];
 
-        foreach ($ticket->participants()->withoutTenancy()->with('participant')->get() as $participant) {
+        // By role on the ticket — requesters, Cc'd people, watchers — never
+        // the assignee or collaborators (the agents answering).
+        $roles = [ParticipantRole::Requester->value, ParticipantRole::Cc->value, ParticipantRole::Watcher->value];
+
+        foreach ($ticket->participants()->withoutTenancy()->with('participant')->whereIn('role', $roles)->get() as $participant) {
             $person = $participant->participant;
-            $name = $person instanceof Model && ! $person instanceof CanActOnTickets ? $person->getAttribute('name') : null;
+            $name = $person instanceof Model ? $person->getAttribute('name') : null;
 
             if (is_string($name) && $name !== '') {
                 $names[] = $name;
