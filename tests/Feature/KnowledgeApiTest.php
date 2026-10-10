@@ -154,6 +154,14 @@ it('never shows another tenant\'s articles to an agent, even by direct Gate chec
         ->and(Gate::forUser($ownAgent)->allows('view', $article))->toBeTrue();
 });
 
+it('rejects a category filter that cannot be a category id', function (): void {
+    $this->actingAs(makeUser());
+
+    $this->getJson(API.'/kb/articles?category=foo')->assertUnprocessable()->assertJsonValidationErrors('category');
+    $this->getJson(API.'/kb/articles?q=reset&category=foo')->assertUnprocessable()->assertJsonValidationErrors('category');
+    $this->getJson(API.'/kb/articles?category=')->assertOk();
+});
+
 it('validates the category of an article', function (): void {
     $own = KbCategory::query()->create(['name' => 'Billing']);
     $foreign = app(TenantContext::class)->forTenant(7, fn () => KbCategory::query()->create(['name' => 'Other']));

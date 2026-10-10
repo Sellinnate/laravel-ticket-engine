@@ -73,13 +73,20 @@ abstract class Controller
      */
     protected static function assertKey(string $key): void
     {
-        $valid = config('ticketing.ids.type') === 'ulid'
-            ? preg_match('/^[0-9A-Za-z]{26}$/', $key) === 1
-            : filter_var($key, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) !== false;
-
-        if (! $valid) {
+        if (! self::isKey($key)) {
             throw (new ModelNotFoundException)->setModel(Ticketing::ticketModel());
         }
+    }
+
+    /**
+     * Whether a value can be a primary key of the configured id type (so it
+     * never reaches a typed column comparison the database would reject).
+     */
+    protected static function isKey(string $key): bool
+    {
+        return config('ticketing.ids.type') === 'ulid'
+            ? preg_match('/^[0-9A-Za-z]{26}$/', $key) === 1
+            : filter_var($key, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) !== false;
     }
 
     /**

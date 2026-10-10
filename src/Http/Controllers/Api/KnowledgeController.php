@@ -9,6 +9,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Validation\ValidationException;
 use Selli\Ticketing\Data\ArticleData;
 use Selli\Ticketing\Enums\ArticleLinkRelation;
 use Selli\Ticketing\Enums\ArticleType;
@@ -38,7 +39,11 @@ class KnowledgeController extends Controller
         $locale = is_string($request->query('locale')) ? (string) $request->query('locale') : null;
         $type = is_string($request->query('type')) ? ArticleType::tryFrom((string) $request->query('type')) : null;
         $category = $request->query('category');
-        $category = is_scalar($category) ? (string) $category : null;
+        $category = is_scalar($category) && (string) $category !== '' ? (string) $category : null;
+
+        if ($category !== null && ! self::isKey($category)) {
+            throw ValidationException::withMessages(['category' => 'The category must be a category id.']);
+        }
 
         // Every result also passes the article policy, so a listing never shows
         // what a direct read of the same article would refuse.
