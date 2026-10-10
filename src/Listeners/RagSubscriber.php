@@ -16,6 +16,7 @@ use Selli\Ticketing\Events\TicketErased;
 use Selli\Ticketing\Events\TicketMerged;
 use Selli\Ticketing\Events\TicketReopened;
 use Selli\Ticketing\Events\TicketResolved;
+use Selli\Ticketing\Events\TicketSplit;
 use Selli\Ticketing\Integrations\RagEngine\RagKnowledge;
 use Selli\Ticketing\Integrations\RagEngine\RagSyncJob;
 
@@ -63,6 +64,16 @@ class RagSubscriber implements Subscriber
         }
     }
 
+    /**
+     * Messages split out of a ticket no longer belong to its conversation.
+     */
+    public function onSplit(TicketSplit $event): void
+    {
+        if (config('ticketing.rag.index.tickets', true) !== false) {
+            RagSyncJob::sync(RagKnowledge::TYPE_TICKET, $event->source->getKey(), $event->source->getAttribute($event->source->getTenantColumn()));
+        }
+    }
+
     public function onErased(TicketErased $event): void
     {
         RagSyncJob::sync(RagKnowledge::TYPE_TICKET, $event->ticketId, $event->tenantId);
@@ -106,6 +117,7 @@ class RagSubscriber implements Subscriber
             MessagePosted::class => 'onMessage',
             TicketErased::class => 'onErased',
             TicketMerged::class => 'onMerged',
+            TicketSplit::class => 'onSplit',
             RequesterAnonymized::class => 'onAnonymized',
         ];
     }

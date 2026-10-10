@@ -258,6 +258,18 @@ it('cleans up merged tickets and keeps an erased conversation out through a merg
         ->and(app(RagKnowledge::class)->excluded($resolved))->toBeTrue();
 });
 
+it('reindexes a resolved ticket whose messages were split out', function (): void {
+    $ticket = Ticketing::open(type: 'support', title: 'Two problems');
+    Ticketing::postMessage($ticket, null, 'Monitor flickers after waking from sleep.');
+    $moved = Ticketing::postMessage($ticket, null, 'Separately the keyboard backlight never turns on.');
+    Ticketing::transition($ticket, 'resolve');
+
+    Ticketing::for($ticket->refresh())->split([$moved->getKey()]);
+
+    expect(app(RagKnowledge::class)->similarTickets('keyboard backlight never turns on', null))->toBe([])
+        ->and(app(RagKnowledge::class)->similarTickets('monitor flickers after waking from sleep', null))->toHaveCount(1);
+});
+
 it('keeps the opening and the latest replies of a long conversation', function (): void {
     $ticket = Ticketing::open(type: 'support', title: 'Router keeps rebooting');
     Ticketing::postMessage($ticket, null, 'My router keeps rebooting every hour.');
