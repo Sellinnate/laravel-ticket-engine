@@ -370,12 +370,16 @@ class Metrics
             ->limit(max(1, $limit))
             ->get();
 
-        $fingerprints = $groups->pluck('question_fingerprint')->all();
+        // One sample per group (the latest wording), read by the database: a
+        // question asked thousands of times is never loaded whole.
         $samples = [];
 
-        foreach ((clone $gaps)->whereIn('question_fingerprint', $fingerprints)->whereNotNull('question')->orderByDesc('created_at')
-            ->toBase()->get(['question_fingerprint', 'question']) as $row) {
-            $samples[(string) $row->question_fingerprint] ??= (string) $row->question;
+        foreach ($groups as $group) {
+            $fingerprint = (string) $group->question_fingerprint;
+            $question = (clone $gaps)->where('question_fingerprint', $fingerprint)->whereNotNull('question')
+                ->orderByDesc('created_at')->limit(1)->value('question');
+
+            $samples[$fingerprint] = is_string($question) ? $question : null;
         }
 
         return array_values($groups->map(fn (object $row): array => [

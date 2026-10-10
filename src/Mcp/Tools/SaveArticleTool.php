@@ -9,6 +9,7 @@ use Illuminate\Validation\ValidationException;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
 use Selli\Ticketing\Data\ArticleData;
+use Selli\Ticketing\Enums\ArticleStatus;
 use Selli\Ticketing\Enums\ArticleType;
 use Selli\Ticketing\Enums\KnowledgeVisibility;
 use Selli\Ticketing\Models\KbArticle;
@@ -18,7 +19,7 @@ class SaveArticleTool extends TicketingTool
 {
     protected string $name = 'save-article';
 
-    protected string $description = 'Write a help-center article or FAQ: creates a draft, or updates an article by id. It never publishes — a person does.';
+    protected string $description = 'Write a help-center article or FAQ: creates a draft, or updates a draft by id. It never publishes nor edits a published article — a person does.';
 
     public function handle(Request $request): Response
     {
@@ -42,6 +43,11 @@ class SaveArticleTool extends TicketingTool
             }
 
             $this->authorize($request, 'update', $article);
+
+            // What customers read changes only through a person.
+            if ($article->status !== ArticleStatus::Draft) {
+                throw ValidationException::withMessages(['id' => "Article [{$data['id']}] is {$article->status->value}: only drafts can be edited here. Create a new draft instead."]);
+            }
         } else {
             $this->authorize($request, 'create', Ticketing::kbArticleModel());
         }

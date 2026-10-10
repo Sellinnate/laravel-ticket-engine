@@ -54,7 +54,7 @@ protected array $tools = [...TicketingServer::TOOLS, MyOtherTool::class];
 | `ticket-metrics` | the [KPIs](/concepts/reporting) of a period, with filters | `viewReports` |
 | `search-knowledge-base` | search the articles the user may read | article `view` |
 | `get-article` | one article by slug | article `view` |
-| `save-article` | create a draft, or update an article by id — **never publishes** | article `create` / `update` |
+| `save-article` | create a draft, or update a draft by id — **never publishes nor edits a published article** | article `create` / `update` |
 
 Read-only tools are annotated `readOnlyHint`, `transition-ticket` `destructiveHint`, so MCP clients can ask
 the person before running them.

@@ -172,7 +172,16 @@ it('searches and reads the articles the user may read, and drafts new ones', fun
         ->assertOk()
         ->assertSee('"status":"draft"');
 
-    expect(KbArticle::query()->where('title', 'Printer offline')->sole()->status->value)->toBe('draft');
+    $draft = KbArticle::query()->where('title', 'Printer offline')->sole();
+    expect($draft->status->value)->toBe('draft');
+
+    // Drafts can be reworked; what customers read cannot be changed from here.
+    TicketingServer::actingAs(makeUser())->tool(SaveArticleTool::class, ['id' => (string) $draft->getKey(), 'body' => 'Restart the print spooler service.'])->assertOk();
+    expect($draft->refresh()->body)->toBe('Restart the print spooler service.');
+
+    TicketingServer::actingAs(makeUser())->tool(SaveArticleTool::class, ['id' => (string) $public->getKey(), 'body' => 'Defaced'])
+        ->assertHasErrors(["Article [{$public->getKey()}] is published: only drafts can be edited here. Create a new draft instead."]);
+    expect($public->refresh()->body)->toBe('Open Settings, then Security.');
 
     TicketingServer::actingAs($customer)->tool(SaveArticleTool::class, ['title' => 'Spam', 'body' => 'Buy now'])
         ->assertHasErrors(['You are not allowed to do that.']);
