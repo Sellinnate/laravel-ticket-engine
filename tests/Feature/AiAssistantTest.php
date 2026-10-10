@@ -510,3 +510,77 @@ it('lets a new delivery take over a turn abandoned past the timeout', function (
 
     expect(app(AiAssistant::class)->respondToTicket($ticket, $question)?->outcome)->toBe(AiOutcome::Answered);
 });
+
+it('does not answer on a ticket resolved while the first turn was pending', function (): void {
+    config()->set('ticketing.ai.queue', true);
+    Queue::fake();
+
+    $customer = Ticketing::contacts()->remember('customer@example.com');
+    $ticket = Ticketing::open(type: 'support', title: 'Race', requester: $customer);
+    $question = Ticketing::postMessage($ticket, $customer, 'Question');
+    Ticketing::transition($ticket, 'resolve');
+
+    fakeAi()->queueAnswer(confidentAnswer('Too late'));
+
+    expect(app(AiAssistant::class)->respondToTicket($ticket, $question)?->outcome)->toBe(AiOutcome::Skipped)
+        ->and($ticket->messages()->where('body', 'Too late')->exists())->toBeFalse();
+});
+
+it('resumes a hand-over interrupted after the turn committed, without repeating it', function (): void {
+    Event::fake([TicketEscalated::class]);
+    $customer = Ticketing::contacts()->remember('customer@example.com');
+    $ticket = Ticketing::open(type: 'support', title: 'Crash', requester: $customer);
+    config()->set('ticketing.ai.mode', 'off');
+    $question = Ticketing::postMessage($ticket, $customer, 'Question');
+    config()->set('ticketing.ai.mode', 'auto');
+
+    // The turn and the escalation state committed, then the worker died.
+    $ticket->forceFill(['ai_status' => AiStatus::Escalated, 'escalation_reason' => EscalationReason::NoSources, 'escalated_at' => now()])->save();
+    AiTurn::query()->create(array_merge($ticket->tenantAttributes(), [
+        'ticket_id' => $ticket->getKey(),
+        'trigger_key' => 'ticket_message:'.$question->getKey(),
+        'mode' => 'auto',
+        'status' => AiTurn::STATUS_HANDOFF,
+        'outcome' => AiOutcome::Escalated,
+        'escalation_reason' => EscalationReason::NoSources,
+        'driver' => 'fake',
+    ]));
+
+    $assistant = app(AiAssistant::class);
+
+    // Not a retry and not stale: left alone.
+    expect($assistant->respondToTicket($ticket, $question))->toBeNull();
+
+    $turn = $assistant->respondToTicket($ticket, $question, retry: true);
+    $assistant->respondToTicket($ticket, $question, retry: true);
+
+    expect($turn?->status)->toBe(AiTurn::STATUS_DONE)
+        ->and($ticket->messages()->where('body', 'A human will follow up.')->count())->toBe(1)
+        ->and($ticket->messages()->where('meta->ai->kind', 'summary')->count())->toBe(1);
+
+    Event::assertDispatchedTimes(TicketEscalated::class, 1);
+});
+
+it('resumes a hand-over whose escalation never committed', function (): void {
+    $customer = Ticketing::contacts()->remember('customer@example.com');
+    $ticket = Ticketing::open(type: 'support', title: 'Crash', requester: $customer);
+    config()->set('ticketing.ai.mode', 'off');
+    $question = Ticketing::postMessage($ticket, $customer, 'Question');
+    config()->set('ticketing.ai.mode', 'auto');
+
+    AiTurn::query()->create(array_merge($ticket->tenantAttributes(), [
+        'ticket_id' => $ticket->getKey(),
+        'trigger_key' => 'ticket_message:'.$question->getKey(),
+        'mode' => 'auto',
+        'status' => AiTurn::STATUS_HANDOFF,
+        'outcome' => AiOutcome::Failed,
+        'escalation_reason' => EscalationReason::AiError,
+        'driver' => 'fake',
+    ]));
+
+    $this->travel(6)->minutes();
+    app(AiAssistant::class)->respondToTicket($ticket, $question);
+
+    expect($ticket->refresh()->ai_status)->toBe(AiStatus::Escalated)
+        ->and($ticket->escalation_reason)->toBe(EscalationReason::AiError);
+});

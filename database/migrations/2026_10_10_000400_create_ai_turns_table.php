@@ -28,7 +28,7 @@ return new class extends Migration
             // "ticket_message:<id>" / "conversation_message:<id>": one turn per trigger.
             $table->string('trigger_key', 80)->unique('ticketing_ai_turns_trigger_unq');
             $table->string('mode', 8);
-            $table->string('status', 16)->default('running'); // running | done
+            $table->string('status', 16)->default('running'); // running | handoff | done
             // How many deliveries worked on the turn (a retry after a crash adds one).
             $table->unsignedSmallInteger('attempts')->default(1);
             $table->string('outcome', 16)->nullable();        // answered | drafted | escalated | skipped | failed

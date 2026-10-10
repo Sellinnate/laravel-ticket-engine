@@ -30,6 +30,7 @@ use Selli\Ticketing\Models\Conversation;
 use Selli\Ticketing\Models\ConversationMessage;
 use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Models\TicketMessage;
+use Selli\Ticketing\Support\AuditLogger;
 use Selli\Ticketing\Support\Ticketing;
 use Throwable;
 
@@ -67,6 +68,15 @@ class AiAssistant
     {
         // Work on the stored state (status, exchanges), not a caller's copy.
         $ticket = Ticketing::ticketModel()::query()->withoutTenancy()->whereKey($ticket->getKey())->first() ?? $ticket;
+        $triggerKey = 'ticket_message:'.$trigger->getKey();
+
+        // A hand-over this message caused but a crashed worker never finished.
+        $pending = $this->pendingHandoff($triggerKey, $retry);
+
+        if ($pending !== null) {
+            return $this->resumeTicketHandoff($ticket, $pending);
+        }
+
         $settings = $this->settings();
         $tenant = $ticket->getAttribute($ticket->getTenantColumn());
         $mode = $settings->mode($tenant, $this->requests->typeKey($ticket), $ticket->channel);
@@ -75,7 +85,7 @@ class AiAssistant
             return null;
         }
 
-        $turn = $this->claim('ticket_message:'.$trigger->getKey(), $ticket, null, $mode, $trigger->body, $retry);
+        $turn = $this->claim($triggerKey, $ticket, null, $mode, $trigger->body, $retry);
 
         if ($turn === null) {
             return null;
@@ -120,6 +130,14 @@ class AiAssistant
     public function respondToConversation(Conversation $conversation, ConversationMessage $trigger, bool $retry = false): ?AiTurn
     {
         $conversation = Ticketing::conversationModel()::query()->withoutTenancy()->whereKey($conversation->getKey())->first() ?? $conversation;
+        $triggerKey = 'conversation_message:'.$trigger->getKey();
+
+        $pending = $this->pendingHandoff($triggerKey, $retry);
+
+        if ($pending !== null) {
+            return $this->resumeConversationHandoff($conversation, $pending);
+        }
+
         $settings = $this->settings();
         $tenant = $conversation->getAttribute($conversation->getTenantColumn());
         $mode = $settings->mode($tenant, $this->conversationType($conversation), $conversation->channel);
@@ -130,7 +148,7 @@ class AiAssistant
             return null;
         }
 
-        $turn = $this->claim('conversation_message:'.$trigger->getKey(), null, $conversation, $mode, $trigger->body, $retry);
+        $turn = $this->claim($triggerKey, null, $conversation, $mode, $trigger->body, $retry);
 
         if ($turn === null) {
             return null;
@@ -163,11 +181,11 @@ class AiAssistant
             }
         } catch (Throwable $exception) {
             report($exception);
-            $this->finish($turn, AiOutcome::Failed, EscalationReason::AiError, null, $usage, $started, $exception->getMessage());
+            $this->finish($turn, AiOutcome::Failed, EscalationReason::AiError, null, $usage, $started, $exception->getMessage(), status: AiTurn::STATUS_HANDOFF);
+            AiUsageRecorded::dispatch($turn);
             AiTurnFailed::dispatch($turn, $exception->getMessage());
-            $this->conversations()->escalate($conversation, EscalationReason::AiError);
 
-            return $turn;
+            return $this->resumeConversationHandoff($conversation, $turn);
         }
 
         // No answer means escalate, even when no rule named a reason.
@@ -187,7 +205,9 @@ class AiAssistant
             }
 
             if ($escalation !== null || $answer === null) {
-                $this->finish($turn, AiOutcome::Escalated, $escalation, $answer, $usage, $started);
+                // Recorded as a pending hand-over: a retry resumes it if this
+                // worker dies before the conversation becomes a ticket.
+                $this->finish($turn, AiOutcome::Escalated, $escalation, $answer, $usage, $started, status: AiTurn::STATUS_HANDOFF);
 
                 return null;
             }
@@ -217,8 +237,8 @@ class AiAssistant
 
         if ($reply !== null) {
             AiReplied::dispatch($turn, $reply);
-        } elseif ($turn->outcome === AiOutcome::Escalated && $turn->escalation_reason !== null) {
-            $this->conversations()->escalate($conversation->refresh(), $turn->escalation_reason);
+        } elseif ($turn->status === AiTurn::STATUS_HANDOFF) {
+            return $this->resumeConversationHandoff($conversation, $turn);
         }
 
         return $turn;
@@ -241,9 +261,11 @@ class AiAssistant
                 ->whereKey($ticket->getKey())
                 ->firstOrFail();
 
-            // A human took over (or the ticket was escalated) while the driver
-            // was thinking: never write after a takeover.
-            if (($locked->ai_status !== null && ! $locked->ai_status->answers()) || $this->agentRepliedSince($locked, $trigger)) {
+            // A human took over, the ticket was escalated or resolved while the
+            // driver was thinking: never write after any of those.
+            if (($locked->ai_status !== null && ! $locked->ai_status->answers())
+                || $this->agentRepliedSince($locked, $trigger)
+                || $this->requests->isClosed($locked)) {
                 $this->finish($turn, AiOutcome::Skipped, null, $answer, $usage, $started);
 
                 return null;
@@ -260,13 +282,22 @@ class AiAssistant
                     $draft = $this->post($locked, $answer, MessageVisibility::Internal, $turn, 'draft');
                 }
 
-                $this->finish($turn, $reason !== null ? AiOutcome::Escalated : AiOutcome::Drafted, $reason, $answer, $usage, $started);
+                if ($reason !== null) {
+                    $this->markEscalated($locked, $reason);
+                    $this->finish($turn, AiOutcome::Escalated, $reason, $answer, $usage, $started, status: AiTurn::STATUS_HANDOFF);
+                } else {
+                    $this->finish($turn, AiOutcome::Drafted, null, $answer, $usage, $started);
+                }
 
                 return $draft;
             }
 
             if ($reason !== null || $answer === null) {
-                $this->finish($turn, AiOutcome::Escalated, $reason ?? EscalationReason::NoSources, $answer, $usage, $started);
+                // The escalation commits with the turn; its side effects follow
+                // and a retry resumes them if this worker dies first.
+                $reason ??= EscalationReason::NoSources;
+                $this->markEscalated($locked, $reason);
+                $this->finish($turn, AiOutcome::Escalated, $reason, $answer, $usage, $started, status: AiTurn::STATUS_HANDOFF);
 
                 return null;
             }
@@ -291,8 +322,8 @@ class AiAssistant
             AiReplied::dispatch($turn, $written);
         }
 
-        if ($turn->outcome === AiOutcome::Escalated && $turn->escalation_reason !== null) {
-            $this->container->make(EscalateTicket::class)->handle($ticket->refresh(), $turn->escalation_reason, notifyCustomer: $mode === AiMode::Auto);
+        if ($turn->status === AiTurn::STATUS_HANDOFF) {
+            return $this->resumeTicketHandoff($ticket, $turn);
         }
 
         return $turn;
@@ -302,15 +333,99 @@ class AiAssistant
     {
         report($exception);
 
-        $this->finish($turn, AiOutcome::Failed, EscalationReason::AiError, null, $usage, $started, $exception->getMessage());
+        $this->finish($turn, AiOutcome::Failed, EscalationReason::AiError, null, $usage, $started, $exception->getMessage(), status: AiTurn::STATUS_HANDOFF);
 
         AiUsageRecorded::dispatch($turn);
         AiTurnFailed::dispatch($turn, $exception->getMessage());
 
         // Always on: a provider error hands the customer to a human.
-        $this->container->make(EscalateTicket::class)->handle($ticket->refresh(), EscalationReason::AiError, notifyCustomer: $mode === AiMode::Auto);
+        return $this->resumeTicketHandoff($ticket, $turn);
+    }
+
+    /**
+     * The escalation state, committed together with the turn (audited like a
+     * manual escalation).
+     */
+    protected function markEscalated(Ticket $locked, EscalationReason $reason): void
+    {
+        EscalateTicket::mark($locked, $reason);
+
+        $this->container->make(AuditLogger::class)->record(
+            ticket: $locked,
+            event: 'ticket.escalated',
+            context: ['reason' => $reason->value],
+        );
+    }
+
+    /**
+     * Finish (or resume) a ticket hand-over: mark the ticket escalated if that
+     * did not commit yet, run the idempotent side effects, close the turn.
+     */
+    protected function resumeTicketHandoff(Ticket $ticket, AiTurn $turn): AiTurn
+    {
+        $this->container->make(EscalateTicket::class)->handle(
+            $ticket->refresh(),
+            $turn->escalation_reason ?? EscalationReason::AiError,
+            notifyCustomer: $turn->mode === AiMode::Auto,
+            resume: true,
+        );
+
+        $turn->forceFill(['status' => AiTurn::STATUS_DONE])->save();
 
         return $turn;
+    }
+
+    /**
+     * Finish (or resume) a conversation hand-over: the conversation becomes a
+     * ticket (or, if it already did, that ticket's hand-over completes).
+     */
+    protected function resumeConversationHandoff(Conversation $conversation, AiTurn $turn): AiTurn
+    {
+        $conversation->refresh();
+        $reason = $turn->escalation_reason ?? EscalationReason::AiError;
+
+        $ticket = $conversation->ticket_id !== null
+            ? Ticketing::ticketModel()::query()->withoutTenancy()->find($conversation->ticket_id)
+            : null;
+
+        $ticket instanceof Ticket
+            ? $this->container->make(EscalateTicket::class)->handle($ticket, $reason, notifyCustomer: true, resume: true)
+            : $this->conversations()->escalate($conversation, $reason);
+
+        $turn->forceFill(['status' => AiTurn::STATUS_DONE])->save();
+
+        return $turn;
+    }
+
+    /**
+     * A hand-over this trigger recorded but never finished, taken back by a
+     * retry of the job — or by anyone once older than `ai.turn_timeout`.
+     */
+    protected function pendingHandoff(string $triggerKey, bool $retry): ?AiTurn
+    {
+        $model = Ticketing::aiTurnModel();
+        $turn = $model::query()->withoutTenancy()->where('trigger_key', $triggerKey)->first();
+
+        if (! $turn instanceof AiTurn || $turn->status !== AiTurn::STATUS_HANDOFF) {
+            return null;
+        }
+
+        return $this->reclaim($turn, $retry) ? $turn->refresh() : null;
+    }
+
+    /**
+     * Atomically take an unfinished turn back (the attempts counter makes the
+     * update change a row on every engine).
+     */
+    protected function reclaim(AiTurn $turn, bool $retry): bool
+    {
+        $timeout = max(30, (int) config('ticketing.ai.turn_timeout', 300));
+
+        return Ticketing::aiTurnModel()::query()->withoutTenancy()
+            ->whereKey($turn->getKey())
+            ->where('status', $turn->status)
+            ->when(! $retry, fn ($query) => $query->where('updated_at', '<', now()->subSeconds($timeout)))
+            ->update(['updated_at' => now(), 'attempts' => DB::raw('attempts + 1')]) === 1;
     }
 
     /**
@@ -333,7 +448,7 @@ class AiAssistant
                 'ticket_id' => $ticket?->getKey(),
                 'conversation_id' => $conversation?->getKey(),
                 'mode' => $mode,
-                'status' => 'running',
+                'status' => AiTurn::STATUS_RUNNING,
                 'driver' => $this->ai->defaultDriver(),
                 'question' => mb_substr($plain, 0, 500),
                 'question_fingerprint' => self::fingerprint($plain),
@@ -344,25 +459,17 @@ class AiAssistant
             return $turn;
         }
 
-        if ($turn->status !== 'running') {
+        if ($turn->status !== AiTurn::STATUS_RUNNING) {
             return null;
         }
 
-        $timeout = max(30, (int) config('ticketing.ai.turn_timeout', 300));
-
-        $reclaimed = $model::query()->withoutTenancy()
-            ->whereKey($turn->getKey())
-            ->where('status', 'running')
-            ->when(! $retry, fn ($query) => $query->where('updated_at', '<', now()->subSeconds($timeout)))
-            ->update(['updated_at' => now(), 'mode' => $mode->value, 'attempts' => DB::raw('attempts + 1')]);
-
-        return $reclaimed === 1 ? $turn->refresh() : null;
+        return $this->reclaim($turn, $retry) ? $turn->refresh() : null;
     }
 
-    protected function finish(AiTurn $turn, AiOutcome $outcome, ?EscalationReason $reason, ?AiAnswer $answer, AiUsage $usage, int $started, ?string $error = null): void
+    protected function finish(AiTurn $turn, AiOutcome $outcome, ?EscalationReason $reason, ?AiAnswer $answer, AiUsage $usage, int $started, ?string $error = null, string $status = AiTurn::STATUS_DONE): void
     {
         $turn->forceFill([
-            'status' => 'done',
+            'status' => $status,
             'outcome' => $outcome,
             'escalation_reason' => $reason,
             'confidence' => $answer?->confidence,

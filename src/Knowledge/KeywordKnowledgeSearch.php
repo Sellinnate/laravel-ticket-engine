@@ -108,8 +108,9 @@ class KeywordKnowledgeSearch implements KnowledgeSearch
             }
         }
 
-        // Bound the work a single (possibly hostile) query can cause.
-        return array_slice(array_keys($terms), 0, 12);
+        // Bound the work a single (possibly hostile) query can cause. Keys are
+        // cast back to strings: PHP turns a numeric key such as "500" into an int.
+        return array_slice(array_map('strval', array_keys($terms)), 0, 12);
     }
 
     /**

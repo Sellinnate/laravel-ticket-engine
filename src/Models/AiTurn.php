@@ -46,6 +46,14 @@ use Selli\Ticketing\Support\Ticketing;
  */
 class AiTurn extends Model
 {
+    /** Claimed; the driver is (or was, if the worker died) working on it. */
+    public const STATUS_RUNNING = 'running';
+
+    /** Escalated, but the hand-over side effects have not all completed yet. */
+    public const STATUS_HANDOFF = 'handoff';
+
+    public const STATUS_DONE = 'done';
+
     use BelongsToTenant;
     use ConfiguresTicketingTable;
 

@@ -323,3 +323,10 @@ it('keeps votes but drops the ticket link and comment when the ticket is erased 
         ->and($article->refresh()->helpful_count)->toBe(1)
         ->and($article->not_helpful_count)->toBe(1);
 });
+
+it('searches numeric terms', function (): void {
+    article('Error 500 on checkout', 'A 500 error means the payment provider timed out.');
+
+    expect(resultTitles(Ticketing::knowledge()->search('error 500', KnowledgeAudience::public())))->toBe(['Error 500 on checkout'])
+        ->and(resultTitles(Ticketing::knowledge()->search('2026', KnowledgeAudience::public())))->toBe([]);
+});

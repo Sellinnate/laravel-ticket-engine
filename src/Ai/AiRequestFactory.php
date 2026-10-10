@@ -6,10 +6,12 @@ namespace Selli\Ticketing\Ai;
 
 use Illuminate\Database\Eloquent\Model;
 use Selli\Ticketing\Contracts\CanActOnTickets;
+use Selli\Ticketing\Contracts\WorkflowDriver;
 use Selli\Ticketing\Enums\ConversationRole;
 use Selli\Ticketing\Enums\MessageSource;
 use Selli\Ticketing\Enums\MessageVisibility;
 use Selli\Ticketing\Enums\ParticipantRole;
+use Selli\Ticketing\Exceptions\InvalidConfigurationException;
 use Selli\Ticketing\Knowledge\KnowledgeAudience;
 use Selli\Ticketing\Models\Conversation;
 use Selli\Ticketing\Models\ConversationMessage;
@@ -136,6 +138,21 @@ class AiRequestFactory
         }
 
         return $keys;
+    }
+
+    /**
+     * Whether the ticket sits in a resolved/closed state of its workflow.
+     */
+    public function isClosed(Ticket $ticket): bool
+    {
+        $workflow = Ticketing::ticketTypeModel()::query()->withoutTenancy()->whereKey($ticket->ticket_type_id)->value('workflow');
+        $workflow = is_string($workflow) && $workflow !== '' ? $workflow : 'default';
+
+        try {
+            return app(WorkflowDriver::class)->matchesSemantic($workflow, $ticket->status, 'closed');
+        } catch (InvalidConfigurationException) {
+            return false;
+        }
     }
 
     /**

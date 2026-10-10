@@ -27,7 +27,10 @@ use Selli\Ticketing\Support\Ticketing;
  * tells the customer and leaves an AI summary for the agent, then emits
  * {@see TicketEscalated} — which notifies the assignee and the team leads.
  *
- * Escalating a ticket an agent has already taken over is a no-op.
+ * Escalating a ticket an agent has already taken over is a no-op, and so is
+ * escalating it twice — unless $resume asks to finish a hand-over whose side
+ * effects were interrupted (a crashed worker): every step is idempotent, so a
+ * resumed hand-over never posts the customer message or the summary twice.
  */
 class EscalateTicket
 {
@@ -36,9 +39,9 @@ class EscalateTicket
         protected Container $container,
     ) {}
 
-    public function handle(Ticket $ticket, EscalationReason $reason, ?Model $actor = null, bool $notifyCustomer = true): Ticket
+    public function handle(Ticket $ticket, EscalationReason $reason, ?Model $actor = null, bool $notifyCustomer = true, bool $resume = false): Ticket
     {
-        $result = DB::transaction(function () use ($ticket, $reason, $actor): ?Ticket {
+        $result = DB::transaction(function () use ($ticket, $reason, $actor, $resume): ?Ticket {
             /** @var Ticket $locked */
             $locked = Ticketing::ticketModel()::query()->withoutTenancy()
                 ->lockForUpdate()
@@ -47,15 +50,15 @@ class EscalateTicket
 
             // A human already owns the conversation: nothing to hand over, and
             // the AI must not override the takeover.
-            if ($locked->ai_status === AiStatus::Suspended || $locked->ai_status === AiStatus::Escalated) {
+            if ($locked->ai_status === AiStatus::Suspended) {
                 return null;
             }
 
-            $locked->forceFill([
-                'ai_status' => AiStatus::Escalated,
-                'escalation_reason' => $reason,
-                'escalated_at' => $locked->escalated_at ?? now(),
-            ])->save();
+            if ($locked->ai_status === AiStatus::Escalated) {
+                return $resume ? $locked : null;
+            }
+
+            self::mark($locked, $reason);
 
             $this->audit->record(
                 ticket: $locked,
@@ -71,13 +74,40 @@ class EscalateTicket
             return $ticket->refresh();
         }
 
-        $escalated = $this->ensureOwner($result, $actor);
+        return $this->handOver($result, $reason, $actor, $notifyCustomer);
+    }
 
-        if ($notifyCustomer) {
+    /**
+     * The state change alone, on a ticket the caller holds locked — so it can
+     * commit together with the caller's own writes.
+     *
+     * @internal
+     */
+    public static function mark(Ticket $locked, EscalationReason $reason): void
+    {
+        $locked->forceFill([
+            'ai_status' => AiStatus::Escalated,
+            'escalation_reason' => $reason,
+            'escalated_at' => $locked->escalated_at ?? now(),
+        ])->save();
+    }
+
+    /**
+     * The side effects of an escalation, each idempotent: an owner, the
+     * customer hand-off message, the agent summary, then the event (which
+     * notifies the assignee and the team leads).
+     *
+     * @internal
+     */
+    public function handOver(Ticket $ticket, EscalationReason $reason, ?Model $actor = null, bool $notifyCustomer = true): Ticket
+    {
+        $escalated = $this->ensureOwner($ticket, $actor);
+
+        if ($notifyCustomer && ! $this->alreadyPosted($escalated, 'handoff')) {
             $this->handoffMessage($escalated);
         }
 
-        if (config('ticketing.ai.escalation.summarize', true) !== false) {
+        if (config('ticketing.ai.escalation.summarize', true) !== false && ! $this->alreadyPosted($escalated, 'summary')) {
             $this->container->make(TicketSummarizer::class)->summarize($escalated);
         }
 
@@ -86,6 +116,19 @@ class EscalateTicket
         TicketEscalated::dispatch($escalated, $reason, $actor);
 
         return $escalated;
+    }
+
+    /**
+     * Whether an AI message of this kind was already posted for the current
+     * escalation (a resumed hand-over must not repeat it).
+     */
+    protected function alreadyPosted(Ticket $ticket, string $kind): bool
+    {
+        return Ticketing::ticketMessageModel()::query()->withoutTenancy()
+            ->where('ticket_id', $ticket->getKey())
+            ->where('meta->ai->kind', $kind)
+            ->when($ticket->escalated_at !== null, fn ($query) => $query->where('created_at', '>=', $ticket->escalated_at))
+            ->exists();
     }
 
     /**
