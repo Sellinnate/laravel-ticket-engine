@@ -16,6 +16,8 @@ use RuntimeException;
  *
  * The schedule is keyed by ISO weekday (1 = Monday … 7 = Sunday); each day holds
  * a list of [start, end] "HH:MM" windows. "24:00" denotes end-of-day.
+ *
+ * @internal
  */
 final class BusinessHours
 {
@@ -70,7 +72,9 @@ final class BusinessHours
                     $available = $this->minutes($cursor, $close);
 
                     if ($remaining <= $available) {
-                        return $cursor->addMinutes($remaining);
+                        // Elapsed-time addition, matching minutes(): Carbon 2's
+                        // addMinutes() is wall-clock across a DST change.
+                        return $cursor->setTimestamp($cursor->getTimestamp() + $remaining * 60);
                     }
 
                     $remaining -= $available;
@@ -168,9 +172,15 @@ final class BusinessHours
         return $date->setTime($hours, $minutes);
     }
 
+    /**
+     * Elapsed minutes between two instants, from their Unix timestamps — never
+     * Carbon's diffInMinutes(), whose DST behaviour differs between Carbon 2
+     * (wall-clock) and Carbon 3 (elapsed time), the versions Laravel 11 and
+     * 12+ resolve to.
+     */
     private function minutes(CarbonImmutable $from, CarbonImmutable $to): int
     {
-        return (int) $from->diffInMinutes($to);
+        return intdiv($to->getTimestamp() - $from->getTimestamp(), 60);
     }
 
     private function isHoliday(CarbonImmutable $date): bool

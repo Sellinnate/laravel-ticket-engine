@@ -9,7 +9,8 @@ use Selli\Ticketing\Workflow\Transition;
 /**
  * Resolves states & transitions for a workflow. The rest of the package (SLA,
  * routing, events) talks to this interface, never to a concrete driver, so the
- * config-driven and state-class implementations are interchangeable.
+ * config-driven driver and any custom one registered through
+ * WorkflowManager::extend() are interchangeable.
  */
 interface WorkflowDriver
 {

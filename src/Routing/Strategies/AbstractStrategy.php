@@ -16,6 +16,8 @@ use Selli\Ticketing\Tenancy\TenantGuard;
 
 /**
  * Shared helpers for the built-in assignment strategies.
+ *
+ * @internal
  */
 abstract class AbstractStrategy implements AssignmentStrategy
 {
@@ -68,37 +70,51 @@ abstract class AbstractStrategy implements AssignmentStrategy
     }
 
     /**
-     * Number of unresolved tickets assigned to a member's agent within the
-     * ticket's tenant (so least-busy/skill-based aren't skewed by other tenants).
-     */
-    protected function openTicketCount(TeamMember $member, Ticket $ticket): int
-    {
-        $model = Ticketing::ticketModel();
-        $tenantColumn = $ticket->getTenantColumn();
-
-        return $model::query()
-            ->withoutTenancy()
-            ->where($tenantColumn, $ticket->getAttribute($tenantColumn))
-            ->where('assignee_type', $member->member_type)
-            ->where('assignee_id', $member->member_id)
-            ->whereNull('resolved_at')
-            ->whereNull('closed_at')
-            ->count();
-    }
-
-    /**
-     * Load each member's open-ticket count once (the comparator is called many
-     * times during a sort, so the counts are precomputed).
+     * Each member's number of unresolved tickets within the ticket's tenant (so
+     * least-busy/skill-based aren't skewed by other tenants), keyed by the
+     * member's key. One grouped query for the whole team rather than one count
+     * per member — the comparator then sorts on the precomputed figures.
      *
      * @param  Collection<int, TeamMember>  $members
      * @return array<int|string, int>
      */
     protected function loadCounts(Collection $members, Ticket $ticket): array
     {
+        if ($members->isEmpty()) {
+            return [];
+        }
+
+        $model = Ticketing::ticketModel();
+        $tenantColumn = $ticket->getTenantColumn();
+
+        $rows = $model::query()
+            ->withoutTenancy()
+            ->where($tenantColumn, $ticket->getAttribute($tenantColumn))
+            ->whereNull('resolved_at')
+            ->whereNull('closed_at')
+            ->where(function ($query) use ($members): void {
+                foreach ($members->groupBy('member_type') as $type => $group) {
+                    $query->orWhere(function ($byType) use ($type, $group): void {
+                        $byType->where('assignee_type', $type)
+                            ->whereIn('assignee_id', $group->map(fn (TeamMember $member): string => (string) $member->member_id)->all());
+                    });
+                }
+            })
+            ->groupBy('assignee_type', 'assignee_id')
+            ->selectRaw('assignee_type, assignee_id, COUNT(*) as aggregate')
+            ->toBase()
+            ->get();
+
+        $byAgent = [];
+
+        foreach ($rows as $row) {
+            $byAgent[$row->assignee_type.':'.$row->assignee_id] = (int) $row->aggregate;
+        }
+
         $counts = [];
 
         foreach ($members as $member) {
-            $counts[$member->getKey()] = $this->openTicketCount($member, $ticket);
+            $counts[$member->getKey()] = $byAgent[$member->member_type.':'.$member->member_id] ?? 0;
         }
 
         return $counts;

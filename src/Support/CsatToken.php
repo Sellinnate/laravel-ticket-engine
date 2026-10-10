@@ -13,6 +13,8 @@ use Selli\Ticketing\Exceptions\InvalidConfigurationException;
  * without storing per-request state, and {@see SubmitCsat} can trust the ticket
  * the token names. URL-safe (base64url, no padding) so it drops straight into a
  * query string or path.
+ *
+ * @internal
  */
 class CsatToken
 {

@@ -21,6 +21,8 @@ use Selli\Ticketing\Tenancy\TenantGuard;
  * Evaluates the ordered, data-driven routing rules for a ticket and routes the
  * first match (that yields a valid target) to its team/assignee/strategy.
  * Conditions are versionable data, not `if` statements in code.
+ *
+ * @internal
  */
 class RoutingEngine
 {

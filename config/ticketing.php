@@ -180,9 +180,10 @@ return [
     | Workflow engine
     |--------------------------------------------------------------------------
     |
-    | "driver" selects how states & transitions are resolved:
-    |   - config: declarative, defined below per workflow key (default)
-    |   - state-class: bridge to spatie/laravel-model-states (suggested dep)
+    | "driver" selects how states & transitions are resolved. "config" (the
+    | default) reads the declarative workflows below; register your own driver
+    | with WorkflowManager::extend('name', fn ($app) => new MyDriver) and select
+    | it here.
     |
     | Each workflow declares its states, transitions and the mapping of custom
     | states onto the system semantics the core understands (open/closed/paused
@@ -485,9 +486,8 @@ return [
     | Inbound email becomes tickets/replies; outbound replies carry a tagged
     | Reply-To so a customer's response threads back to the same ticket. The
     | inbound side is opt-in and provider-agnostic: normalise the provider
-    | payload to a Mail\InboundEmail (a beyondcode/laravel-mailbox bridge is
-    | auto-wired when that package is installed) and hand it to
-    | Ticketing::receiveEmail(). Recipient address → tenant + type via "routes"
+    | payload to a Mail\InboundEmail and hand it to Ticketing::receiveEmail().
+    | Recipient address → tenant + type via "routes"
     | (first match wins; "match" is an exact address, "*" catch-all, or /regex/).
     | Threading: the +t_<token> reply tag is primary, with In-Reply-To/References
     | (against stored Message-IDs) as fallback. Auto-replies are dropped and the

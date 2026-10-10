@@ -6,8 +6,10 @@ namespace Selli\Ticketing\Actions;
 
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
+use InvalidArgumentException;
 use Selli\Ticketing\Data\OpenTicketData;
 use Selli\Ticketing\Enums\ParticipantRole;
+use Selli\Ticketing\Enums\TicketChannel;
 use Selli\Ticketing\Events\TicketOpened;
 use Selli\Ticketing\Exceptions\InvalidConfigurationException;
 use Selli\Ticketing\Models\Ticket;
@@ -47,6 +49,7 @@ class OpenTicket
         'closed_at',
         'due_at',
         'reopened_count',
+        'channel',
         'created_at',
         'updated_at',
         'deleted_at',
@@ -87,7 +90,7 @@ class OpenTicket
                 ticket: $ticket,
                 event: 'ticket.opened',
                 actor: $data->requester,
-                context: ['type' => $type->key, 'status' => $initialState],
+                context: ['type' => $type->key, 'status' => $initialState, 'channel' => $ticket->channel],
             );
 
             return $ticket;
@@ -121,6 +124,7 @@ class OpenTicket
             // caller did not specify one.
             'priority' => $data->priority ?? $type->default_priority,
             'category' => $data->category,
+            'channel' => $this->channel($data->channel),
             'status' => $initialState,
             // References are allocated atomically (see ReferenceGenerator), so a
             // single insert is collision-free under concurrency.
@@ -150,6 +154,22 @@ class OpenTicket
         ], array_merge($ticket->tenantAttributes(), [
             'notify' => true,
         ]));
+    }
+
+    /**
+     * The channel column holds at most 32 characters: refuse anything the
+     * database would reject (or silently truncate) instead of failing the
+     * insert halfway through the open.
+     */
+    protected function channel(?string $channel): string
+    {
+        $channel ??= TicketChannel::Web->value;
+
+        if (trim($channel) === '' || mb_strlen($channel) > 32) {
+            throw new InvalidArgumentException('A ticket channel must be 1 to 32 characters long.');
+        }
+
+        return $channel;
     }
 
     protected function initialState(string $workflow): string

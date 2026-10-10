@@ -9,6 +9,8 @@ use Selli\Ticketing\Models\SlaPolicy;
 
 /**
  * @extends Factory<SlaPolicy>
+ *
+ * @internal
  */
 class SlaPolicyFactory extends Factory
 {

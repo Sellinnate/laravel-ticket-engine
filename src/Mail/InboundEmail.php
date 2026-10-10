@@ -9,9 +9,9 @@ use Selli\Ticketing\Enums\BodyFormat;
 /**
  * A provider-agnostic, normalised inbound email.
  *
- * The package never parses a provider webhook itself: a host (or the optional
- * beyondcode/laravel-mailbox bridge) builds one of these — via the constructor
- * or {@see fromArray} — and hands it to Ticketing::receiveEmail(). Keeping the
+ * The package never parses a provider webhook itself: a host (or an inbound
+ * mailbox adapter) builds one of these — via the constructor or
+ * {@see fromArray} — and hands it to Ticketing::receiveEmail(). Keeping the
  * normalised shape here means the threading/anti-loop/routing logic is tested
  * once, independent of any mail provider.
  */

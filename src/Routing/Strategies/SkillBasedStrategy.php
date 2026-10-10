@@ -12,6 +12,8 @@ use Selli\Ticketing\Models\Ticket;
 /**
  * Filters team members by the skills a ticket requires (its `required_skills`
  * custom field), then applies least-busy among the qualified members.
+ *
+ * @internal
  */
 class SkillBasedStrategy extends AbstractStrategy
 {

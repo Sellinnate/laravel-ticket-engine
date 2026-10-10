@@ -59,6 +59,19 @@ class Order extends Model
 }
 ```
 
+## Database notes {#database-notes}
+
+The suite runs on SQLite, MySQL 8.4 and PostgreSQL 16 in CI. Two MySQL/MariaDB limits apply to the
+optional key settings, and must be decided **before** the first `migrate`:
+
+| Setting | On MySQL/MariaDB (utf8mb4) |
+| --- | --- |
+| `ticketing.ids.type = 'ulid'` | Call `Schema::defaultStringLength(191);` in a service provider's `boot()` before migrating. At the default length of 255, the participants unique index (a ULID plus three strings) exceeds InnoDB's 3072-byte key limit. |
+| `ticketing.tables.prefix` | Keep it to **three characters** or fewer (e.g. `tk_`). MySQL caps identifiers at 64 characters and some generated index names are already 61 long. |
+
+A string tenant column (`tenancy.column_type = 'string'`) works with the defaults. PostgreSQL and SQLite
+have neither limit.
+
 ## See it work
 
 ```bash

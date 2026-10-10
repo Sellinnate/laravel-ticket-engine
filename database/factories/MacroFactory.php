@@ -10,6 +10,8 @@ use Selli\Ticketing\Support\Ticketing;
 
 /**
  * @extends Factory<Macro>
+ *
+ * @internal
  */
 class MacroFactory extends Factory
 {

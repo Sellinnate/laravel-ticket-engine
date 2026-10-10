@@ -19,6 +19,8 @@ use Selli\Ticketing\Support\Ticketing;
  * stored personal data; delete is a sanctioned erasure that removes the ticket
  * and every row it owns — including the audit trail, which retention/erasure is
  * the one legitimate reason to drop (unlike runtime tampering).
+ *
+ * @internal
  */
 class ApplyRetention
 {

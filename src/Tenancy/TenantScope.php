@@ -20,6 +20,8 @@ use Selli\Ticketing\Contracts\TenantScoped;
  *    context fail closed, not open.
  *
  * @implements Scope<Model>
+ *
+ * @internal
  */
 class TenantScope implements Scope
 {

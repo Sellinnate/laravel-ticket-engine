@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\UploadedFile;
 use Selli\Ticketing\Enums\MessageVisibility;
 use Selli\Ticketing\Enums\Priority;
+use Selli\Ticketing\Enums\TicketChannel;
 use Selli\Ticketing\Models\Macro;
 use Selli\Ticketing\Models\Team;
 use Selli\Ticketing\Models\Ticket;
@@ -40,6 +41,7 @@ class PendingTicket
         ?Priority $priority = null,
         ?string $category = null,
         array $attributes = [],
+        TicketChannel|string|null $channel = null,
     ): Ticket {
         return $this->manager->open(
             type: $type,
@@ -49,6 +51,7 @@ class PendingTicket
             subject: $this->target instanceof Ticket ? null : $this->target,
             category: $category,
             attributes: $attributes,
+            channel: $channel,
         );
     }
 

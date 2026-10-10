@@ -10,6 +10,8 @@ use Selli\Ticketing\Models\Ticket;
 
 /**
  * @mixin Ticket
+ *
+ * @internal
  */
 class TicketResource extends JsonResource
 {
@@ -26,6 +28,7 @@ class TicketResource extends JsonResource
             'priority' => $this->priority->value,
             'priority_label' => $this->priority->label(),
             'category' => $this->category,
+            'channel' => $this->channel,
             'ticket_type_id' => $this->ticket_type_id,
             'subject' => [
                 'type' => $this->subject_type,

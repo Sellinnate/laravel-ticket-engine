@@ -54,7 +54,7 @@ class MergeTickets
             // Lock all involved rows in a canonical (sorted) order so two
             // concurrent merges of the overlapping tickets cannot deadlock.
             $locked = $this->lockInOrder(array_merge([$targetKey], $sourceKeys));
-            $target = $locked[$this->keyString($targetKey)] ?? $ticketModel::query()->withoutTenancy()->findOrFail($targetKey);
+            $target = $locked[$this->keyString($targetKey)] ?? $ticketModel::query()->withoutTenancy()->whereKey($targetKey)->firstOrFail();
 
             $mergedIds = [];
 

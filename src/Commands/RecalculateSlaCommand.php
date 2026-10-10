@@ -12,6 +12,8 @@ use Selli\Ticketing\Tenancy\TenantContext;
 /**
  * Recomputes due_at for every running SLA clock using the current policies and
  * calendars — useful after editing an SLA policy or a working calendar.
+ *
+ * @internal
  */
 class RecalculateSlaCommand extends Command
 {

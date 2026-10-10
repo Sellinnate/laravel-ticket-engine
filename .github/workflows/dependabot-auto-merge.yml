@@ -9,7 +9,7 @@ jobs:
   dependabot:
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    if: ${{ github.event.pull_request.user.login == 'dependabot[bot]' && github.repository == 'Sellinnate/laravel-ticketing' }}
+    if: ${{ github.event.pull_request.user.login == 'dependabot[bot]' && github.repository == 'Sellinnate/laravel-ticket-engine' }}
     steps:
 
       - name: Dependabot metadata

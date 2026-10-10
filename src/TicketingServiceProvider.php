@@ -32,6 +32,7 @@ use Selli\Ticketing\Listeners\CsatSubscriber;
 use Selli\Ticketing\Listeners\NotificationSubscriber;
 use Selli\Ticketing\Listeners\RoutingSubscriber;
 use Selli\Ticketing\Listeners\SlaSubscriber;
+use Selli\Ticketing\Listeners\Subscriber;
 use Selli\Ticketing\Mail\ConfigInboundMailRouter;
 use Selli\Ticketing\Mail\NullInboundRequesterResolver;
 use Selli\Ticketing\Notifications\ConfigNotificationPreferences;
@@ -256,12 +257,9 @@ class TicketingServiceProvider extends PackageServiceProvider
      * reported but never propagates back to the action that emitted the event —
      * a misconfigured rule must not fail (or half-complete) a ticket open.
      */
-    protected function subscribe(object $subscriber): void
+    protected function subscribe(Subscriber $subscriber): void
     {
-        /** @var array<class-string, string> $map */
-        $map = $subscriber->subscribe();
-
-        foreach ($map as $event => $method) {
+        foreach ($subscriber->subscribe() as $event => $method) {
             Event::listen($event, function (object $payload) use ($subscriber, $method): void {
                 try {
                     $subscriber->{$method}($payload);

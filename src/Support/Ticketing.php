@@ -26,6 +26,7 @@ use Selli\Ticketing\Data\PostMessageData;
 use Selli\Ticketing\Data\TransitionData;
 use Selli\Ticketing\Enums\MessageVisibility;
 use Selli\Ticketing\Enums\Priority;
+use Selli\Ticketing\Enums\TicketChannel;
 use Selli\Ticketing\Exceptions\CsatException;
 use Selli\Ticketing\Exceptions\InvalidConfigurationException;
 use Selli\Ticketing\Gdpr\AnonymizeRequester;
@@ -51,6 +52,7 @@ use Selli\Ticketing\Models\TicketLink;
 use Selli\Ticketing\Models\TicketMessage;
 use Selli\Ticketing\Models\TicketParticipant;
 use Selli\Ticketing\Models\TicketType;
+use Selli\Ticketing\Query\TicketQuery;
 use Selli\Ticketing\Tenancy\TenantContext;
 
 /**
@@ -63,7 +65,7 @@ use Selli\Ticketing\Tenancy\TenantContext;
  */
 class Ticketing
 {
-    /** @var array<string, class-string> */
+    /** @var array<string, class-string<Model>> */
     protected static array $models = [];
 
     public function __construct(protected Container $container) {}
@@ -81,6 +83,7 @@ class Ticketing
         mixed $subject = null,
         ?string $category = null,
         array $attributes = [],
+        TicketChannel|string|null $channel = null,
     ): Ticket {
         return $this->container->make(OpenTicket::class)->handle(new OpenTicketData(
             type: $type,
@@ -90,6 +93,7 @@ class Ticketing
             subject: $subject,
             category: $category,
             attributes: $attributes,
+            channel: $channel instanceof TicketChannel ? $channel->value : $channel,
         ));
     }
 
@@ -100,6 +104,14 @@ class Ticketing
     public function for(mixed $target): PendingTicket
     {
         return new PendingTicket($this, $target);
+    }
+
+    /**
+     * A filterable, sortable listing of the current tenant's tickets.
+     */
+    public function tickets(): TicketQuery
+    {
+        return TicketQuery::make();
     }
 
     /**
@@ -415,71 +427,153 @@ class Ticketing
 
     // --- Model binding -----------------------------------------------------
 
+    /**
+     * @param  class-string<Ticket>  $model
+     */
     public static function useTicketModel(string $model): void
     {
         static::$models['ticket'] = $model;
     }
 
+    /**
+     * @param  class-string<TicketType>  $model
+     */
     public static function useTicketTypeModel(string $model): void
     {
         static::$models['ticket_type'] = $model;
     }
 
+    /**
+     * @param  class-string<TicketMessage>  $model
+     */
     public static function useTicketMessageModel(string $model): void
     {
         static::$models['ticket_message'] = $model;
     }
 
+    /**
+     * @param  class-string<TicketParticipant>  $model
+     */
     public static function useTicketParticipantModel(string $model): void
     {
         static::$models['ticket_participant'] = $model;
     }
 
+    /**
+     * @param  class-string<TicketActivity>  $model
+     */
     public static function useTicketActivityModel(string $model): void
     {
         static::$models['ticket_activity'] = $model;
     }
 
+    /**
+     * @param  class-string<SlaPolicy>  $model
+     */
     public static function useSlaPolicyModel(string $model): void
     {
         static::$models['sla_policy'] = $model;
     }
 
+    /**
+     * @param  class-string<SlaClock>  $model
+     */
     public static function useSlaClockModel(string $model): void
     {
         static::$models['sla_clock'] = $model;
     }
 
+    /**
+     * @param  class-string<BusinessHours>  $model
+     */
     public static function useBusinessHoursModel(string $model): void
     {
         static::$models['business_hours'] = $model;
     }
 
+    /**
+     * @param  class-string<Holiday>  $model
+     */
     public static function useHolidayModel(string $model): void
     {
         static::$models['holiday'] = $model;
     }
 
+    /**
+     * @param  class-string<Team>  $model
+     */
     public static function useTeamModel(string $model): void
     {
         static::$models['team'] = $model;
     }
 
+    /**
+     * @param  class-string<TeamMember>  $model
+     */
     public static function useTeamMemberModel(string $model): void
     {
         static::$models['team_member'] = $model;
     }
 
+    /**
+     * @param  class-string<RoutingRule>  $model
+     */
     public static function useRoutingRuleModel(string $model): void
     {
         static::$models['routing_rule'] = $model;
     }
 
+    /**
+     * @param  class-string<TicketAttachment>  $model
+     */
+    public static function useTicketAttachmentModel(string $model): void
+    {
+        static::$models['ticket_attachment'] = $model;
+    }
+
+    /**
+     * @param  class-string<CannedResponse>  $model
+     */
+    public static function useCannedResponseModel(string $model): void
+    {
+        static::$models['canned_response'] = $model;
+    }
+
+    /**
+     * @param  class-string<Macro>  $model
+     */
+    public static function useMacroModel(string $model): void
+    {
+        static::$models['macro'] = $model;
+    }
+
+    /**
+     * @param  class-string<Tag>  $model
+     */
+    public static function useTagModel(string $model): void
+    {
+        static::$models['tag'] = $model;
+    }
+
+    /**
+     * @param  class-string<TicketLink>  $model
+     */
+    public static function useTicketLinkModel(string $model): void
+    {
+        static::$models['ticket_link'] = $model;
+    }
+
+    /**
+     * @param  class-string<SatisfactionRating>  $model
+     */
     public static function useSatisfactionRatingModel(string $model): void
     {
         static::$models['satisfaction_rating'] = $model;
     }
 
+    /**
+     * @param  class-string<AutomationRule>  $model
+     */
     public static function useAutomationRuleModel(string $model): void
     {
         static::$models['automation_rule'] = $model;

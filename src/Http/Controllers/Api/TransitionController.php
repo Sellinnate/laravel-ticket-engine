@@ -8,6 +8,9 @@ use Selli\Ticketing\Facades\Ticketing;
 use Selli\Ticketing\Http\Requests\StoreTransitionRequest;
 use Selli\Ticketing\Http\Resources\TicketResource;
 
+/**
+ * @internal
+ */
 class TransitionController extends Controller
 {
     public function store(StoreTransitionRequest $request, string $ticket): TicketResource

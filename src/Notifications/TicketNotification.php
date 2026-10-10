@@ -21,6 +21,8 @@ use Selli\Ticketing\Support\Ticketing;
  * and then run through the digest throttle. Subclasses declare a stable key()
  * plus the human-facing title()/body(); the per-channel payloads have sensible
  * defaults a host can override.
+ *
+ * @internal
  */
 abstract class TicketNotification extends Notification implements ShouldQueue
 {

@@ -9,6 +9,8 @@ use Selli\Ticketing\Models\RoutingRule;
 
 /**
  * @extends Factory<RoutingRule>
+ *
+ * @internal
  */
 class RoutingRuleFactory extends Factory
 {

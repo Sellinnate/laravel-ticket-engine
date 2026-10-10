@@ -9,6 +9,8 @@ use Selli\Ticketing\Models\Ticket;
 
 /**
  * Sent to the assignee when an SLA target is approaching (threshold) or breached.
+ *
+ * @internal
  */
 class SlaNotification extends TicketNotification
 {

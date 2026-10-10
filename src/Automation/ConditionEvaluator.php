@@ -12,6 +12,8 @@ use Selli\Ticketing\Support\Ticketing;
  * Evaluates a rule's data-driven conditions against a ticket. Fields and
  * operators are allow-listed: an unknown field or operator throws (fail closed)
  * rather than silently matching, so a misconfigured rule never fires blindly.
+ *
+ * @internal
  */
 class ConditionEvaluator
 {

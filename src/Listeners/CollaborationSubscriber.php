@@ -17,8 +17,10 @@ use Selli\Ticketing\Tenancy\TenantGuard;
 
 /**
  * Resolves @mentions in messages and adds the mentioned actors as collaborators.
+ *
+ * @internal
  */
-class CollaborationSubscriber
+class CollaborationSubscriber implements Subscriber
 {
     public function __construct(
         protected MentionParser $parser,

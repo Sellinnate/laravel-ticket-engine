@@ -112,3 +112,25 @@ it('reports whether the calendar is open at an instant', function (): void {
         ->and($bh->isOpenAt(CarbonImmutable::parse('2026-06-27 10:00:00', 'UTC')))->toBeFalse() // Saturday
         ->and($bh->isOpenAt(CarbonImmutable::parse('2026-06-30 10:00:00', 'UTC')))->toBeFalse(); // holiday
 });
+
+it('adds elapsed minutes across a DST spring-forward, consistently with minutesBetween', function (): void {
+    $bh = BusinessHours::alwaysOpen('Europe/Rome');
+    $start = CarbonImmutable::parse('2026-03-29 00:00:00', 'Europe/Rome');
+
+    // 02:00 → 03:00 does not exist that night: three elapsed hours end at 04:00.
+    $deadline = $bh->addMinutes($start, 180);
+
+    expect($deadline->format('Y-m-d H:i T'))->toBe('2026-03-29 04:00 CEST')
+        ->and($bh->minutesBetween($start, $deadline))->toBe(180);
+});
+
+it('adds elapsed minutes across a DST fall-back', function (): void {
+    $bh = BusinessHours::alwaysOpen('Europe/Rome');
+    $start = CarbonImmutable::parse('2026-10-25 00:00:00', 'Europe/Rome');
+
+    // 02:00–03:00 happens twice: three elapsed hours end at 02:00 standard time.
+    $deadline = $bh->addMinutes($start, 180);
+
+    expect($deadline->format('Y-m-d H:i T'))->toBe('2026-10-25 02:00 CET')
+        ->and($bh->minutesBetween($start, $deadline))->toBe(180);
+});

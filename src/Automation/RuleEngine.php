@@ -16,6 +16,8 @@ use Selli\Ticketing\Tenancy\TenantContext;
  * tenant's active rules (in priority order), evaluates each rule's conditions
  * and runs its actions. A re-entrancy depth guard stops a rule whose action
  * re-fires a trigger from cascading without bound.
+ *
+ * @internal
  */
 class RuleEngine
 {

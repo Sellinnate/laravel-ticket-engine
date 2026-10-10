@@ -12,6 +12,8 @@ use Selli\Ticketing\Models\Ticket;
  * tenant. Models that do not carry the configured tenant column are not scoped
  * by the package (a single shared pool); models that do must match the ticket's
  * tenant, or be shared (null tenant) when allow_shared is enabled.
+ *
+ * @internal
  */
 class TenantGuard
 {

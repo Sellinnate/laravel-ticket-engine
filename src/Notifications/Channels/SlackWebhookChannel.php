@@ -13,6 +13,8 @@ use Selli\Ticketing\Support\WebhookGuard;
  * incoming-webhook URL. The URL comes from the notifiable's
  * routeNotificationFor('slack') or the configured default. The notification
  * supplies the text via a toSlack() method.
+ *
+ * @internal
  */
 class SlackWebhookChannel
 {

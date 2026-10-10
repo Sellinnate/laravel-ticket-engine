@@ -5,9 +5,13 @@ declare(strict_types=1);
 use Selli\Ticketing\Tests\BroadcastingTestCase;
 use Selli\Ticketing\Tests\Fixtures\TestOrder;
 use Selli\Ticketing\Tests\Fixtures\TestUser;
+use Selli\Ticketing\Tests\MigrationTestCase;
 use Selli\Ticketing\Tests\TestCase;
 
 uses(TestCase::class)->in('Feature', 'Unit');
+
+// Hand-run migrations: no RefreshDatabase transaction around the DDL.
+uses(MigrationTestCase::class)->in('Migrations');
 
 // Boots with broadcasting enabled so the provider wires the realtime channels.
 uses(BroadcastingTestCase::class)->in('Broadcasting');

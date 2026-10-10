@@ -10,6 +10,8 @@ use Selli\Ticketing\Models\TicketMessage;
 
 /**
  * Sent to a ticket's participants when a new message is posted.
+ *
+ * @internal
  */
 class ReplyPostedNotification extends TicketNotification
 {
