@@ -49,6 +49,13 @@ class Metrics
         'type' => ['ticket_type_id'],
     ];
 
+    /**
+     * The ticket filters metrics accept (see TicketQuery::filter()).
+     *
+     * @var list<string>
+     */
+    public const FILTERS = ['state', 'status', 'priority', 'type', 'category', 'channel', 'team', 'assignee', 'tag', 'q'];
+
     protected TicketQuery $query;
 
     protected CarbonInterface $from;
@@ -85,9 +92,12 @@ class Metrics
      */
     public function filter(array $filters, ?Model $actor = null): static
     {
-        // The period is the metrics' own; a listing's date range or order would
-        // only distort the aggregates.
-        unset($filters['created_from'], $filters['created_to'], $filters['sort']);
+        // Only the keys that narrow tickets: the period is the metrics' own,
+        // and an unknown key (a page number) must not change any figure.
+        $filters = array_filter(
+            array_intersect_key($filters, array_flip(self::FILTERS)),
+            fn (mixed $value): bool => $value !== null && $value !== '' && $value !== [],
+        );
 
         if ($filters !== []) {
             $this->query->filter($filters, $actor);

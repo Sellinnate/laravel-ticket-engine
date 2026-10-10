@@ -210,6 +210,15 @@ it('reports the AI share of the work for a filtered set of tickets', function ()
         ->and($ai['conversations'])->toBeNull();
 });
 
+it('ignores keys that do not narrow the tickets', function (): void {
+    pastTicket();
+
+    $metrics = Ticketing::metrics()->between(...period())->filter(['page' => '2', 'per_page' => '10', 'channel' => '']);
+
+    expect($metrics->ai()['conversations'])->not->toBeNull()
+        ->and($metrics->volume()['created'])->toBe(1);
+});
+
 it('reports satisfaction per scale and the response rate', function (): void {
     $rating = function (int|string $ticket, ?int $value, string $scale = 'csat5'): void {
         DB::table((new (Ticketing::satisfactionRatingModel()))->getTable())->insert([

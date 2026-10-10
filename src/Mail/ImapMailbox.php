@@ -98,58 +98,62 @@ class ImapMailbox implements InboundMailbox
         $handled = 0;
         $processed = 0;
 
-        foreach ($messages as $message) {
-            // The server already filtered on UNSEEN and the waiting UIDs; this
-            // guards a mailbox whose query cannot (a fake, a custom folder).
-            if ($handled >= $limit || $message->isSeen()) {
-                continue;
-            }
-
-            // Prefixed: a numeric string would become an integer array key.
-            $uid = 'uid:'.$message->uid();
-
-            if (($state[$uid]['retry_at'] ?? 0) > $now) {
-                continue;
-            }
-
-            $handled++;
-
-            try {
-                $accepted = $handler(self::toInboundEmail($message));
-            } catch (Throwable $exception) {
-                report($exception);
-
-                $attempts = ($state[$uid]['attempts'] ?? 0) + 1;
-
-                if ($attempts >= $this->maxAttempts) {
-                    $this->setAside($message);
-                    unset($state[$uid]);
-                } else {
-                    $state[$uid] = ['attempts' => $attempts, 'retry_at' => $now + (int) min(60 * 2 ** ($attempts - 1), 21600)];
+        // Kept even when acknowledging a message fails (a missing folder, a
+        // dropped connection): the retry counts of this run are not lost.
+        try {
+            foreach ($messages as $message) {
+                // The server already filtered on UNSEEN and the waiting UIDs; this
+                // guards a mailbox whose query cannot (a fake, a custom folder).
+                if ($handled >= $limit || $message->isSeen()) {
+                    continue;
                 }
 
-                continue;
+                // Prefixed: a numeric string would become an integer array key.
+                $uid = 'uid:'.$message->uid();
+
+                if (($state[$uid]['retry_at'] ?? 0) > $now) {
+                    continue;
+                }
+
+                $handled++;
+
+                try {
+                    $accepted = $handler(self::toInboundEmail($message));
+                } catch (Throwable $exception) {
+                    report($exception);
+
+                    $attempts = ($state[$uid]['attempts'] ?? 0) + 1;
+
+                    if ($attempts >= $this->maxAttempts) {
+                        $this->setAside($message);
+                        unset($state[$uid]);
+                    } else {
+                        $state[$uid] = ['attempts' => $attempts, 'retry_at' => $now + (int) min(60 * 2 ** ($attempts - 1), 21600)];
+                    }
+
+                    continue;
+                }
+
+                // "Not now" (a rate-limited sender): tried again in a minute.
+                if ($accepted === false) {
+                    $state[$uid] = ['attempts' => $state[$uid]['attempts'] ?? 0, 'retry_at' => $now + 60];
+
+                    continue;
+                }
+
+                unset($state[$uid]);
+
+                if ($this->processedFolder !== null && $message instanceof Message) {
+                    $message->move($this->processedFolder);
+                } else {
+                    $message->markSeen();
+                }
+
+                $processed++;
             }
-
-            // "Not now" (a rate-limited sender): tried again in a minute.
-            if ($accepted === false) {
-                $state[$uid] = ['attempts' => $state[$uid]['attempts'] ?? 0, 'retry_at' => $now + 60];
-
-                continue;
-            }
-
-            unset($state[$uid]);
-
-            if ($this->processedFolder !== null && $message instanceof Message) {
-                $message->move($this->processedFolder);
-            } else {
-                $message->markSeen();
-            }
-
-            $processed++;
+        } finally {
+            $this->saveState($state);
         }
-
-        $this->saveState($state);
 
         return $processed;
     }

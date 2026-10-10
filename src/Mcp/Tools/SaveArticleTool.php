@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Selli\Ticketing\Mcp\Tools;
 
 use Illuminate\Contracts\JsonSchema\JsonSchema;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
@@ -43,23 +44,34 @@ class SaveArticleTool extends TicketingTool
             }
 
             $this->authorize($request, 'update', $article);
-
-            // What customers read changes only through a person.
-            if ($article->status !== ArticleStatus::Draft) {
-                throw ValidationException::withMessages(['id' => "Article [{$data['id']}] is {$article->status->value}: only drafts can be edited here. Create a new draft instead."]);
-            }
         } else {
             $this->authorize($request, 'create', Ticketing::kbArticleModel());
         }
 
-        $saved = $this->attempt(fn () => app(Ticketing::class)->knowledge()->save(new ArticleData(
+        $save = fn (): KbArticle => app(Ticketing::class)->knowledge()->save(new ArticleData(
             title: isset($data['title']) ? (string) $data['title'] : null,
             body: isset($data['body']) ? (string) $data['body'] : null,
             type: isset($data['type']) ? ArticleType::from((string) $data['type']) : null,
             locale: isset($data['locale']) ? (string) $data['locale'] : null,
             summary: isset($data['summary']) ? (string) $data['summary'] : null,
             visibility: isset($data['visibility']) ? KnowledgeVisibility::from((string) $data['visibility']) : null,
-        ), $article, $user));
+        ), $article, $user);
+
+        // What customers read changes only through a person: the draft check
+        // and the save share the article's row lock, so a publish that lands
+        // in between is seen.
+        $saved = $this->attempt(fn (): KbArticle => $article === null ? $save() : DB::transaction(function () use ($article, $data, $save): KbArticle {
+            $locked = Ticketing::kbArticleModel()::query()->withoutTenancy()->lockForUpdate()->whereKey($article->getKey())->first();
+            $status = $locked instanceof KbArticle ? $locked->status : null;
+
+            if ($status !== ArticleStatus::Draft) {
+                $state = $status->value ?? 'gone';
+
+                throw ValidationException::withMessages(['id' => "Article [{$data['id']}] is {$state}: only drafts can be edited here. Create a new draft instead."]);
+            }
+
+            return $save();
+        }));
 
         return Response::json([
             'id' => (string) $saved->getKey(),

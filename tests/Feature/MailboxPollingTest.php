@@ -109,6 +109,33 @@ it('leaves the messages waiting for a retry out of the IMAP search', function ()
         ->and($mailbox->searchFor([9, 3, 4, 5]))->toBe('UNSEEN NOT UID 3:5,9');
 });
 
+it('keeps the retry bookkeeping when acknowledging a message fails', function (): void {
+    $poison = new FakeMessage(1, [], rawEmail('poison@client.test'));
+    $sticky = new class(2, [], rawEmail('sticky@client.test')) extends FakeMessage
+    {
+        public function markSeen(): void
+        {
+            throw new RuntimeException('connection dropped');
+        }
+    };
+    $mailbox = new ImapMailbox(fakeImap([$poison, $sticky]));
+    $calls = [];
+    $handler = function (InboundEmail $email) use (&$calls): void {
+        $calls[] = (string) $email->messageId;
+
+        if (str_contains((string) $email->messageId, 'poison')) {
+            throw new RuntimeException('cannot parse');
+        }
+    };
+
+    expect(fn () => $mailbox->poll($handler))->toThrow(RuntimeException::class, 'connection dropped');
+
+    // The poison message's failure was recorded: it waits, it is not retried at once.
+    $calls = [];
+    expect(fn () => $mailbox->poll($handler))->toThrow(RuntimeException::class, 'connection dropped');
+    expect($calls)->toHaveCount(1)->and($calls[0])->toContain('sticky');
+});
+
 it('sets a message aside after repeated failures, with a growing delay in between', function (): void {
     $poison = new FakeMessage(1, [], rawEmail('poison@client.test'));
     $mailbox = new ImapMailbox(fakeImap([$poison]), maxAttempts: 3);
