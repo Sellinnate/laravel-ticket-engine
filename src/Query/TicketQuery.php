@@ -545,9 +545,12 @@ class TicketQuery
         }
 
         try {
-            return Carbon::parse($value);
+            $date = Carbon::parse($value);
         } catch (\Throwable) {
             return null;
         }
+
+        // Out-of-range years would overflow some engines' timestamp types.
+        return $date->year >= 1970 && $date->year <= 9999 ? $date : null;
     }
 }
