@@ -10,6 +10,8 @@ use Illuminate\Support\Facades\Cache;
 use Selli\Ticketing\Actions\Knowledge\SaveArticle;
 use Selli\Ticketing\Ai\AiRequestFactory;
 use Selli\Ticketing\Contracts\CanActOnTickets;
+use Selli\Ticketing\Contracts\CanRequestTickets;
+use Selli\Ticketing\Database\SqlDialect;
 use Selli\Ticketing\Enums\ArticleStatus;
 use Selli\Ticketing\Enums\ArticleType;
 use Selli\Ticketing\Enums\BodyFormat;
@@ -270,7 +272,12 @@ class RagKnowledge
 
         foreach ($ticket->participants()->withoutTenancy()->with('participant')->whereIn('role', $roles)->get() as $participant) {
             $person = $participant->participant;
-            $name = $person instanceof Model ? $person->getAttribute('name') : null;
+            // The requester contract first: a host model may name it otherwise.
+            $name = match (true) {
+                $person instanceof CanRequestTickets => $person->requesterLabel(),
+                $person instanceof Model => $person->getAttribute('name'),
+                default => null,
+            };
 
             if (is_string($name) && $name !== '') {
                 $names[] = $name;
@@ -673,8 +680,8 @@ class RagKnowledge
             ->toBase()
             ->select('ticket_id')
             ->selectRaw('count(*) as messages')
-            ->selectRaw('min(id) as first_id')
-            ->selectRaw('max(id) as last_id')
+            ->addSelect(SqlDialect::alias(SqlDialect::extreme('min', (new $model)->getKeyName()), 'first_id'))
+            ->addSelect(SqlDialect::alias(SqlDialect::extreme('max', (new $model)->getKeyName()), 'last_id'))
             ->groupBy('ticket_id')
             ->get();
 
