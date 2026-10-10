@@ -197,33 +197,45 @@ class EscalateTicket
      */
     protected function ensureOwner(Ticket $ticket, ?Model $actor): Ticket
     {
-        if ($ticket->assignee_id !== null || $ticket->team_id !== null) {
-            return $ticket;
-        }
+        // Decided and assigned under the ticket lock, on the stored owner: an
+        // agent who assigned or took the ticket meanwhile is never overwritten.
+        return DB::transaction(function () use ($ticket, $actor): Ticket {
+            /** @var Ticket $locked */
+            $locked = Ticketing::ticketModel()::query()->withoutTenancy()
+                ->lockForUpdate()
+                ->whereKey($ticket->getKey())
+                ->firstOrFail();
 
-        try {
-            $routed = $this->container->make(RoutingEngine::class)->route($ticket, $actor);
-        } catch (\Throwable $exception) {
-            // A broken rule must not stop the hand-over itself.
-            report($exception);
-            $routed = null;
-        }
+            if ($locked->assignee_id !== null || $locked->team_id !== null || $locked->ai_status === AiStatus::Suspended) {
+                return $locked;
+            }
 
-        if ($routed instanceof Ticket && ($routed->assignee_id !== null || $routed->team_id !== null)) {
-            return $routed;
-        }
+            try {
+                // Its own savepoint: a failing rule leaves the outer
+                // transaction usable (PostgreSQL aborts it otherwise).
+                $routed = DB::transaction(fn (): ?Ticket => $this->container->make(RoutingEngine::class)->route($locked, $actor));
+            } catch (\Throwable $exception) {
+                // A broken rule must not stop the hand-over itself.
+                report($exception);
+                $routed = null;
+            }
 
-        $team = $this->escalationTeam($ticket);
+            if ($routed instanceof Ticket && ($routed->assignee_id !== null || $routed->team_id !== null)) {
+                return $routed;
+            }
 
-        if ($team === null) {
-            return $ticket;
-        }
+            $team = $this->escalationTeam($locked);
 
-        return $this->container->make(AssignTicket::class)->handle(new AssignTicketData(
-            ticket: $ticket,
-            team: $team,
-            actor: $actor,
-        ));
+            if ($team === null) {
+                return $locked;
+            }
+
+            return $this->container->make(AssignTicket::class)->handle(new AssignTicketData(
+                ticket: $locked,
+                team: $team,
+                actor: $actor,
+            ));
+        });
     }
 
     protected function escalationTeam(Ticket $ticket): ?Team

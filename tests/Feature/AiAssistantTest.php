@@ -152,6 +152,27 @@ it('escalates when nothing in the knowledge base answers', function (): void {
     Event::assertDispatched(TicketEscalated::class, fn (TicketEscalated $event): bool => $event->reason === EscalationReason::NoSources);
 });
 
+it('keeps an assignment an agent made while the escalation was under way', function (): void {
+    Team::factory()->create(['key' => 'support-desk']);
+    config()->set('ticketing.ai.escalation.team', 'support-desk');
+    $agent = makeUser(['name' => 'Agent']);
+    $ticket = Ticketing::open(type: 'support', title: 'Race');
+
+    // The agent's assignment lands right after the escalation is marked,
+    // before its owner is decided.
+    Ticketing::ticketModel()::updated(function (Ticket $updated) use ($agent): void {
+        if ($updated->wasChanged('ai_status') && $updated->ai_status === AiStatus::Escalated) {
+            Ticketing::ticketModel()::query()->withoutTenancy()->whereKey($updated->getKey())
+                ->update(['assignee_type' => $agent->getMorphClass(), 'assignee_id' => (string) $agent->getKey()]);
+        }
+    });
+
+    Ticketing::escalate($ticket);
+
+    expect($ticket->refresh()->assignee_id)->toBe((string) $agent->getKey())
+        ->and($ticket->team_id)->toBeNull();
+});
+
 it('routes an escalated ticket to the escalation team and notifies its leads', function (): void {
     Notification::fake();
     $team = Team::factory()->create(['key' => 'support-desk']);
