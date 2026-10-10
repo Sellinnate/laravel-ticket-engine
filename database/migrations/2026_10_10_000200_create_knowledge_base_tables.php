@@ -42,6 +42,10 @@ return new class extends Migration
             $table->string('type', 16)->default('article');      // article | faq
             $table->string('slug');
             $table->string('locale', 12);
+            // sha256 of "<tenant|shared>|<locale>|<slug>": a non-null unique key, so
+            // shared (null-tenant) articles cannot duplicate a slug either (NULLs
+            // never collide in a composite unique index).
+            $table->string('slug_key', 64)->unique('kb_articles_slug_key_unq');
             // Articles that translate each other share a group id.
             $table->string('translation_group', 36)->nullable();
             $table->string('title');
@@ -63,7 +67,7 @@ return new class extends Migration
             $table->timestamps();
             $table->softDeletes();
 
-            $this->uniqueScoped($table, ['slug', 'locale'], 'kb_articles_tenant_slug_unq');
+            $this->indexScoped($table, ['slug', 'locale'], 'kb_articles_tenant_slug_idx');
             $this->indexScoped($table, ['status', 'visibility', 'locale'], 'kb_articles_listing_idx');
             $table->index('translation_group', 'kb_articles_translation_idx');
             $table->index('category_id', 'kb_articles_category_idx');

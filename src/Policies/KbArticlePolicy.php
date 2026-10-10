@@ -78,7 +78,7 @@ class KbArticlePolicy
 
         $column = $article->getTenantColumn();
 
-        if ($article->getAttribute($column) !== null) {
+        if ($article->getAttribute($column) !== null || config('ticketing.tenancy.enabled', true) === false) {
             return true;
         }
 
@@ -100,6 +100,11 @@ class KbArticlePolicy
      */
     protected function inUserTenant(Model $user, KbArticle $article): bool
     {
+        // Single-tenant: there is nothing to separate.
+        if (config('ticketing.tenancy.enabled', true) === false) {
+            return true;
+        }
+
         $column = $article->getTenantColumn();
         $articleTenant = $article->getAttribute($column);
 

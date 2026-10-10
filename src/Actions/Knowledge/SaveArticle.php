@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Selli\Ticketing\Actions\Knowledge;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
@@ -63,8 +64,11 @@ class SaveArticle
             throw CrossTenantException::forAssignment('article');
         }
 
+        $tenant = $this->tenant->current();
+        $slug = $this->uniqueSlug($data->slug ?? $data->title, $locale, null, $tenant);
+
         /** @var KbArticle $article */
-        $article = $model::query()->create(array_merge([
+        $article = $this->withSlugRetry($data->slug ?? $data->title, $locale, null, $tenant, $slug, fn (string $slug): KbArticle => $model::query()->create(array_merge([
             'type' => $data->type ?? ArticleType::Article,
             'locale' => $locale,
             'translation_group' => $data->translationOf !== null
@@ -80,8 +84,9 @@ class SaveArticle
             'visibility' => $data->visibility ?? KnowledgeVisibility::Public,
             'version' => 1,
             'meta' => $data->meta,
-            'slug' => $this->uniqueSlug($data->slug ?? $data->title, $locale, null, $this->tenant->current()),
-        ], $this->morph('audience', $data->audience), $this->morph('author', $author)));
+            'slug' => $slug,
+            'slug_key' => self::slugKey($tenant, $locale, $slug),
+        ], $this->morph('audience', $data->audience), $this->morph('author', $author))));
 
         $this->snapshot($article, $author);
 
@@ -120,7 +125,9 @@ class SaveArticle
         }
 
         if (($data->slug !== null && Str::slug($data->slug) !== $article->slug) || $locale !== $article->locale) {
-            $changes['slug'] = $this->uniqueSlug($data->slug ?? $article->slug, $locale, $article, $article->getAttribute($article->getTenantColumn()));
+            $tenant = $article->getAttribute($article->getTenantColumn());
+            $changes['slug'] = $this->uniqueSlug($data->slug ?? $article->slug, $locale, $article, $tenant);
+            $changes['slug_key'] = self::slugKey($tenant, $locale, $changes['slug']);
         }
 
         $article->fill($changes);
@@ -225,6 +232,36 @@ class SaveArticle
         if (! $exists) {
             throw new InvalidArgumentException("Knowledge-base category [{$categoryId}] does not exist.");
         }
+    }
+
+    /**
+     * Insert with the allocated slug; if a concurrent save took it between the
+     * check and the insert (the unique slug_key refuses it), allocate again.
+     * Each attempt runs in a savepoint so the outer transaction survives.
+     *
+     * @param  \Closure(string): KbArticle  $create
+     */
+    protected function withSlugRetry(string $source, string $locale, ?KbArticle $ignore, int|string|null $tenant, string $slug, \Closure $create): KbArticle
+    {
+        for ($attempt = 1; ; $attempt++) {
+            try {
+                return DB::transaction(fn (): KbArticle => $create($slug));
+            } catch (UniqueConstraintViolationException $exception) {
+                if ($attempt >= 3) {
+                    throw $exception;
+                }
+
+                $slug = $this->uniqueSlug($source, $locale, $ignore, $tenant);
+            }
+        }
+    }
+
+    /**
+     * The non-null uniqueness key of a slug within a tenant and locale.
+     */
+    public static function slugKey(int|string|null $tenant, string $locale, string $slug): string
+    {
+        return hash('sha256', ($tenant === null ? 'shared' : 'tenant:'.$tenant).'|'.$locale.'|'.$slug);
     }
 
     protected function inCurrentTenant(KbArticle $article): bool

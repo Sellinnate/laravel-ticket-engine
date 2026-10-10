@@ -32,6 +32,7 @@ use Selli\Ticketing\Support\Ticketing;
  * @property int|string|null $category_id
  * @property ArticleType $type
  * @property string $slug
+ * @property string $slug_key
  * @property string $locale
  * @property string|null $translation_group
  * @property string $title

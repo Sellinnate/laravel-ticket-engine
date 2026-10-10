@@ -2,7 +2,10 @@
 
 declare(strict_types=1);
 
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Gate;
+use Selli\Ticketing\Actions\Knowledge\SaveArticle;
 use Selli\Ticketing\Data\ArticleData;
 use Selli\Ticketing\Enums\ArticleLinkRelation;
 use Selli\Ticketing\Enums\ArticleStatus;
@@ -352,4 +355,41 @@ it('checks an updated category against the article\'s own tenant', function (): 
 
         expect(Ticketing::knowledge()->save(new ArticleData(categoryId: $own->getKey()), $article)->category_id)->toBe($own->getKey());
     });
+});
+
+it('retries the insert when a concurrent save took the slug', function (): void {
+    $attempts = 0;
+
+    // A competing request commits the same slug between this save's check and
+    // its insert: the unique slug_key refuses the insert once.
+    KbArticle::creating(function (KbArticle $article) use (&$attempts): void {
+        if ($article->title === 'Race' && ++$attempts === 1) {
+            throw new UniqueConstraintViolationException('testing', 'insert into kb_articles', [], new PDOException('UNIQUE constraint failed: kb_articles.slug_key'));
+        }
+    });
+
+    $article = article('Race', 'Body', publish: false);
+
+    expect($attempts)->toBe(2)
+        ->and($article->exists)->toBeTrue()
+        ->and($article->slug_key)->toBe(SaveArticle::slugKey(null, 'en', $article->slug));
+});
+
+it('enforces one shared slug per locale at the database level', function (): void {
+    article('Shared', 'Body', publish: false);
+
+    expect(fn () => KbArticle::query()->create([
+        'slug' => 'shared', 'slug_key' => SaveArticle::slugKey(null, 'en', 'shared'),
+        'locale' => 'en', 'title' => 'Dup', 'body' => 'B', 'type' => 'article', 'status' => 'draft',
+        'visibility' => 'public', 'version' => 1,
+    ]))->toThrow(UniqueConstraintViolationException::class);
+});
+
+it('lets every agent write when tenancy is off', function (): void {
+    $article = article('Single tenant', 'Body', publish: false);
+    $agent = makeUser(['tenant_id' => 5]);
+    config()->set('ticketing.tenancy.enabled', false);
+
+    expect(Gate::forUser($agent)->allows('update', $article))->toBeTrue()
+        ->and(Gate::forUser($agent)->allows('view', $article))->toBeTrue();
 });

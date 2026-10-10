@@ -31,6 +31,7 @@ class KbArticleFactory extends Factory
         return [
             'type' => ArticleType::Article,
             'slug' => Str::slug($title),
+            'slug_key' => hash('sha256', 'factory|'.Str::uuid()),
             'locale' => 'en',
             'title' => $title,
             'body' => fake()->paragraphs(3, true),
