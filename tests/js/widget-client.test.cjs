@@ -108,6 +108,7 @@ test('searches, reads and votes on articles with the conversation attached', asy
         { body: { data: [{ slug: 'reset' }] } },
         { body: { data: { slug: 'reset' } } },
         { status: 201, body: { data: { recorded: true } } },
+        { body: { data: { status: 'escalated' } } },
         { body: { data: { status: 'closed' } } },
     ]);
 
@@ -117,6 +118,12 @@ test('searches, reads and votes on articles with the conversation attached', asy
     await widget.searchArticles('reset pwd', { locale: 'it', limit: 3 });
     await widget.article('reset', { locale: 'it' });
     await widget.feedback('reset', true, { comment: 'Great' });
+
+    // An escalated conversation keeps its session (agents may still reply)…
+    await widget.close();
+    assert.deepEqual(widget.session, { id: 'c', token: 't' });
+
+    // …a closed one is forgotten.
     await widget.close();
 
     assert.equal(calls[0].url, 'https://app.example/kb/search?q=reset%20pwd&locale=it&limit=3');

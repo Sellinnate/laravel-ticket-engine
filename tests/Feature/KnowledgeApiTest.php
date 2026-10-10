@@ -157,3 +157,19 @@ it('validates the category of an article', function (): void {
     expect(fn () => Ticketing::knowledge()->save(new ArticleData(title: 'X', body: 'Y', categoryId: 999999)))
         ->toThrow(InvalidArgumentException::class);
 });
+
+it('lists shared articles to every tenant agent but never another tenant\'s', function (): void {
+    $shared = kbArticle('Shared runbook', KnowledgeVisibility::Internal);
+    app(TenantContext::class)->forTenant(2, fn () => kbArticle('Tenant two runbook', KnowledgeVisibility::Internal));
+    $agent = makeUser(['tenant_id' => 1]);
+
+    expect(Gate::forUser($agent)->allows('view', $shared))->toBeTrue();
+
+    $this->actingAs($agent);
+    app(TenantContext::class)->forTenant(2, function (): void {
+        // The context says tenant 2, the agent belongs to tenant 1: the policy
+        // filters tenant 2's runbook out of the listing too.
+        $this->getJson(API.'/kb/articles')->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.title', 'Shared runbook');
+        $this->getJson(API.'/kb/articles?q=runbook')->assertOk()->assertJsonCount(1, 'data');
+    });
+});

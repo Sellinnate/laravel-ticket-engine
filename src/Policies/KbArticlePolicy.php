@@ -9,7 +9,6 @@ use Illuminate\Database\Eloquent\Model;
 use Selli\Ticketing\Contracts\CanActOnTickets;
 use Selli\Ticketing\Knowledge\KnowledgeAudience;
 use Selli\Ticketing\Models\KbArticle;
-use Selli\Ticketing\Tenancy\TenantGuard;
 
 /**
  * Default authorization for knowledge-base articles. Reading follows the
@@ -18,8 +17,6 @@ use Selli\Ticketing\Tenancy\TenantGuard;
  */
 class KbArticlePolicy
 {
-    public function __construct(protected TenantGuard $tenants) {}
-
     /** Listings are audience-filtered, so anyone may list. */
     public function viewAny(?Authenticatable $user): bool
     {
@@ -29,7 +26,7 @@ class KbArticlePolicy
     public function view(?Authenticatable $user, KbArticle $article): bool
     {
         // Another tenant's article is never visible, whoever asks.
-        if ($user instanceof Model && ! $this->tenants->belongsToTenantOf($user, $article, $article->getTenantColumn())) {
+        if ($user instanceof Model && ! $this->inUserTenant($user, $article)) {
             return false;
         }
 
@@ -72,6 +69,29 @@ class KbArticlePolicy
     {
         return $user instanceof CanActOnTickets
             && $user instanceof Model
-            && $this->tenants->belongsToTenantOf($user, $article, $article->getTenantColumn());
+            && $this->inUserTenant($user, $article);
+    }
+
+    /**
+     * The article is shared (null tenant, when sharing is on), the user's model
+     * carries no tenant column (tenancy is resolved elsewhere and the query
+     * scope already applied), or both tenants match.
+     */
+    protected function inUserTenant(Model $user, KbArticle $article): bool
+    {
+        $column = $article->getTenantColumn();
+        $articleTenant = $article->getAttribute($column);
+
+        if ($articleTenant === null) {
+            return config('ticketing.tenancy.allow_shared', true) !== false;
+        }
+
+        if (! array_key_exists($column, $user->getAttributes())) {
+            return true;
+        }
+
+        $userTenant = $user->getAttribute($column);
+
+        return $userTenant !== null && (string) $userTenant === (string) $articleTenant;
     }
 }

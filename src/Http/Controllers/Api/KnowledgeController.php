@@ -40,13 +40,22 @@ class KnowledgeController extends Controller
         $category = $request->query('category');
         $category = is_scalar($category) ? (string) $category : null;
 
+        // Every result also passes the article policy, so a listing never shows
+        // what a direct read of the same article would refuse.
+        $gate = Gate::forUser($request->user());
+
         if (is_string($q = $request->query('q')) && trim($q) !== '') {
             $results = $this->knowledge->search(mb_substr($q, 0, 200), $audience, $locale, 20, $type, $category);
+            $results = array_values(array_filter($results, fn (KnowledgeResult $result): bool => $gate->allows('view', $result->article)));
 
             return response()->json(['data' => array_map(fn (KnowledgeResult $result): array => $result->toArray(), $results)]);
         }
 
-        return ArticleResource::collection($this->knowledge->articles($audience, $locale, $category, $type));
+        $articles = $this->knowledge->articles($audience, $locale, $category, $type)
+            ->filter(fn (KbArticle $article): bool => $gate->allows('view', $article))
+            ->values();
+
+        return ArticleResource::collection($articles);
     }
 
     public function show(Request $request, string $article): ArticleResource

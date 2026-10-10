@@ -102,10 +102,13 @@
             return (await this.request('POST', this.path('/escalate'), body, true)).data;
         }
 
-        /** End the conversation and forget it. */
+        /**
+         * End the conversation. An escalated one stays open on the server (an
+         * agent may still reply), so its session is kept.
+         */
         async close() {
             const data = (await this.request('POST', this.path('/close'), {}, true)).data;
-            this.reset();
+            if (data && data.status === 'closed') this.reset();
 
             return data;
         }
