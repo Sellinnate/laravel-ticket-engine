@@ -28,8 +28,15 @@ class KbArticlePolicy
 
     public function view(?Authenticatable $user, KbArticle $article): bool
     {
-        if ($this->isTenantAgent($user, $article)) {
-            return true;
+        // Another tenant's article is never visible, whoever asks.
+        if ($user instanceof Model && ! $this->tenants->belongsToTenantOf($user, $article, $article->getTenantColumn())) {
+            return false;
+        }
+
+        // Agents of the tenant see everything; an agent who is not one gets no
+        // agent privileges from the audience fallback.
+        if ($user instanceof CanActOnTickets) {
+            return $this->isTenantAgent($user, $article);
         }
 
         return $article->isVisibleTo(KnowledgeAudience::for($user));

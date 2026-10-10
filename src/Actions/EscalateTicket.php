@@ -181,8 +181,15 @@ class EscalateTicket
             ->where(function ($query) use ($configured): void {
                 $query->where('key', (string) $configured);
 
-                if (is_int($configured) || ctype_digit((string) $configured)) {
-                    $query->orWhere((new (Ticketing::teamModel()))->getKeyName(), (int) $configured);
+                // Or the primary key, in the configured id strategy.
+                $keyName = (new (Ticketing::teamModel()))->getKeyName();
+
+                if (config('ticketing.ids.type') === 'ulid') {
+                    if (preg_match('/^[0-9A-Za-z]{26}$/', (string) $configured) === 1) {
+                        $query->orWhere($keyName, (string) $configured);
+                    }
+                } elseif (filter_var($configured, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) !== false) {
+                    $query->orWhere($keyName, (int) $configured);
                 }
             })
             ->where(function ($query) use ($tenantColumn, $ticket): void {

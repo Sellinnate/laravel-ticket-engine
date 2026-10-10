@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Illuminate\Support\Facades\Gate;
 use Selli\Ticketing\Data\ArticleData;
 use Selli\Ticketing\Enums\AiStatus;
 use Selli\Ticketing\Enums\EscalationReason;
@@ -126,4 +127,13 @@ it('exposes the AI sources on AI messages', function (): void {
         ->assertOk()
         ->assertJsonPath('data.messages.0.ai.sources.0.title', 'Doc')
         ->assertJsonPath('data.messages.0.ai.confidence', 0.9);
+});
+
+it('never shows another tenant\'s articles to an agent, even by direct Gate check', function (): void {
+    $article = app(TenantContext::class)->forTenant(2, fn () => kbArticle('Tenant two runbook', KnowledgeVisibility::Internal));
+    $foreignAgent = makeUser(['tenant_id' => 1]);
+    $ownAgent = makeUser(['tenant_id' => 2]);
+
+    expect(Gate::forUser($foreignAgent)->allows('view', $article))->toBeFalse()
+        ->and(Gate::forUser($ownAgent)->allows('view', $article))->toBeTrue();
 });

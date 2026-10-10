@@ -658,3 +658,60 @@ it('does not escalate a resolved ticket when the provider fails late', function 
         ->and($ticket->messages()->where('body', 'A human will follow up.')->exists())->toBeFalse()
         ->and(AiTurn::query()->sole()->outcome)->toBe(AiOutcome::Failed);
 });
+
+it('lets only the current owner of a reclaimed turn write', function (): void {
+    $customer = Ticketing::contacts()->remember('customer@example.com');
+    $ticket = Ticketing::open(type: 'support', title: 'Slow', requester: $customer);
+    config()->set('ticketing.ai.mode', 'off');
+    $question = Ticketing::postMessage($ticket, $customer, 'Question');
+    config()->set('ticketing.ai.mode', 'auto');
+
+    // The first worker is still thinking when a retry takes the turn over and
+    // answers; the first worker's late answer must be dropped.
+    $driver = new class implements AiDriver
+    {
+        public int $calls = 0;
+
+        public ?Closure $whileThinking = null;
+
+        public function classify(AiRequest $request): AiClassification
+        {
+            return AiClassification::none();
+        }
+
+        public function answer(AiRequest $request): AiAnswer
+        {
+            $this->calls++;
+
+            if ($this->calls === 1 && $this->whileThinking !== null) {
+                ($this->whileThinking)();
+
+                return confidentAnswer('Outer answer');
+            }
+
+            return confidentAnswer('Inner answer');
+        }
+
+        public function summarize(AiRequest $request): AiSummary
+        {
+            return new AiSummary('');
+        }
+    };
+    $driver->whileThinking = fn () => app(AiAssistant::class)->respondToTicket($ticket, $question, retry: true);
+    app(AiManager::class)->extend('slow-twin', fn () => $driver);
+    config()->set('ticketing.ai.driver', 'slow-twin');
+
+    app(AiAssistant::class)->respondToTicket($ticket, $question);
+
+    expect($ticket->messages()->where('body', 'Inner answer')->count())->toBe(1)
+        ->and($ticket->messages()->where('body', 'Outer answer')->exists())->toBeFalse()
+        ->and($ticket->refresh()->ai_exchanges)->toBe(1)
+        ->and(AiTurn::query()->sole()->attempts)->toBe(2);
+});
+
+it('falls back to the escalation team configured by id', function (): void {
+    $team = Team::factory()->create();
+    config()->set('ticketing.ai.escalation.team', (string) $team->getKey());
+
+    expect(customerAsks('Nobody documented this')->team_id)->toBe($team->getKey());
+});

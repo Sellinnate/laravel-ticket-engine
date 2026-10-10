@@ -181,7 +181,21 @@ class AiAssistant
             }
         } catch (Throwable $exception) {
             report($exception);
-            $this->finish($turn, AiOutcome::Failed, EscalationReason::AiError, null, $usage, $started, $exception->getMessage(), status: AiTurn::STATUS_HANDOFF);
+
+            $owned = DB::transaction(function () use ($turn, $usage, $started, $exception): bool {
+                if (! $this->stillOwns($turn)) {
+                    return false;
+                }
+
+                $this->finish($turn, AiOutcome::Failed, EscalationReason::AiError, null, $usage, $started, $exception->getMessage(), status: AiTurn::STATUS_HANDOFF);
+
+                return true;
+            });
+
+            if (! $owned) {
+                return $turn;
+            }
+
             AiUsageRecorded::dispatch($turn);
             AiTurnFailed::dispatch($turn, $exception->getMessage());
 
@@ -192,6 +206,10 @@ class AiAssistant
         $escalation = $reason ?? ($answer === null ? EscalationReason::NoSources : null);
 
         $reply = DB::transaction(function () use ($conversation, $turn, $escalation, $answer, $usage, $started): ?ConversationMessage {
+            if (! $this->stillOwns($turn)) {
+                return null;
+            }
+
             /** @var Conversation $locked */
             $locked = Ticketing::conversationModel()::query()->withoutTenancy()
                 ->lockForUpdate()
@@ -240,6 +258,11 @@ class AiAssistant
             return $message;
         });
 
+        if ($turn->status === AiTurn::STATUS_RUNNING) {
+            // Another worker owns this turn now: leave everything to it.
+            return $turn;
+        }
+
         AiUsageRecorded::dispatch($turn);
 
         if ($reply !== null) {
@@ -262,6 +285,10 @@ class AiAssistant
         int $started,
     ): AiTurn {
         $written = DB::transaction(function () use ($ticket, $trigger, $turn, $mode, $reason, $answer, $usage, $started): ?TicketMessage {
+            if (! $this->stillOwns($turn)) {
+                return null;
+            }
+
             /** @var Ticket $locked */
             $locked = Ticketing::ticketModel()::query()->withoutTenancy()
                 ->lockForUpdate()
@@ -326,6 +353,11 @@ class AiAssistant
             return $reply;
         });
 
+        if ($turn->status === AiTurn::STATUS_RUNNING) {
+            // Another worker owns this turn now: leave everything to it.
+            return $turn;
+        }
+
         AiUsageRecorded::dispatch($turn);
 
         if ($written !== null && $mode === AiMode::Draft) {
@@ -348,6 +380,10 @@ class AiAssistant
         // Always on: a provider error hands the customer to a human — unless,
         // meanwhile, a human took over or the ticket was resolved.
         $handOver = DB::transaction(function () use ($ticket, $turn, $usage, $started, $exception): bool {
+            if (! $this->stillOwns($turn)) {
+                return false;
+            }
+
             /** @var Ticket $locked */
             $locked = Ticketing::ticketModel()::query()->withoutTenancy()
                 ->lockForUpdate()
@@ -374,6 +410,24 @@ class AiAssistant
         AiTurnFailed::dispatch($turn, $exception->getMessage());
 
         return $handOver ? $this->resumeTicketHandoff($ticket, $turn) : $turn;
+    }
+
+    /**
+     * Whether this worker still owns the turn: re-read under a row lock, the
+     * turn must be unfinished and still at the generation (attempts) this
+     * worker claimed. A worker whose claim was taken over (it ran past the
+     * timeout, or a retry started meanwhile) must not write anything.
+     */
+    protected function stillOwns(AiTurn $turn): bool
+    {
+        $current = Ticketing::aiTurnModel()::query()->withoutTenancy()
+            ->lockForUpdate()
+            ->whereKey($turn->getKey())
+            ->first(['status', 'attempts']);
+
+        return $current instanceof AiTurn
+            && $current->status === AiTurn::STATUS_RUNNING
+            && $current->attempts === $turn->attempts;
     }
 
     /**
@@ -483,6 +537,7 @@ class AiAssistant
                 'conversation_id' => $conversation?->getKey(),
                 'mode' => $mode,
                 'status' => AiTurn::STATUS_RUNNING,
+                'attempts' => 1,
                 'driver' => $this->ai->defaultDriver(),
                 'question' => mb_substr($plain, 0, 500),
                 'question_fingerprint' => self::fingerprint($plain),
