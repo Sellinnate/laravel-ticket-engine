@@ -225,7 +225,11 @@ class ConversationService
                 if ($locked->status === ConversationStatus::Escalated && $locked->ticket_id !== null) {
                     $existing = Ticketing::ticketModel()::query()->withoutTenancy()->find($locked->ticket_id);
 
-                    return [$locked, $existing instanceof Ticket ? $existing : null, false];
+                    // A hand-over interrupted after the ticket committed (a
+                    // crash, a failing listener) is finished by the next call.
+                    $pending = ($locked->meta['handover'] ?? null) === 'pending';
+
+                    return [$locked, $existing instanceof Ticket ? $existing : null, $pending];
                 }
 
                 if ($locked->status === ConversationStatus::Closed) {
@@ -248,7 +252,8 @@ class ConversationService
                     'escalated_at' => now(),
                     'escalation_reason' => $reason,
                     'contact_id' => $requester instanceof Contact ? $requester->getKey() : $locked->contact_id,
-                    'meta' => array_diff_key($locked->meta ?? [], ['handoff_pending' => true]) ?: null,
+                    // Cleared once the side effects below have all run.
+                    'meta' => array_merge(array_diff_key($locked->meta ?? [], ['handoff_pending' => true]), ['handover' => 'pending']),
                 ])->save();
 
                 $this->container->make(AuditLogger::class)->record(
@@ -261,9 +266,9 @@ class ConversationService
             });
 
             /** @var array{0: Conversation, 1: Ticket|null, 2: bool} $outcome */
-            [$locked, $ticket, $created] = $outcome;
+            [$locked, $ticket, $handOver] = $outcome;
 
-            if ($ticket === null || ! $created) {
+            if ($ticket === null || ! $handOver) {
                 return $ticket;
             }
 
@@ -280,17 +285,38 @@ class ConversationService
             // fallback, team leads' notification, agent summary — and stops on
             // the ticket, even before its first answer. Otherwise the ticket was
             // routed on open like any other.
+            // Every step is idempotent, so a resumed hand-over repeats none.
             if ($mode === AiMode::Auto) {
                 $ticket = $this->container->make(EscalateTicket::class)->handle(
                     $ticket,
-                    $reason ?? EscalationReason::HumanRequested,
+                    $locked->escalation_reason ?? $reason ?? EscalationReason::HumanRequested,
                     notifyCustomer: true,
+                    resume: true,
                 );
             }
 
-            ConversationEscalated::dispatch($locked, $ticket);
+            $this->announceEscalation($locked, $ticket);
 
             return $ticket;
+        });
+    }
+
+    /**
+     * Close the hand-over: the marker is cleared in the transaction that
+     * dispatches the (after-commit) event, so it is announced exactly once.
+     */
+    protected function announceEscalation(Conversation $conversation, Ticket $ticket): void
+    {
+        DB::transaction(function () use ($conversation, $ticket): void {
+            $locked = $this->lock($conversation);
+
+            if (($locked->meta['handover'] ?? null) !== 'pending') {
+                return;
+            }
+
+            $locked->forceFill(['meta' => array_diff_key($locked->meta ?? [], ['handover' => true]) ?: null])->save();
+
+            ConversationEscalated::dispatch($locked, $ticket);
         });
     }
 

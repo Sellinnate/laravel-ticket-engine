@@ -16,6 +16,7 @@ use Selli\Ticketing\Exceptions\ImmutableAuditException;
 use Selli\Ticketing\Models\Builders\ImmutableBuilder;
 use Selli\Ticketing\Models\Concerns\ConfiguresTicketingTable;
 use Selli\Ticketing\Support\Ticketing;
+use Selli\Ticketing\Tenancy\TenantScope;
 
 /**
  * Append-only audit trail. Every transition, assignment, field change, merge
@@ -101,10 +102,14 @@ class TicketActivity extends Model
     }
 
     /**
+     * The person it names, whatever the ambient tenant: a listener running
+     * after commit (outside the ticket's tenant context) still finds a
+     * contact.
+     *
      * @return MorphTo<Model, $this>
      */
     public function actor(): MorphTo
     {
-        return $this->morphTo();
+        return $this->morphTo()->withoutGlobalScope(TenantScope::class);
     }
 }

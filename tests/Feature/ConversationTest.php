@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Notification;
+use Selli\Ticketing\Actions\EscalateTicket;
 use Selli\Ticketing\Ai\AiAnswer;
 use Selli\Ticketing\Ai\AiAssistant;
 use Selli\Ticketing\Ai\AiClassification;
@@ -39,6 +40,7 @@ use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Models\TicketMessage;
 use Selli\Ticketing\Models\WidgetKey;
 use Selli\Ticketing\Notifications\ReplyPostedNotification;
+use Selli\Ticketing\Support\AuditLogger;
 use Selli\Ticketing\Tenancy\TenantContext;
 
 function widgetKey(array $options = []): array
@@ -443,6 +445,48 @@ it('follows its ticket when an agent merges it into another', function (): void 
     expect($conversation->refresh()->ticket_id)->toBe($target->getKey())
         ->and($target->messages()->pluck('body')->all())->toContain('Printer broken', 'We are on it.', 'Thanks!')
         ->and(array_column(Ticketing::conversations()->timeline($conversation), 'body'))->toContain('We are on it.', 'Thanks!');
+});
+
+it('finishes an interrupted hand-over when the visitor asks again', function (): void {
+    Event::fake([ConversationEscalated::class]);
+    ['key' => $key] = widgetKey();
+    ['conversation' => $conversation] = Ticketing::conversations()->start($key, new VisitorIdentity(email: 'jane@example.com'));
+
+    // The worker dies after the ticket committed, before the hand-over ran.
+    $failing = new class(app(AuditLogger::class), app()) extends EscalateTicket
+    {
+        public bool $fail = true;
+
+        public function handle(Ticket $ticket, EscalationReason $reason, ?Model $actor = null, bool $notifyCustomer = true, bool $resume = false): Ticket
+        {
+            if ($this->fail) {
+                $this->fail = false;
+
+                throw new RuntimeException('worker died');
+            }
+
+            return parent::handle($ticket, $reason, $actor, $notifyCustomer, $resume);
+        }
+    };
+    app()->instance(EscalateTicket::class, $failing);
+
+    expect(fn () => Ticketing::conversations()->escalate($conversation, EscalationReason::HumanRequested))->toThrow(RuntimeException::class, 'worker died');
+
+    $ticket = Ticket::query()->sole();
+    expect($ticket->ai_status)->toBeNull();
+    Event::assertNotDispatched(ConversationEscalated::class);
+
+    expect(Ticketing::conversations()->escalate($conversation->refresh())?->getKey())->toBe($ticket->getKey())
+        ->and($ticket->refresh()->ai_status)->toBe(AiStatus::Escalated)
+        ->and($ticket->escalation_reason)->toBe(EscalationReason::HumanRequested)
+        ->and($ticket->messages()->where('body', 'A human will follow up.')->count())->toBe(1);
+
+    // Done: a third call repeats nothing.
+    Ticketing::conversations()->escalate($conversation->refresh());
+
+    expect($ticket->messages()->where('body', 'A human will follow up.')->count())->toBe(1)
+        ->and($conversation->refresh()->meta)->not->toHaveKey('handover');
+    Event::assertDispatchedTimes(ConversationEscalated::class, 1);
 });
 
 it('lets an agent take a conversation over at any time', function (): void {

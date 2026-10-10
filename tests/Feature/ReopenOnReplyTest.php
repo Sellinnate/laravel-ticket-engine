@@ -11,7 +11,10 @@ use Selli\Ticketing\Enums\AiStatus;
 use Selli\Ticketing\Enums\MessageVisibility;
 use Selli\Ticketing\Events\TicketReopened;
 use Selli\Ticketing\Facades\Ticketing;
+use Selli\Ticketing\Mail\InboundEmail;
+use Selli\Ticketing\Models\Contact;
 use Selli\Ticketing\Models\Ticket;
+use Selli\Ticketing\Tenancy\TenantContext;
 use Selli\Ticketing\Tests\Fixtures\TestRequester;
 
 function resolvedFor(mixed $requester, string $type = 'support'): Ticket
@@ -110,4 +113,27 @@ it('reopens even when the caller kept a stale ticket instance', function (): voi
 
     expect($ticket->refresh()->status)->toBe('open')
         ->and($ticket->reopened_count)->toBe(1);
+});
+
+it('reopens a tenant ticket when the requester replies by email', function (): void {
+    config()->set('ticketing.mail.inbound.enabled', true);
+    config()->set('ticketing.mail.inbound.routes', [['match' => 'help@example.test', 'tenant' => 7, 'type' => 'support']]);
+    config()->set('ticketing.notifications.default_channels', ['database']);
+
+    $first = Ticketing::receiveEmail(InboundEmail::fromArray([
+        'from' => 'jane@example.test', 'recipients' => ['help@example.test'], 'subject' => 'Printer',
+        'text' => 'Broken.', 'message_id' => '<one@client.test>',
+    ]));
+    $ticket = Ticket::query()->withoutTenancy()->findOrFail($first?->ticket_id);
+    app(TenantContext::class)->forTenant(7, fn () => Ticketing::transition($ticket, 'resolve'));
+
+    // The reply runs with no ambient tenant, like an inbound webhook.
+    $reply = Ticketing::receiveEmail(InboundEmail::fromArray([
+        'from' => 'jane@example.test', 'recipients' => ['help@example.test'], 'subject' => 'Re: Printer',
+        'text' => 'Still broken.', 'message_id' => '<two@client.test>', 'in_reply_to' => '<one@client.test>',
+    ]));
+
+    expect($reply?->ticket_id)->toBe($ticket->getKey())
+        ->and($ticket->refresh()->status)->toBe('open')
+        ->and($reply?->author)->toBeInstanceOf(Contact::class);
 });
