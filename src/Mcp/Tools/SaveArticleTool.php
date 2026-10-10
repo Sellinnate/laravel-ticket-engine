@@ -36,7 +36,7 @@ class SaveArticleTool extends TicketingTool
 
         $article = null;
         if (isset($data['id'])) {
-            $article = Ticketing::kbArticleModel()::query()->whereKey((string) $data['id'])->first();
+            $article = $this->isKey((string) $data['id']) ? Ticketing::kbArticleModel()::query()->whereKey((string) $data['id'])->first() : null;
 
             if (! $article instanceof KbArticle) {
                 throw ValidationException::withMessages(['id' => "Article [{$data['id']}] not found."]);

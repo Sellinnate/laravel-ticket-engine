@@ -14,6 +14,7 @@ use Selli\Ticketing\Models\Contact;
 use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Models\TicketMessage;
 use Selli\Ticketing\Notifications\ReplyPostedNotification;
+use Selli\Ticketing\Tenancy\TenantContext;
 use Symfony\Component\Mime\Email;
 
 /**
@@ -98,6 +99,29 @@ it('threads on the subject reference only for a sender already on the ticket', f
 
     expect($reply?->ticket_id)->toBe($ticket->getKey())
         ->and($stranger?->ticket_id)->not->toBe($ticket->getKey());
+});
+
+it('treats a reference shared by too many tickets as ambiguous', function (): void {
+    $context = app(TenantContext::class);
+    $tickets = [];
+
+    foreach (range(1, 6) as $tenant) {
+        $tickets[$tenant] = $context->forTenant($tenant, function (): Ticket {
+            $ticket = Ticketing::open(type: 'support', title: 'Same reference');
+            $ticket->forceFill(['reference' => 'SUP-1'])->save();
+
+            return $ticket;
+        });
+    }
+
+    // The sender is on the first and the sixth: no unique match.
+    foreach ([1, 6] as $tenant) {
+        $context->forTenant($tenant, fn () => Ticketing::postMessage($tickets[$tenant], null, 'Hello', meta: ['from' => 'jane@example.test']));
+    }
+
+    $reply = Ticketing::receiveEmail(incoming(['subject' => 'Re: [SUP-1]', 'text' => 'Which one?']));
+
+    expect(collect($tickets)->map->getKey()->all())->not->toContain($reply?->ticket_id);
 });
 
 it('accepts header threading from a contact on the ticket who never emailed', function (): void {

@@ -193,6 +193,9 @@ it('searches and reads the articles the user may read, and drafts new ones', fun
         ->assertHasErrors(["Article [{$public->getKey()}] is published: only drafts can be edited here. Create a new draft instead."]);
     expect($public->refresh()->body)->toBe('Open Settings, then Security.');
 
+    TicketingServer::actingAs(makeUser())->tool(SaveArticleTool::class, ['id' => 'printer-offline', 'body' => 'x'])
+        ->assertHasErrors(['Article [printer-offline] not found.']);
+
     TicketingServer::actingAs($customer)->tool(SaveArticleTool::class, ['title' => 'Spam', 'body' => 'Buy now'])
         ->assertHasErrors(['You are not allowed to do that.']);
 });

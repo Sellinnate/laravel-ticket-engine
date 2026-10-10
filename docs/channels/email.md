@@ -70,6 +70,8 @@ composer require directorytree/imapengine
                 'password' => env('TICKETING_IMAP_PASSWORD'),
                 'folder' => 'INBOX',
                 'processed_folder' => 'Processed',   // or null: processed mail is flagged seen
+                'failed_folder' => 'Failed',         // or null: set-aside mail is flagged and marked seen
+                'max_attempts' => 10,
             ],
         ],
     ],
@@ -82,9 +84,11 @@ Schedule::command('ticketing:mail:poll')->everyMinute()->withoutOverlapping();
 ```
 
 `ticketing:mail:poll [mailbox…] --limit=50` reads the unseen messages, oldest first, ingests each one and only
-then moves it (or flags it seen). A message that fails — or whose sender is over the rate limit — stays
-unseen and is tried again on the next run; automated mail is acknowledged and dropped; a redelivered message
-is never ingested twice (Message-ID claim). One unreachable server does not stop the other mailboxes.
+then moves it (or flags it seen). A message that fails stays unseen and is retried with a growing delay
+(1, 2, 4… minutes, at most 6 hours) while newer mail keeps flowing; after `max_attempts` failures it is set
+aside (moved to `failed_folder`, or flagged) for a person to look at. A message whose sender is over the rate
+limit waits a minute. Automated mail is acknowledged and dropped; a redelivered message is never ingested
+twice (Message-ID claim). One unreachable server does not stop the other mailboxes.
 
 Another source (Gmail API, Microsoft Graph…)? Implement `Contracts\InboundMailbox` — acknowledge a message
 once the handler returns, keep it when the handler throws or returns `false` — and register a driver:

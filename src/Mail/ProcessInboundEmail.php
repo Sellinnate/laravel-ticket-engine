@@ -307,12 +307,18 @@ class ProcessInboundEmail
         $model = Ticketing::ticketModel();
 
         foreach (array_unique($matches[1]) as $reference) {
-            $candidates = $model::query()->withoutTenancy()
+            $found = $model::query()->withoutTenancy()
                 ->where('reference', $reference)
                 ->when($tenant !== null, fn ($query) => $query->where((new $model)->getTenantColumn(), $tenant))
-                ->limit(5)
-                ->get()
-                ->filter(fn (Ticket $ticket): bool => $this->senderOnTicket($ticket, $email));
+                ->limit(6)
+                ->get();
+
+            // More tickets than we are willing to check: ambiguous, fail closed.
+            if ($found->count() > 5) {
+                continue;
+            }
+
+            $candidates = $found->filter(fn (Ticket $ticket): bool => $this->senderOnTicket($ticket, $email));
 
             if ($candidates->count() === 1) {
                 return $candidates->first();

@@ -78,6 +78,46 @@ it('leaves a message whose ingestion fails for the next poll', function (): void
         ->and($fine->isSeen())->toBeTrue();
 });
 
+it('never lets a failing message keep newer mail out', function (): void {
+    $poison = new FakeMessage(1, [], rawEmail('poison@client.test'));
+    $fine = new FakeMessage(2, [], rawEmail('fine@client.test'));
+    $mailbox = new ImapMailbox(fakeImap([$poison, $fine]));
+    $handler = function (InboundEmail $email): void {
+        if (str_contains((string) $email->messageId, 'poison')) {
+            throw new RuntimeException('cannot parse');
+        }
+    };
+
+    expect($mailbox->poll($handler, limit: 1))->toBe(0)   // the poison message used the run
+        ->and($mailbox->poll($handler, limit: 1))->toBe(1) // it waits; the next one goes through
+        ->and($fine->isSeen())->toBeTrue()
+        ->and($poison->isSeen())->toBeFalse();
+});
+
+it('sets a message aside after repeated failures, with a growing delay in between', function (): void {
+    $poison = new FakeMessage(1, [], rawEmail('poison@client.test'));
+    $mailbox = new ImapMailbox(fakeImap([$poison]), maxAttempts: 3);
+    $calls = 0;
+    $handler = function () use (&$calls): void {
+        $calls++;
+
+        throw new RuntimeException('cannot parse');
+    };
+
+    $mailbox->poll($handler);
+    $mailbox->poll($handler);                // still waiting (1 minute)
+    $this->travel(61)->seconds();
+    $mailbox->poll($handler);                // second failure: waits 2 minutes
+    $this->travel(60)->seconds();
+    $mailbox->poll($handler);                // still waiting
+    $this->travel(61)->seconds();
+    $mailbox->poll($handler);                // third failure: set aside
+
+    expect($calls)->toBe(3)
+        ->and($poison->isSeen())->toBeTrue()
+        ->and($poison->isFlagged())->toBeTrue();
+});
+
 it('polls the configured mailboxes from the command', function (): void {
     $message = new FakeMessage(1, [], rawEmail('cmd@client.test'));
     config()->set('ticketing.mail.inbound.mailboxes', ['support' => ['driver' => 'fake-imap']]);

@@ -557,13 +557,15 @@ return [
             // Mailboxes polled by `php artisan ticketing:mail:poll` (schedule it
             // every minute with ->withoutOverlapping()). The imap driver needs
             // directorytree/imapengine; without processed_folder a message is
-            // flagged seen once ingested.
+            // flagged seen once ingested. A message that keeps failing is
+            // retried with a growing delay, then set aside after max_attempts
+            // (moved to failed_folder, or flagged).
             //
             // 'support' => [
             //     'driver' => 'imap',
             //     'host' => env('TICKETING_IMAP_HOST'), 'port' => 993, 'encryption' => 'ssl',
             //     'username' => env('TICKETING_IMAP_USERNAME'), 'password' => env('TICKETING_IMAP_PASSWORD'),
-            //     'folder' => 'INBOX', 'processed_folder' => 'Processed',
+            //     'folder' => 'INBOX', 'processed_folder' => 'Processed', 'failed_folder' => 'Failed', 'max_attempts' => 10,
             // ],
             'mailboxes' => [],
         ],

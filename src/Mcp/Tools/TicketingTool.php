@@ -61,13 +61,7 @@ abstract class TicketingTool extends Tool
         $model = Ticketing::ticketModel();
         $ticket = $model::query()->where('reference', $value)->first();
 
-        // An id only when it can be one in the configured key type (a bigint
-        // column refuses a ULID-looking or oversized value).
-        $isKey = config('ticketing.ids.type') === 'ulid'
-            ? preg_match('/^[0-9A-Za-z]{26}$/', $value) === 1
-            : filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) !== false;
-
-        if (! $ticket instanceof Ticket && $isKey) {
+        if (! $ticket instanceof Ticket && $this->isKey($value)) {
             $ticket = $model::query()->whereKey($value)->first();
         }
 
@@ -81,6 +75,17 @@ abstract class TicketingTool extends Tool
         }
 
         return $ticket;
+    }
+
+    /**
+     * Whether a value can be a primary key of the configured type — a bigint
+     * column refuses a ULID-looking or oversized value with a database error.
+     */
+    protected function isKey(string $value): bool
+    {
+        return config('ticketing.ids.type') === 'ulid'
+            ? preg_match('/^[0-9A-Za-z]{26}$/', $value) === 1
+            : filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) !== false;
     }
 
     /**
