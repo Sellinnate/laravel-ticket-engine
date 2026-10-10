@@ -231,7 +231,13 @@ class EscalateTicket
     protected function postOnce(Ticket $ticket, string $kind, \Closure $post): void
     {
         DB::transaction(function () use ($ticket, $kind, $post): void {
-            Ticketing::ticketModel()::query()->withoutTenancy()->lockForUpdate()->whereKey($ticket->getKey())->first();
+            $locked = Ticketing::ticketModel()::query()->withoutTenancy()->lockForUpdate()->whereKey($ticket->getKey())->first();
+
+            // An agent who took over meanwhile owns the conversation now: no
+            // AI hand-off message or summary after that.
+            if (! $locked instanceof Ticket || $locked->ai_status === AiStatus::Suspended) {
+                return;
+            }
 
             if (! $this->alreadyPosted($ticket, $kind)) {
                 $post();

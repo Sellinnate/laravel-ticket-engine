@@ -92,9 +92,12 @@ class AiSubscriber implements Subscriber
             return;
         }
 
+        // Only when the AI actually answered the customer (a draft-only ticket
+        // was resolved by a human).
         Ticketing::ticketModel()::query()->withoutTenancy()
             ->whereKey($event->ticket->getKey())
             ->where('ai_status', AiStatus::Active->value)
+            ->where('ai_exchanges', '>', 0)
             ->update(['ai_status' => AiStatus::Resolved->value]);
     }
 

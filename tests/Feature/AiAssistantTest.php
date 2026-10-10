@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Queue;
+use Selli\Ticketing\Actions\EscalateTicket;
 use Selli\Ticketing\Ai\AiAnswer;
 use Selli\Ticketing\Ai\AiAssistant;
 use Selli\Ticketing\Ai\AiClassification;
@@ -756,4 +757,24 @@ it('hands over when the driver cannot even be built', function (): void {
 
     expect($ticket->escalation_reason)->toBe(EscalationReason::AiError)
         ->and(AiTurn::query()->sole()->error)->toBe('missing API key');
+});
+
+it('does not count a draft-only ticket as resolved by the AI', function (): void {
+    config()->set('ticketing.ai.mode', 'draft');
+    fakeAi()->queueAnswer(confidentAnswer('Draft'));
+    $ticket = customerAsks('Question');
+
+    Ticketing::transition($ticket, 'resolve');
+
+    expect($ticket->refresh()->ai_status)->toBe(AiStatus::Active);
+});
+
+it('posts no hand-off message or summary once an agent took over', function (): void {
+    $ticket = Ticketing::open(type: 'support', title: 'x');
+    $ticket->forceFill(['ai_status' => AiStatus::Escalated, 'escalation_reason' => EscalationReason::NoSources, 'escalated_at' => now()])->save();
+    Ticketing::takeOver($ticket, makeUser(), assign: false);
+
+    app(EscalateTicket::class)->handOver($ticket->refresh(), EscalationReason::NoSources);
+
+    expect($ticket->messages()->count())->toBe(0);
 });
