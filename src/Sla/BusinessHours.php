@@ -170,9 +170,15 @@ final class BusinessHours
         return $date->setTime($hours, $minutes);
     }
 
+    /**
+     * Elapsed minutes between two instants, from their Unix timestamps — never
+     * Carbon's diffInMinutes(), whose DST behaviour differs between Carbon 2
+     * (wall-clock) and Carbon 3 (elapsed time), the versions Laravel 11 and
+     * 12+ resolve to.
+     */
     private function minutes(CarbonImmutable $from, CarbonImmutable $to): int
     {
-        return (int) $from->diffInMinutes($to);
+        return intdiv($to->getTimestamp() - $from->getTimestamp(), 60);
     }
 
     private function isHoliday(CarbonImmutable $date): bool
