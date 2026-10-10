@@ -8,6 +8,7 @@ use Illuminate\Contracts\Container\Container;
 use Selli\Ticketing\Actions\PostMessage;
 use Selli\Ticketing\Contracts\AiSettingsResolver;
 use Selli\Ticketing\Data\PostMessageData;
+use Selli\Ticketing\Enums\AiMode;
 use Selli\Ticketing\Enums\MessageSource;
 use Selli\Ticketing\Enums\MessageVisibility;
 use Selli\Ticketing\Models\Ticket;
@@ -28,13 +29,22 @@ class TicketSummarizer
     ) {}
 
     /**
-     * The summary text, or null (no summary, or the driver failed). No lock is
-     * held while the model works.
+     * The summary text, or null (no summary, the AI is off for this ticket, or
+     * the driver failed). No lock is held while the model works.
      */
     public function generate(Ticket $ticket): ?AiSummary
     {
         try {
-            $request = $this->requests->forTicket($ticket, null, $this->container->make(AiSettingsResolver::class)->audience($ticket));
+            $settings = $this->container->make(AiSettingsResolver::class);
+
+            // An escalation can be asked for with the AI off (by an agent, or
+            // the requester over REST): then nothing goes to the provider.
+            $tenant = $ticket->getAttribute($ticket->getTenantColumn());
+            if ($settings->mode($tenant, $this->requests->typeKey($ticket), $ticket->channel) === AiMode::Off) {
+                return null;
+            }
+
+            $request = $this->requests->forTicket($ticket, null, $settings->audience($ticket));
             $summary = $this->ai->driver()->summarize($request);
         } catch (\Throwable $exception) {
             report($exception);

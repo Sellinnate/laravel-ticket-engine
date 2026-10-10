@@ -523,8 +523,28 @@ it('does not answer on a ticket resolved while the first turn was pending', func
 
     fakeAi()->queueAnswer(confidentAnswer('Too late'));
 
-    expect(app(AiAssistant::class)->respondToTicket($ticket, $question)?->outcome)->toBe(AiOutcome::Skipped)
+    // Not even a provider call: the ticket was already resolved.
+    expect(app(AiAssistant::class)->respondToTicket($ticket, $question))->toBeNull()
+        ->and(fakeAi()->requests())->toBe([])
         ->and($ticket->messages()->where('body', 'Too late')->exists())->toBeFalse();
+});
+
+it('sends nothing to the provider when a ticket is escalated with the AI off', function (): void {
+    config()->set('ticketing.ai.modes.types', ['incident' => 'off']);
+    $ticket = Ticketing::open(type: 'incident', title: 'Manual');
+
+    Ticketing::escalate($ticket);
+
+    expect($ticket->refresh()->ai_status)->toBe(AiStatus::Escalated)
+        ->and(fakeAi()->requests())->toBe([])
+        ->and($ticket->messages()->where('meta->ai->kind', 'summary')->exists())->toBeFalse();
+
+    config()->set('ticketing.ai.enabled', false);
+    $other = Ticketing::open(type: 'support', title: 'Manual');
+    Ticketing::escalate($other);
+
+    expect(fakeAi()->requests())->toBe([])
+        ->and($other->messages()->where('meta->ai->kind', 'summary')->exists())->toBeFalse();
 });
 
 it('resumes a hand-over interrupted after the turn committed, without repeating it', function (): void {

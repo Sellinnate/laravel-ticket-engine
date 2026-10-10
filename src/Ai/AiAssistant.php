@@ -83,7 +83,9 @@ class AiAssistant
         $tenant = $ticket->getAttribute($ticket->getTenantColumn());
         $mode = $settings->mode($tenant, $this->requests->typeKey($ticket), $ticket->channel);
 
-        if ($mode === AiMode::Off || ($ticket->ai_status !== null && ! $ticket->ai_status->answers())) {
+        // A resolved ticket is not worth a provider call; the check under the
+        // lock before writing still catches a resolution that lands meanwhile.
+        if ($mode === AiMode::Off || ($ticket->ai_status !== null && ! $ticket->ai_status->answers()) || $this->requests->isClosed($ticket)) {
             return null;
         }
 
