@@ -212,6 +212,34 @@ it('never hands out an excluded conversation, even if its vectors survived', fun
         ->and(app(RagKnowledge::class)->similarTickets('broken phone screen replacement', null))->toBe([]);
 });
 
+it('cleans up merged tickets and keeps an erased conversation out through a merge', function (): void {
+    // A shared ticket merged into a tenant one: purged from the shared RAG tenant.
+    $shared = Ticketing::open(type: 'support', title: 'Laptop battery drains');
+    Ticketing::postMessage($shared, null, 'The laptop battery drains overnight while sleeping.');
+    Ticketing::transition($shared, 'resolve');
+    $target = app(TenantContext::class)->forTenant(3, fn () => Ticketing::open(type: 'support', title: 'Battery issue'));
+
+    expect(ragDocuments('ticket:'.$shared->getKey()))->toBe(1);
+
+    Ticketing::for($target)->mergeFrom([$shared]);
+
+    expect(ragDocuments('ticket:'.$shared->getKey()))->toBe(0);
+
+    // An erased requester's ticket merged into a resolved one: the target stays out.
+    $customer = Ticketing::contacts()->remember('erased@example.test');
+    $erased = Ticketing::open(type: 'support', title: 'Account deletion', requester: $customer);
+    Ticketing::postMessage($erased, $customer, 'Delete my account and my private notes please.');
+    Ticketing::contacts()->anonymize($customer);
+    $resolved = Ticketing::open(type: 'support', title: 'Account help');
+    Ticketing::postMessage($resolved, null, 'General account help request.');
+    Ticketing::transition($resolved, 'resolve');
+
+    Ticketing::for($resolved->refresh())->mergeFrom([$erased]);
+
+    expect(ragDocuments('ticket:'.$resolved->getKey()))->toBe(0)
+        ->and(app(RagKnowledge::class)->excluded($resolved))->toBeTrue();
+});
+
 it('powers the knowledge-base search, re-checked against the database', function (): void {
     $article = kb('Two-factor login', 'Enable two-factor login with an authenticator app from account security.');
 

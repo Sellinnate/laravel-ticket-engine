@@ -72,6 +72,10 @@ class RagSubscriber implements Subscriber
     {
         $tenant = $event->target->getAttribute($event->target->getTenantColumn());
 
+        // An erased requester's messages moved into the target keep it out too.
+        $this->rag->inheritExclusions($event->target, $event->sourceIds);
+
+        // Each source is purged in its own tenant (the job reads it, trashed).
         foreach ($event->sourceIds as $id) {
             RagSyncJob::sync(RagKnowledge::TYPE_TICKET, $id, $tenant);
         }

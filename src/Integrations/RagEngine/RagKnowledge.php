@@ -168,7 +168,9 @@ class RagKnowledge
     public function syncTicket(int|string $id, int|string|null $tenant): void
     {
         $this->locked($tenant, self::TYPE_TICKET.':'.$id, function () use ($id, $tenant): void {
-            $ticket = Ticketing::ticketModel()::query()->withoutTenancy()->find($id);
+            // Trashed ones too (a merged-away ticket): purged in their own tenant.
+            $query = Ticketing::ticketModel()::query()->withoutTenancy();
+            $ticket = (RequesterTickets::softDeletes(Ticketing::ticketModel()) ? $query->withTrashed() : $query)->find($id);
 
             $ticket instanceof Ticket
                 ? $this->writeTicket($ticket)
@@ -232,6 +234,28 @@ class RagKnowledge
         });
 
         return $count;
+    }
+
+    /**
+     * Carry the exclusion of merged-in tickets over to the target, whose
+     * conversation now holds their messages.
+     *
+     * @param  list<int|string>  $sourceIds
+     */
+    public function inheritExclusions(Ticket $target, array $sourceIds): void
+    {
+        if ($sourceIds === [] || $this->excluded($target)) {
+            return;
+        }
+
+        $excluded = Ticketing::ticketActivityModel()::query()->withoutTenancy()
+            ->whereIn('ticket_id', $sourceIds)
+            ->whereIn('event', [self::EXCLUDED, 'requester.anonymized'])
+            ->exists();
+
+        if ($excluded) {
+            app(AuditLogger::class)->record(ticket: $target, event: self::EXCLUDED, context: ['reason' => 'merged_excluded_ticket']);
+        }
     }
 
     /**
