@@ -558,3 +558,17 @@ it('clears widget vote comments when retention erases the conversation', functio
     expect($article->feedback()->sole()->comment)->toBeNull()
         ->and($article->refresh()->helpful_count)->toBe(1);
 });
+
+it('still drafts in draft mode after an anonymous visitor leaves their email', function (): void {
+    config()->set('ticketing.ai.mode', 'draft');
+    ['key' => $key] = widgetKey();
+    ['conversation' => $conversation] = Ticketing::conversations()->start($key);
+
+    Ticketing::conversations()->post($conversation, 'Need help with my order');
+    expect(Ticket::query()->count())->toBe(0);
+
+    chatAi()->queueAnswer(sure('Draft for the agent'));
+    $ticket = Ticketing::conversations()->escalate($conversation, EscalationReason::HumanRequested, 'Jane', 'jane@example.com');
+
+    expect($ticket?->messages()->where('meta->ai->kind', 'draft')->value('body'))->toBe('Draft for the agent');
+});

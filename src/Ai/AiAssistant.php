@@ -93,9 +93,10 @@ class AiAssistant
 
         $started = hrtime(true);
         $usage = AiUsage::none();
-        $driver = $this->ai->driver();
-
         try {
+            // Resolved inside the try: a driver that fails to build is a
+            // provider error like any other (hand over to a human).
+            $driver = $this->ai->driver();
             $request = $this->requests->forTicket($ticket, $trigger, $settings->audience($ticket));
 
             // Every turn is classified — a customer may ask for a person at any
@@ -156,9 +157,10 @@ class AiAssistant
 
         $started = hrtime(true);
         $usage = AiUsage::none();
-        $driver = $this->ai->driver();
-
         try {
+            // Resolved inside the try: a driver that fails to build is a
+            // provider error like any other (hand over to a human).
+            $driver = $this->ai->driver();
             $request = $this->requests->forConversation($conversation, $trigger, $settings->audience($conversation));
 
             $classification = AiClassification::none();

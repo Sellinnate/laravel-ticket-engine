@@ -747,3 +747,13 @@ it('never lowers a priority an agent raised while the classifier ran', function 
 
     expect($ticket->refresh()->priority)->toBe(Priority::Urgent);
 });
+
+it('hands over when the driver cannot even be built', function (): void {
+    app(AiManager::class)->extend('broken', fn () => throw new RuntimeException('missing API key'));
+    config()->set('ticketing.ai.driver', 'broken');
+
+    $ticket = customerAsks('Question');
+
+    expect($ticket->escalation_reason)->toBe(EscalationReason::AiError)
+        ->and(AiTurn::query()->sole()->error)->toBe('missing API key');
+});

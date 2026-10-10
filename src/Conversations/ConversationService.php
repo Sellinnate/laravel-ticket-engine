@@ -265,16 +265,19 @@ class ConversationService
                 return $ticket;
             }
 
-            // Draft mode: the AI did not answer the visitor, but it drafts a reply
-            // to their latest message for the agent who picks the ticket up.
-            if ($reason === null && $this->mode($locked) === AiMode::Draft) {
+            $mode = $this->mode($locked);
+
+            // Draft mode: the AI never answered the visitor, but it drafts a reply
+            // to their latest message for the agent who picks the ticket up —
+            // also when the visitor first had to leave their contact details.
+            if ($mode === AiMode::Draft) {
                 $this->draftOnTranscript($ticket);
             }
 
-            // The AI was in the loop: hand over formally (routing fallback, the
-            // team leads' notification, the agent summary). Without AI the
-            // ticket was routed on open like any other.
-            if ($reason !== null || $locked->ai_exchanges > 0) {
+            // The AI was answering: hand over formally (routing fallback, the
+            // team leads' notification, the agent summary). Without an
+            // answering AI the ticket was routed on open like any other.
+            if ($mode === AiMode::Auto && ($reason !== null || $locked->ai_exchanges > 0)) {
                 $ticket = $this->container->make(EscalateTicket::class)->handle(
                     $ticket,
                     $reason ?? EscalationReason::HumanRequested,
