@@ -77,6 +77,11 @@ it('reads a ticket with internal notes for agents only, and hides what the user 
     TicketingServer::actingAs($customer)->tool(GetTicketTool::class, ['ticket' => $other->reference])
         ->assertHasErrors(["Ticket [{$other->reference}] not found."]);
 
+    // Values that cannot be a key of the configured type are simply unknown.
+    foreach (['01ARZ3NDEKTSV4RRFFQ69G5FAV', '99999999999999999999999'] as $value) {
+        TicketingServer::actingAs(makeUser())->tool(GetTicketTool::class, ['ticket' => $value])->assertHasErrors(["Ticket [{$value}] not found."]);
+    }
+
     // An agent of another tenant, working in that tenant, cannot reach it.
     $foreign = app(TenantContext::class)->forTenant(9, fn () => Ticketing::open(type: 'support', title: 'Other tenant'));
     app(TenantContext::class)->forTenant(3, fn () => TicketingServer::actingAs(makeUser(['tenant_id' => 3]))
@@ -151,7 +156,12 @@ it('reads the KPIs for agents only', function (): void {
         ->assertOk()
         ->assertSee(['"created":1', '"backlog"']);
 
+    // A bare end date covers its whole day.
+    TicketingServer::actingAs(makeUser())->tool(TicketMetricsTool::class, ['from' => now()->toDateString(), 'to' => now()->toDateString()])
+        ->assertSee('"created":1');
+
     TicketingServer::actingAs(makeUser())->tool(TicketMetricsTool::class, ['from' => '2026-03-10', 'to' => '2026-03-01'])->assertHasErrors();
+    TicketingServer::actingAs(makeUser())->tool(TicketMetricsTool::class, ['from' => 'last week'])->assertHasErrors();
     TicketingServer::actingAs(TestRequester::query()->create(['name' => 'Customer']))->tool(TicketMetricsTool::class)
         ->assertHasErrors(['You are not allowed to do that.']);
 });

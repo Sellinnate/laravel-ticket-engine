@@ -35,6 +35,14 @@ it('keeps the reports from requesters', function (): void {
     $this->getJson(API.'/reports/tickets')->assertForbidden();
 });
 
+it('converts offset dates to the application timezone', function (): void {
+    $this->actingAs(makeUser());
+
+    $this->getJson(API.'/reports/metrics?from='.urlencode('2026-03-01T00:00:00+02:00').'&to=2026-03-31')
+        ->assertOk()
+        ->assertJsonPath('data.period.from', Carbon::parse('2026-02-28 22:00:00')->toIso8601String());
+});
+
 it('validates the period and the dimension', function (): void {
     $this->actingAs(makeUser());
 

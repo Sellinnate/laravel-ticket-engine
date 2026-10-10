@@ -82,11 +82,12 @@ Schedule::command('ticketing:mail:poll')->everyMinute()->withoutOverlapping();
 ```
 
 `ticketing:mail:poll [mailbox…] --limit=50` reads the unseen messages, oldest first, ingests each one and only
-then moves it (or flags it seen). A message that fails stays unseen and is tried again on the next run; a
-redelivered message is never ingested twice (Message-ID claim). One unreachable server does not stop the
-other mailboxes.
+then moves it (or flags it seen). A message that fails — or whose sender is over the rate limit — stays
+unseen and is tried again on the next run; automated mail is acknowledged and dropped; a redelivered message
+is never ingested twice (Message-ID claim). One unreachable server does not stop the other mailboxes.
 
-Another source (Gmail API, Microsoft Graph…)? Implement `Contracts\InboundMailbox` and register a driver:
+Another source (Gmail API, Microsoft Graph…)? Implement `Contracts\InboundMailbox` — acknowledge a message
+once the handler returns, keep it when the handler throws or returns `false` — and register a driver:
 
 ```php
 Ticketing::mailboxes()->extend('graph', fn ($app, array $config) => new GraphMailbox($config));

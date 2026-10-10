@@ -8,7 +8,7 @@ use Illuminate\Console\Command;
 use Selli\Ticketing\Exceptions\InvalidConfigurationException;
 use Selli\Ticketing\Mail\InboundEmail;
 use Selli\Ticketing\Mail\MailboxManager;
-use Selli\Ticketing\Support\Ticketing;
+use Selli\Ticketing\Mail\ProcessInboundEmail;
 
 /**
  * Polls the configured inbound mailboxes (ticketing.mail.inbound.mailboxes)
@@ -25,7 +25,7 @@ class PollMailCommand extends Command
 
     protected $description = 'Ingest new email from the configured inbound mailboxes (IMAP).';
 
-    public function handle(MailboxManager $mailboxes, Ticketing $ticketing): int
+    public function handle(MailboxManager $mailboxes, ProcessInboundEmail $inbound): int
     {
         // Disabled ingestion would drop every message and still mark it read.
         if (config('ticketing.mail.inbound.enabled', false) !== true) {
@@ -49,7 +49,9 @@ class PollMailCommand extends Command
 
         foreach ($names as $name) {
             try {
-                $count = $mailboxes->mailbox($name)->poll(fn (InboundEmail $email) => $ticketing->receiveEmail($email), $limit);
+                // A rate-limited email stays in the mailbox for a later run;
+                // anything else (ingested, duplicate, automated) is acknowledged.
+                $count = $mailboxes->mailbox($name)->poll(fn (InboundEmail $email): bool => ! $inbound->ingest($email)->outcome->retryable(), $limit);
                 $this->line(sprintf('  %s — %d message(s)', $name, $count));
             } catch (InvalidConfigurationException $exception) {
                 $this->error($exception->getMessage());

@@ -15,6 +15,7 @@ use Selli\Ticketing\Contracts\InboundRequesterResolver;
 use Selli\Ticketing\Data\AddAttachmentData;
 use Selli\Ticketing\Data\PostMessageData;
 use Selli\Ticketing\Enums\BodyFormat;
+use Selli\Ticketing\Enums\InboundOutcome;
 use Selli\Ticketing\Enums\MessageSource;
 use Selli\Ticketing\Enums\MessageVisibility;
 use Selli\Ticketing\Enums\ParticipantRole;
@@ -58,14 +59,23 @@ class ProcessInboundEmail
 
     public function handle(InboundEmail $email): ?TicketMessage
     {
+        return $this->ingest($email)->message;
+    }
+
+    /**
+     * Ingest an email and say what became of it — a poller acknowledges the
+     * email unless it is worth retrying (rate limited).
+     */
+    public function ingest(InboundEmail $email): InboundResult
+    {
         if (config('ticketing.mail.inbound.enabled', false) !== true) {
-            return null;
+            return new InboundResult(InboundOutcome::Disabled);
         }
 
         // Anti-loop: never let an autoresponder, a bounce, a no-reply sender or
         // our own notification coming back open a ticket or reply.
         if ($email->isAutomated() || $this->isOwnMail($email)) {
-            return null;
+            return new InboundResult(InboundOutcome::Ignored);
         }
 
         // The claim key: hashed when longer than the column (a client may send
@@ -76,7 +86,7 @@ class ProcessInboundEmail
         // rate limiter, never burning the sender's flood-control slot. The
         // authoritative dedupe is the unique claim insert inside the transaction.
         if ($messageId !== '' && $this->claimed($messageId)) {
-            return null;
+            return new InboundResult(InboundOutcome::Duplicate);
         }
 
         // A rate-limited NEW message is dropped here, before any claim, so a
@@ -84,7 +94,7 @@ class ProcessInboundEmail
         // is consumed only after a successful commit (see below), so a
         // rolled-back/dropped email never counts against the sender.
         if ($this->rateLimitExceeded($email)) {
-            return null;
+            return new InboundResult(InboundOutcome::RateLimited);
         }
 
         // Ingest the email and record the dedupe claim in ONE transaction, so the
@@ -102,7 +112,7 @@ class ProcessInboundEmail
             if ($messageId !== '' && ! $this->claim($messageId)) {
                 DB::rollBack();
 
-                return null;
+                return new InboundResult(InboundOutcome::Duplicate);
             }
 
             $message = $this->process($email);
@@ -112,7 +122,7 @@ class ProcessInboundEmail
             if ($message === null) {
                 DB::rollBack();
 
-                return null;
+                return new InboundResult(InboundOutcome::Unroutable);
             }
 
             DB::commit();
@@ -120,7 +130,7 @@ class ProcessInboundEmail
             // Count the slot only now — a committed ingest, not a failed attempt.
             $this->recordRateHit($email);
 
-            return $message;
+            return new InboundResult(InboundOutcome::Ingested, $message);
         } catch (\Throwable $exception) {
             DB::rollBack();
 

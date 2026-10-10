@@ -7,9 +7,11 @@ namespace Selli\Ticketing\Mcp\Tools;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
+use Illuminate\Validation\ValidationException;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
 use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
+use Selli\Ticketing\Query\TicketQuery;
 use Selli\Ticketing\Support\Ticketing;
 
 #[IsReadOnly]
@@ -24,18 +26,32 @@ class TicketMetricsTool extends TicketingTool
         $user = $this->user($request);
         $this->authorize($request, 'viewReports', Ticketing::ticketModel());
 
-        $data = $request->validate([
-            'from' => ['nullable', 'date'],
-            'to' => ['nullable', 'date', 'after_or_equal:from'],
-        ]);
+        $from = $this->date($request->get('from'), 'from');
+        $to = $this->date($request->get('to'), 'to', endOfDay: true) ?? Carbon::now();
+        $from ??= $to->copy()->subDays(30)->startOfDay();
 
-        $to = isset($data['to']) ? Carbon::parse((string) $data['to']) : Carbon::now();
-        $from = isset($data['from']) ? Carbon::parse((string) $data['from']) : $to->copy()->subDays(30)->startOfDay();
+        if ($from->greaterThan($to)) {
+            throw ValidationException::withMessages(['from' => 'The period must start before it ends.']);
+        }
 
         /** @var array<string, mixed> $filters */
         $filters = Arr::only($request->all(), ['channel', 'type', 'team', 'priority', 'category', 'assignee']);
 
         return Response::json(app(Ticketing::class)->metrics()->between($from, $to)->filter($filters, $user)->summary());
+    }
+
+    /**
+     * A bare date covers its whole day; offsets are converted to the
+     * application timezone.
+     */
+    protected function date(mixed $value, string $field, bool $endOfDay = false): ?Carbon
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        return TicketQuery::parseDate($value, $endOfDay)
+            ?? throw ValidationException::withMessages([$field => "The {$field} must be a date (YYYY-MM-DD) or an ISO date-time."]);
     }
 
     public function schema(JsonSchema $schema): array

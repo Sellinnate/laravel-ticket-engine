@@ -61,7 +61,13 @@ abstract class TicketingTool extends Tool
         $model = Ticketing::ticketModel();
         $ticket = $model::query()->where('reference', $value)->first();
 
-        if (! $ticket instanceof Ticket && (ctype_digit($value) || preg_match('/^[0-9A-Za-z]{26}$/', $value) === 1)) {
+        // An id only when it can be one in the configured key type (a bigint
+        // column refuses a ULID-looking or oversized value).
+        $isKey = config('ticketing.ids.type') === 'ulid'
+            ? preg_match('/^[0-9A-Za-z]{26}$/', $value) === 1
+            : filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) !== false;
+
+        if (! $ticket instanceof Ticket && $isKey) {
             $ticket = $model::query()->whereKey($value)->first();
         }
 

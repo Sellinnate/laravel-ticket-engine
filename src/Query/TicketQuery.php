@@ -603,6 +603,16 @@ class TicketQuery
      * the many free-form strings Carbon would happily guess at — is ignored. A
      * bare date used as an upper bound covers that whole day.
      */
+    /**
+     * A filter date as the listing accepts it — `YYYY-MM-DD` (with
+     * $endOfDay, the whole day) or an ISO date-time, offsets converted to the
+     * application timezone — or null when it is not one.
+     */
+    public static function parseDate(mixed $value, bool $endOfDay = false): ?Carbon
+    {
+        return self::date($value, $endOfDay);
+    }
+
     protected static function date(mixed $value, bool $endOfDay = false): ?Carbon
     {
         if (! is_string($value) || preg_match('/^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/', $value) !== 1) {

@@ -78,11 +78,16 @@ class ImapMailbox implements InboundMailbox
             }
 
             try {
-                $handler(self::toInboundEmail($message));
+                $accepted = $handler(self::toInboundEmail($message));
             } catch (Throwable $exception) {
                 // Left unseen: the next poll tries it again.
                 report($exception);
 
+                continue;
+            }
+
+            // "Not now" (a rate-limited sender): left unseen for a later poll.
+            if ($accepted === false) {
                 continue;
             }
 

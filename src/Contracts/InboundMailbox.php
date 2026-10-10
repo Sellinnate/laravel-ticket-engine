@@ -17,7 +17,8 @@ interface InboundMailbox
     /**
      * Hand up to $limit unprocessed messages, oldest first, to $handler and
      * mark each one processed (moved or flagged) once the handler returns. A
-     * message whose handler throws stays unprocessed for the next poll.
+     * message whose handler throws — or returns false: "not now, retry later"
+     * — stays unprocessed for the next poll.
      *
      * @param  Closure(InboundEmail): mixed  $handler
      * @return int the messages processed

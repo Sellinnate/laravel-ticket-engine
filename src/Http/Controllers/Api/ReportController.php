@@ -10,9 +10,9 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Validation\ValidationException;
 use Selli\Ticketing\Facades\Ticketing;
+use Selli\Ticketing\Query\TicketQuery;
 use Selli\Ticketing\Reporting\Metrics;
 use Symfony\Component\HttpFoundation\StreamedResponse;
-use Throwable;
 
 /**
  * Support KPIs and CSV exports over the API, for agents. Every endpoint takes
@@ -75,17 +75,9 @@ class ReportController extends Controller
             return null;
         }
 
-        try {
-            $date = is_string($value) ? Carbon::parse($value) : null;
-        } catch (Throwable) {
-            $date = null;
-        }
-
-        if ($date === null) {
-            throw ValidationException::withMessages([$field => "The {$field} must be a date."]);
-        }
-
-        // A bare date covers its whole day.
-        return $endOfDay && preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $value) === 1 ? $date->endOfDay() : $date;
+        // A bare date covers its whole day; offsets are converted to the
+        // application timezone the timestamps are stored in.
+        return TicketQuery::parseDate($value, $endOfDay)
+            ?? throw ValidationException::withMessages([$field => "The {$field} must be a date (YYYY-MM-DD) or an ISO date-time."]);
     }
 }

@@ -89,6 +89,22 @@ it('polls the configured mailboxes from the command', function (): void {
     expect(Ticket::query()->count())->toBe(1);
 });
 
+it('leaves a rate-limited sender\'s mail in the mailbox for a later run', function (): void {
+    config()->set('ticketing.mail.inbound.rate_limit.max_per_minute', 1);
+    $first = new FakeMessage(1, [], rawEmail('burst-1@client.test'));
+    $second = new FakeMessage(2, [], rawEmail('burst-2@client.test'));
+    $automated = new FakeMessage(3, [], rawEmail('auto@client.test', extra: "Auto-Submitted: auto-replied\r\n"));
+    config()->set('ticketing.mail.inbound.mailboxes', ['support' => ['driver' => 'fake-imap']]);
+    Ticketing::mailboxes()->extend('fake-imap', fn (): InboundMailbox => new ImapMailbox(fakeImap([$first, $second, $automated])));
+
+    $this->artisan('ticketing:mail:poll')->expectsOutputToContain('support — 2 message(s)')->assertSuccessful();
+
+    expect($first->isSeen())->toBeTrue()
+        ->and($second->isSeen())->toBeFalse()   // retried by a later run
+        ->and($automated->isSeen())->toBeTrue() // dropped for good
+        ->and(Ticket::query()->count())->toBe(1);
+});
+
 it('refuses to poll while inbound email is disabled, and reports unknown mailboxes', function (): void {
     config()->set('ticketing.mail.inbound.enabled', false);
     $this->artisan('ticketing:mail:poll')->assertFailed();
