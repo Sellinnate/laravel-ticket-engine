@@ -77,6 +77,13 @@
       ]
     },
     {
+      "title": "Integrations",
+      "icon": "plug",
+      "children": [
+        { "title": "MCP tools", "path": "/integrations/mcp", "icon": "bot" }
+      ]
+    },
+    {
       "title": "Guides",
       "icon": "compass",
       "children": [

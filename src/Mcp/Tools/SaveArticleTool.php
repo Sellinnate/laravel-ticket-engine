@@ -1,0 +1,78 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Selli\Ticketing\Mcp\Tools;
+
+use Illuminate\Contracts\JsonSchema\JsonSchema;
+use Illuminate\Validation\ValidationException;
+use Laravel\Mcp\Request;
+use Laravel\Mcp\Response;
+use Selli\Ticketing\Data\ArticleData;
+use Selli\Ticketing\Enums\ArticleType;
+use Selli\Ticketing\Enums\KnowledgeVisibility;
+use Selli\Ticketing\Models\KbArticle;
+use Selli\Ticketing\Support\Ticketing;
+
+class SaveArticleTool extends TicketingTool
+{
+    protected string $name = 'save-article';
+
+    protected string $description = 'Write a help-center article or FAQ: creates a draft, or updates an article by id. It never publishes — a person does.';
+
+    public function handle(Request $request): Response
+    {
+        $user = $this->user($request);
+        $data = $request->validate([
+            'id' => ['nullable', 'string', 'max:64'],
+            'title' => ['required_without:id', 'nullable', 'string', 'max:255'],
+            'body' => ['required_without:id', 'nullable', 'string', 'max:100000'],
+            'summary' => ['nullable', 'string', 'max:1000'],
+            'type' => ['nullable', 'in:article,faq'],
+            'visibility' => ['nullable', 'in:public,customer,internal'],
+            'locale' => ['nullable', 'string', 'max:12'],
+        ]);
+
+        $article = null;
+        if (isset($data['id'])) {
+            $article = Ticketing::kbArticleModel()::query()->whereKey((string) $data['id'])->first();
+
+            if (! $article instanceof KbArticle) {
+                throw ValidationException::withMessages(['id' => "Article [{$data['id']}] not found."]);
+            }
+
+            $this->authorize($request, 'update', $article);
+        } else {
+            $this->authorize($request, 'create', Ticketing::kbArticleModel());
+        }
+
+        $saved = $this->attempt(fn () => app(Ticketing::class)->knowledge()->save(new ArticleData(
+            title: isset($data['title']) ? (string) $data['title'] : null,
+            body: isset($data['body']) ? (string) $data['body'] : null,
+            type: isset($data['type']) ? ArticleType::from((string) $data['type']) : null,
+            locale: isset($data['locale']) ? (string) $data['locale'] : null,
+            summary: isset($data['summary']) ? (string) $data['summary'] : null,
+            visibility: isset($data['visibility']) ? KnowledgeVisibility::from((string) $data['visibility']) : null,
+        ), $article, $user));
+
+        return Response::json([
+            'id' => (string) $saved->getKey(),
+            'slug' => $saved->slug,
+            'title' => $saved->title,
+            'status' => $saved->status->value,
+        ]);
+    }
+
+    public function schema(JsonSchema $schema): array
+    {
+        return [
+            'id' => $schema->string()->description('The article to update; omit to create a draft.'),
+            'title' => $schema->string(),
+            'body' => $schema->string()->description('Markdown.'),
+            'summary' => $schema->string(),
+            'type' => $schema->string()->enum(['article', 'faq']),
+            'visibility' => $schema->string()->enum(['public', 'customer', 'internal']),
+            'locale' => $schema->string(),
+        ];
+    }
+}
