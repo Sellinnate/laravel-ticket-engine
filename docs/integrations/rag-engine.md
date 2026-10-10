@@ -52,7 +52,7 @@ reopened, merged away or erased.
 | Document | Content | Visible to |
 | --- | --- | --- |
 | Published article | title, summary, body | its [audience](/concepts/knowledge-base#audiences): `public`, `customer`, `internal`, and its client scope if restricted |
-| Resolved / closed ticket | title and the **public** conversation — never an internal note | agents only (`internal`) |
+| Resolved / closed ticket | title and the **public** conversation — never an internal note | agents only (`internal`), while it stays resolved |
 
 Each document carries filterable metadata: `type`, `visibility`, `audience` (`*` or the client scope),
 `locale`, `article_type`, `category`, `source_id`, `url`. Editing an article replaces its indexed version
@@ -108,7 +108,8 @@ $articles = Ticketing::knowledge()->suggest($question, KnowledgeAudience::public
 ## GDPR {#gdpr}
 
 - Anonymising a requester (or a contact) purges the vectors of **their** tickets right away — their words do
-  not survive in the index.
+  not survive in the index — and records `rag.excluded` in each ticket's audit trail, so no backfill or late
+  job ever indexes them again.
 - A ticket erased by retention (`delete`), merged away or reopened is removed from the index.
 - Deleting a whole tenant: `app(RagKnowledge::class)->shredTenant($tenantId, 'reason')` crypto-shreds it in
   the engine (vectors, chunks and keys; the engine refuses any later ingest for that tenant).

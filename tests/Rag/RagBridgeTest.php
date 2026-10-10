@@ -156,9 +156,11 @@ it('indexes resolved tickets as internal knowledge, without internal notes', fun
         // Customers never get tickets.
         ->and(app(RagKnowledge::class)->search('printer offline after driver update', KnowledgeAudience::customer(), null, types: [RagKnowledge::TYPE_TICKET]))->toBe([]);
 
-    // Reopened: not resolved knowledge any more.
+    // Reopened: not resolved knowledge any more — even before its sync job ran.
+    config()->set('ticketing.rag.index.tickets', false);
     Ticketing::transition($ticket->refresh(), 'reopen');
-    expect(app(RagKnowledge::class)->similarTickets('printer offline after driver update', null))->toBe([]);
+    expect(ragDocuments('ticket:'.$ticket->getKey()))->toBe(1)
+        ->and(app(RagKnowledge::class)->similarTickets('printer offline after driver update', null))->toBe([]);
 });
 
 it('purges the vectors of erased tickets and anonymised requesters', function (): void {
@@ -176,6 +178,12 @@ it('purges the vectors of erased tickets and anonymised requesters', function ()
 
     expect(ragDocuments('ticket:'.$ticket->getKey()))->toBe(0)
         ->and(ragDocuments('ticket:'.$other->getKey()))->toBe(1);
+
+    // A backfill (or a late job) does not bring the erased conversation back.
+    $this->artisan('ticketing:rag:index', ['--tickets' => true])->assertSuccessful();
+    app(RagKnowledge::class)->indexTicket($ticket->refresh());
+
+    expect(ragDocuments('ticket:'.$ticket->getKey()))->toBe(0);
 
     config()->set('ticketing.gdpr.retention', [['type' => '*', 'after_days' => 1, 'action' => 'delete']]);
     $this->travel(2)->days();

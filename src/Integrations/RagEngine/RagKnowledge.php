@@ -19,6 +19,7 @@ use Selli\Ticketing\Knowledge\KnowledgeAudience;
 use Selli\Ticketing\Models\KbArticle;
 use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Models\TicketMessage;
+use Selli\Ticketing\Support\AuditLogger;
 use Selli\Ticketing\Support\Ticketing;
 use Selli\Ticketing\Tenancy\TenantContext;
 use Sellinnate\RagEngine\Data\SearchHit;
@@ -44,6 +45,9 @@ class RagKnowledge
     public const TYPE_ARTICLE = 'kb_article';
 
     public const TYPE_TICKET = 'ticket';
+
+    /** The audit event that keeps a ticket out of the index for good. */
+    public const EXCLUDED = 'rag.excluded';
 
     public function __construct(
         protected TenantContext $tenants,
@@ -132,7 +136,9 @@ class RagKnowledge
     {
         $tenant = $ticket->getAttribute($ticket->getTenantColumn());
 
-        if (! $this->requests->isClosed($ticket) || $ticket->trashed()) {
+        // An erased requester's conversation never comes back (a backfill, a
+        // late job): the exclusion is recorded in the ticket's audit trail.
+        if (! $this->requests->isClosed($ticket) || $ticket->trashed() || $this->excluded($ticket)) {
             $this->forget($tenant, self::TYPE_TICKET, $ticket->getKey());
 
             return;
@@ -162,19 +168,33 @@ class RagKnowledge
 
     /**
      * GDPR: remove the indexed conversations of a requester (in every tenant
-     * they appear in) — their words must not survive in the vectors.
+     * they appear in) — their words must not survive in the vectors — and
+     * keep them out for good (an audited exclusion).
      */
     public function forgetTicketsOf(Model $requester): int
     {
         $count = 0;
 
-        RequesterTickets::query($requester)->select([(new (Ticketing::ticketModel()))->getKeyName(), $this->tenants->column()])
-            ->each(function (Ticket $ticket) use (&$count): void {
-                $this->forgetTicket($ticket->getKey(), $ticket->getAttribute($ticket->getTenantColumn()));
-                $count++;
-            });
+        RequesterTickets::query($requester)->each(function (Ticket $ticket) use (&$count): void {
+            if (! $this->excluded($ticket)) {
+                app(AuditLogger::class)->record(ticket: $ticket, event: self::EXCLUDED, context: ['reason' => 'requester_anonymized']);
+            }
+
+            $this->forgetTicket($ticket->getKey(), $ticket->getAttribute($ticket->getTenantColumn()));
+            $count++;
+        });
 
         return $count;
+    }
+
+    /**
+     * Whether a ticket must stay out of the index: its requester was erased.
+     */
+    public function excluded(Ticket $ticket): bool
+    {
+        return $ticket->activities()->withoutTenancy()
+            ->whereIn('event', [self::EXCLUDED, 'requester.anonymized'])
+            ->exists();
     }
 
     /**
@@ -311,13 +331,15 @@ class RagKnowledge
                 ->all();
         }
 
-        // Tickets are agents' knowledge only.
+        // Tickets are agents' knowledge only, and only while still resolved
+        // (a reopened ticket's answer did not hold).
         if ($ids[self::TYPE_TICKET] !== [] && $audience->agent) {
-            $model = Ticketing::ticketModel();
-            $allowed[self::TYPE_TICKET] = $this->inTenant($model::query()->withoutTenancy(), $tenant)
+            $allowed[self::TYPE_TICKET] = $this->inTenant(Ticketing::ticketModel()::query()->withoutTenancy(), $tenant)
                 ->whereKey($ids[self::TYPE_TICKET])
-                ->pluck((new $model)->getKeyName())
-                ->map(fn (mixed $key): string => (string) $key)
+                ->get()
+                ->filter(fn (Ticket $ticket): bool => $this->requests->isClosed($ticket))
+                ->map(fn (Ticket $ticket): string => (string) $ticket->getKey())
+                ->values()
                 ->all();
         }
 
