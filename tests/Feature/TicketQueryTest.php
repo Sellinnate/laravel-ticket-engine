@@ -94,7 +94,9 @@ it('filters by assignee, team and the unassigned queue', function (): void {
     // "me" without an acting model, or a team key that cannot be an id, match
     // nothing — a malformed filter never widens the listing.
     expect(Ticketing::tickets()->filter(['assignee' => 'me'])->count())->toBe(0)
-        ->and(Ticketing::tickets()->filter(['team' => 'not-a-number'])->count())->toBe(0);
+        ->and(Ticketing::tickets()->filter(['team' => 'not-a-number'])->count())->toBe(0)
+        ->and(Ticketing::tickets()->filter(['team' => '999999999999999999999999999999'])->count())->toBe(0)
+        ->and(Ticketing::tickets()->filter(['team' => '-1'])->count())->toBe(0);
 });
 
 it('filters by tag, requester, subject and involvement', function (): void {

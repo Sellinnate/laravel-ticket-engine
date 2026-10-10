@@ -260,7 +260,11 @@ class TicketQuery
      */
     public function teamKey(string $key): static
     {
-        $valid = config('ticketing.ids.type') === 'ulid' ? $key !== '' : ctype_digit($key);
+        // Auto-increment keys must be a positive integer within the 64-bit range
+        // (a longer digit string would make PostgreSQL's bigint cast fail).
+        $valid = config('ticketing.ids.type') === 'ulid'
+            ? $key !== ''
+            : filter_var($key, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) !== false;
 
         $valid ? $this->query->where('team_id', $key) : $this->query->whereRaw('1 = 0');
 
