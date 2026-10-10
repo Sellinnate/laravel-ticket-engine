@@ -17,7 +17,8 @@ use Selli\Ticketing\Support\Ticketing;
  * notes are excluded — they're the team's working notes, not the requester's
  * own data, and an export must not become a back-door to them.
  *
- * @phpstan-type ExportedTicket array{reference: string|null, title: string|null, status: string|null, category: string|null, created_at: string|null, messages: list<array<string, mixed>>, satisfaction: array<string, mixed>|null}
+ * @phpstan-type ExportedMessage array{body: string, source: string, created_at: string|null}
+ * @phpstan-type ExportedTicket array{reference: string, title: string, status: string, category: string|null, created_at: string|null, messages: list<ExportedMessage>, satisfaction: array{rating: int|null, comment: string|null}|null}
  */
 class ExportRequesterData
 {
@@ -43,22 +44,22 @@ class ExportRequesterData
 
         $ratings = $this->ratingsByTicket($tickets->modelKeys());
 
-        return $tickets->map(fn (Ticket $ticket): array => [
+        return array_values($tickets->map(fn (Ticket $ticket): array => [
             'reference' => $ticket->reference,
             'title' => $ticket->title,
             'status' => $ticket->status,
             'category' => $ticket->category,
             'created_at' => $ticket->created_at?->toIso8601String(),
-            'messages' => $ticket->messages->map(fn (TicketMessage $message): array => [
+            'messages' => array_values($ticket->messages->map(fn (TicketMessage $message): array => [
                 'body' => $message->body,
                 'source' => $message->source->value,
                 'created_at' => $message->created_at?->toIso8601String(),
                 // Raw meta is deliberately omitted: it holds technical fields and
                 // denormalised PII (from/from_name) that don't belong in a
                 // requester's own export.
-            ])->all(),
+            ])->all()),
             'satisfaction' => $ratings[(string) $ticket->getKey()] ?? null,
-        ])->all();
+        ])->all());
     }
 
     /**

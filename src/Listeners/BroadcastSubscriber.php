@@ -23,7 +23,7 @@ use Selli\Ticketing\Models\Ticket;
  * broadcasting is opt-in and selective, and the domain events stay usable by
  * the SLA/automation/notification listeners without dragging in a broadcaster.
  */
-class BroadcastSubscriber
+class BroadcastSubscriber implements Subscriber
 {
     public function onOpened(TicketOpened $event): void
     {

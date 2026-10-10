@@ -47,6 +47,8 @@ class ConfigValidator
             throw new InvalidConfigurationException("Workflow [{$key}] must declare a non-empty 'states' list.");
         }
 
+        $states = $this->stateNames($key, $states);
+
         $initial = $workflow['initial'] ?? null;
 
         if (! is_string($initial) || ! in_array($initial, $states, true)) {
@@ -76,6 +78,28 @@ class ConfigValidator
                 }
             }
         }
+    }
+
+    /**
+     * Every declared state must be a non-empty string (a state name is stored
+     * in the tickets.status column and compared strictly everywhere).
+     *
+     * @param  array<mixed>  $states
+     * @return list<string>
+     */
+    protected function stateNames(string $workflow, array $states): array
+    {
+        $names = [];
+
+        foreach ($states as $state) {
+            if (! is_string($state) || $state === '') {
+                throw new InvalidConfigurationException("Workflow [{$workflow}] states must be non-empty strings.");
+            }
+
+            $names[] = $state;
+        }
+
+        return $names;
     }
 
     /**

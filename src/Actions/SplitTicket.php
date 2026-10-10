@@ -70,7 +70,7 @@ class SplitTicket
             $participantModel = Ticketing::ticketParticipantModel();
 
             // Lock the source so concurrent split/merge/message moves serialise.
-            $source = $ticketModel::query()->withoutTenancy()->lockForUpdate()->findOrFail($source->getKey());
+            $source = $ticketModel::query()->withoutTenancy()->lockForUpdate()->whereKey($source->getKey())->firstOrFail();
 
             // Require a non-empty set where every requested message belongs to
             // the source, so we never create an empty ticket nor silently drop

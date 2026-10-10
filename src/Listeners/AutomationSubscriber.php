@@ -13,7 +13,7 @@ use Selli\Ticketing\Models\Ticket;
  * Bridges domain events to the automation {@see RuleEngine}: one handler for
  * every trigger event, resolving the event's key, ticket and actor uniformly.
  */
-class AutomationSubscriber
+class AutomationSubscriber implements Subscriber
 {
     public function __construct(protected Container $container) {}
 

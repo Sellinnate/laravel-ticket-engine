@@ -29,7 +29,7 @@ use Selli\Ticketing\Notifications\TicketNotification;
  * Channel selection (and digesting) happens inside each notification, so this
  * only resolves WHO to notify.
  */
-class NotificationSubscriber
+class NotificationSubscriber implements Subscriber
 {
     public function __construct(protected RecipientResolver $recipients) {}
 

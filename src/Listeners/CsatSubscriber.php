@@ -14,7 +14,7 @@ use Selli\Ticketing\Support\Csat;
  * and configured to auto-request). The host app turns the resulting
  * {@see CsatRequested} into a mail/notification.
  */
-class CsatSubscriber
+class CsatSubscriber implements Subscriber
 {
     public function __construct(protected RequestCsat $request) {}
 

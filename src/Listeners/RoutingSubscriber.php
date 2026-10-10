@@ -10,7 +10,7 @@ use Selli\Ticketing\Routing\RoutingEngine;
 /**
  * Runs the routing rules when a ticket is opened.
  */
-class RoutingSubscriber
+class RoutingSubscriber implements Subscriber
 {
     public function __construct(protected RoutingEngine $engine) {}
 
