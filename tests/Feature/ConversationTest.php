@@ -437,3 +437,23 @@ it('keeps conversations inside their tenant', function (): void {
         ->and($conversation->messages()->withoutTenancy()->count())->toBe(0)
         ->and(ConversationRole::Visitor->value)->toBe('visitor');
 });
+
+it('erases an escalated conversation and its AI turns with the ticket on retention', function (): void {
+    config()->set('ticketing.gdpr.retention', [['type' => '*', 'after_days' => 30, 'action' => 'delete']]);
+    ['key' => $key, 'secret' => $secret] = widgetKey();
+    ['conversation' => $conversation] = Ticketing::conversations()->start($key, new VisitorIdentity(
+        email: 'jane@example.com', signature: WidgetKeys::sign($secret, 'jane@example.com'),
+    ));
+    chatAi()->queueAnswer(sure());
+    Ticketing::conversations()->post($conversation, 'Question');
+    $ticket = Ticketing::conversations()->escalate($conversation, EscalationReason::HumanRequested);
+    Ticketing::transition($ticket, 'close');
+
+    $this->travel(31)->days();
+    $this->artisan('ticketing:prune')->assertSuccessful();
+
+    expect(Ticket::query()->withTrashed()->count())->toBe(0)
+        ->and(Conversation::query()->count())->toBe(0)
+        ->and(Ticketing::conversationMessageModel()::query()->count())->toBe(0)
+        ->and(Ticketing::aiTurnModel()::query()->count())->toBe(0);
+});

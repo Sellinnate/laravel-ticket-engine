@@ -205,3 +205,32 @@ it('exports a contact with its tickets and conversations', function (): void {
         ->and($export['conversations'])->toHaveCount(1)
         ->and($export['conversations'][0]['messages'][0]['body'])->toBe('Hello?');
 });
+
+it('erases the AI excerpts of a contact\'s and a host user\'s widget conversations', function (): void {
+    ['key' => $key] = Ticketing::widgetKeys()->create('Site', ['*']);
+
+    $contact = Ticketing::contacts()->remember('jane@example.com', 'Jane');
+    ['conversation' => $byContact] = Ticketing::conversations()->start($key);
+    $byContact->forceFill(['contact_id' => $contact->getKey()])->save();
+
+    $user = makeUser(['name' => 'Host']);
+    ['conversation' => $byUser] = Ticketing::conversations()->start($key);
+    $byUser->forceFill(['requester_type' => $user->getMorphClass(), 'requester_id' => $user->getKey()])->save();
+
+    foreach ([$byContact, $byUser] as $i => $conversation) {
+        Ticketing::conversationMessageModel()::query()->create(['conversation_id' => $conversation->getKey(), 'role' => 'visitor', 'body' => 'My secret question']);
+        Ticketing::aiTurnModel()::query()->create([
+            'conversation_id' => $conversation->getKey(),
+            'trigger_key' => 'conversation_message:test'.$i,
+            'mode' => 'auto',
+            'driver' => 'fake',
+            'question' => 'My secret question',
+        ]);
+    }
+
+    Ticketing::contacts()->anonymize($contact);
+    Ticketing::anonymiseRequester($user);
+
+    expect(Ticketing::aiTurnModel()::query()->whereNotNull('question')->count())->toBe(0)
+        ->and(Ticketing::conversationMessageModel()::query()->where('body', 'My secret question')->count())->toBe(0);
+});

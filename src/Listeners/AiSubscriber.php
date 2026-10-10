@@ -48,7 +48,9 @@ class AiSubscriber implements Subscriber
         $author = $message->author_id !== null ? $message->author : null;
 
         if ($author instanceof CanActOnTickets && $author instanceof Model && ! $this->requests->isRequester($ticket, $author)) {
-            if ($ticket->ai_status === AiStatus::Active || $ticket->ai_status === AiStatus::Escalated) {
+            // The first agent reply is a takeover — also before the AI's first
+            // turn completes (status still null), so a pending turn stands down.
+            if ($ticket->ai_status === null || $ticket->ai_status === AiStatus::Active || $ticket->ai_status === AiStatus::Escalated) {
                 $this->container->make(TakeOverTicket::class)->handle($ticket, $author, assign: false);
             }
 

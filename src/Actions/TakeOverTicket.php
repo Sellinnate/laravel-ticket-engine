@@ -17,10 +17,10 @@ use Selli\Ticketing\Support\Ticketing;
 use Selli\Ticketing\Tenancy\TenantGuard;
 
 /**
- * An agent takes a ticket over, at any moment: the AI stops writing on it for
- * good (its status becomes "suspended", checked under the ticket lock before
- * any AI write) and, unless told otherwise, an unassigned ticket is assigned to
- * the agent.
+ * An agent takes a ticket over, at any moment — even before the AI's first
+ * turn has finished: the AI stops writing on it for good (its status becomes
+ * "suspended", checked under the ticket lock before any AI write) and, unless
+ * told otherwise, an unassigned ticket is assigned to the agent.
  */
 class TakeOverTicket
 {
@@ -46,9 +46,15 @@ class TakeOverTicket
             $previous = $locked->ai_status;
             $handedOver = $previous === AiStatus::Active || $previous === AiStatus::Escalated;
 
-            if ($handedOver) {
+            // Suspend even when the AI has not written yet (status still null, a
+            // first turn maybe in flight): that turn then finds the ticket taken
+            // under the lock and stands down. Only a real hand-over from the AI
+            // is audited and announced.
+            if ($previous !== AiStatus::Suspended) {
                 $locked->forceFill(['ai_status' => AiStatus::Suspended])->save();
+            }
 
+            if ($handedOver) {
                 $this->audit->record(
                     ticket: $locked,
                     event: 'ticket.taken_over',

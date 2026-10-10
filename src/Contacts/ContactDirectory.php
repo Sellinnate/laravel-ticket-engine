@@ -153,25 +153,45 @@ class ContactDirectory
                 'anonymized_at' => now(),
             ])->save();
 
-            // Visitor messages in conversations that never became a ticket are
-            // the contact's own words: blank them like the identity itself.
-            $conversations = Ticketing::conversationModel()::query()->withoutTenancy()
-                ->where('contact_id', $contact->getKey())
-                ->pluck((new (Ticketing::conversationModel()))->getKeyName());
-
-            if ($conversations->isNotEmpty()) {
-                Ticketing::conversationMessageModel()::query()->withoutTenancy()
-                    ->whereIn('conversation_id', $conversations->all())
-                    ->where('role', ConversationRole::Visitor->value)
-                    ->update(['body' => $label]);
-
+            $this->scrubConversations(
                 Ticketing::conversationModel()::query()->withoutTenancy()
-                    ->whereIn((new (Ticketing::conversationModel()))->getKeyName(), $conversations->all())
-                    ->update(['ip_hash' => null, 'origin' => null]);
-            }
+                    ->where('contact_id', $contact->getKey())
+                    ->pluck((new (Ticketing::conversationModel()))->getKeyName())
+                    ->all(),
+                $label,
+            );
         });
 
         ContactAnonymized::dispatch($contact);
+    }
+
+    /**
+     * Blank the visitor's words in these conversations — their messages, the
+     * AI's question excerpts — and drop the network traces (origin, IP hash).
+     * The conversations themselves stay for the statistics.
+     *
+     * @param  array<mixed>  $conversationIds
+     *
+     * @internal
+     */
+    public function scrubConversations(array $conversationIds, string $label): void
+    {
+        if ($conversationIds === []) {
+            return;
+        }
+
+        Ticketing::conversationMessageModel()::query()->withoutTenancy()
+            ->whereIn('conversation_id', $conversationIds)
+            ->where('role', ConversationRole::Visitor->value)
+            ->update(['body' => $label]);
+
+        Ticketing::conversationModel()::query()->withoutTenancy()
+            ->whereIn((new (Ticketing::conversationModel()))->getKeyName(), $conversationIds)
+            ->update(['ip_hash' => null, 'origin' => null]);
+
+        Ticketing::aiTurnModel()::query()->withoutTenancy()
+            ->whereIn('conversation_id', $conversationIds)
+            ->update(['question' => null]);
     }
 
     /**

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Facades\Queue;
 use Selli\Ticketing\Ai\AiAnswer;
 use Selli\Ticketing\Ai\AiAssistant;
 use Selli\Ticketing\Ai\AiClassification;
@@ -434,4 +435,25 @@ it('hands over when the customer asks for a person later in the conversation', f
 
     expect($ticket->refresh()->escalation_reason)->toBe(EscalationReason::HumanRequested)
         ->and($ticket->ai_exchanges)->toBe(1);
+});
+
+it('stands down when an agent replies before the first AI turn completes', function (): void {
+    config()->set('ticketing.ai.queue', true);
+    Queue::fake();
+
+    $customer = Ticketing::contacts()->remember('customer@example.com');
+    $ticket = Ticketing::open(type: 'support', title: 'Race', requester: $customer);
+    $question = Ticketing::postMessage($ticket, $customer, 'Question');
+
+    // The turn is queued, not run yet; an agent answers first.
+    Ticketing::postMessage($ticket, makeUser(['name' => 'Agent']), 'On it');
+    expect($ticket->refresh()->ai_status)->toBe(AiStatus::Suspended);
+
+    fakeAi()->queueAnswer(confidentAnswer('Too late'));
+    expect(app(AiAssistant::class)->respondToTicket($ticket, $question))->toBeNull()
+        ->and($ticket->messages()->where('body', 'Too late')->exists())->toBeFalse();
+
+    // A later customer message gets no AI reply either.
+    Ticketing::postMessage($ticket, $customer, 'Thanks');
+    expect(AiTurn::query()->count())->toBe(0);
 });

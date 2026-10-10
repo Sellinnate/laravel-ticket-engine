@@ -64,9 +64,19 @@ class AnonymizeRequester
         });
 
         // A package contact is ours to anonymise too (a host model is the
-        // host's job, via RequesterAnonymized).
+        // host's job, via RequesterAnonymized). A verified host user's widget
+        // conversations hold their words as well.
         if ($requester instanceof Contact) {
             $this->contacts->scrub($requester);
+        } else {
+            $this->contacts->scrubConversations(
+                Ticketing::conversationModel()::query()->withoutTenancy()
+                    ->where('requester_type', $requester->getMorphClass())
+                    ->where('requester_id', (string) $requester->getKey())
+                    ->pluck((new (Ticketing::conversationModel()))->getKeyName())
+                    ->all(),
+                $label,
+            );
         }
 
         RequesterAnonymized::dispatch($requester, $touched);
@@ -74,10 +84,25 @@ class AnonymizeRequester
         return $touched;
     }
 
+    /**
+     * The AI's question excerpts on the ticket, and on the conversation it was
+     * escalated from.
+     */
     protected function scrubAiQuestions(Ticket $ticket): bool
     {
-        return Ticketing::aiTurnModel()::query()->withoutTenancy()
+        $conversations = Ticketing::conversationModel()::query()->withoutTenancy()
             ->where('ticket_id', $ticket->getKey())
+            ->pluck((new (Ticketing::conversationModel()))->getKeyName())
+            ->all();
+
+        return Ticketing::aiTurnModel()::query()->withoutTenancy()
+            ->where(function ($query) use ($ticket, $conversations): void {
+                $query->where('ticket_id', $ticket->getKey());
+
+                if ($conversations !== []) {
+                    $query->orWhereIn('conversation_id', $conversations);
+                }
+            })
             ->whereNotNull('question')
             ->update(['question' => null]) > 0;
     }

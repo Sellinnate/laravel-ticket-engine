@@ -91,7 +91,7 @@ it('answers CORS preflights without a key', function (): void {
     ])
         ->assertNoContent()
         ->assertHeader('Access-Control-Allow-Origin', 'https://acme.example')
-        ->assertHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, X-Ticketing-Key');
+        ->assertHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, X-Ticketing-Key, X-Ticketing-Conversation');
 });
 
 it('runs a whole conversation over HTTP', function (): void {

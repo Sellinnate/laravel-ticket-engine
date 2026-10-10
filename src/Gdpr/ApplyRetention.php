@@ -119,8 +119,19 @@ class ApplyRetention
             $relation->withTrashed();
         }
 
-        Ticketing::aiTurnModel()::query()->withoutTenancy()
+        $conversationModel = new (Ticketing::conversationModel());
+        $conversationIds = Ticketing::conversationModel()::query()->withoutTenancy()
             ->where('ticket_id', $ticket->getKey())
+            ->pluck($conversationModel->getKeyName());
+
+        Ticketing::aiTurnModel()::query()->withoutTenancy()
+            ->where(function ($query) use ($ticket, $conversationIds): void {
+                $query->where('ticket_id', $ticket->getKey());
+
+                if ($conversationIds->isNotEmpty()) {
+                    $query->orWhereIn('conversation_id', $conversationIds->all());
+                }
+            })
             ->update(['question' => null]);
 
         foreach ($relation->get() as $message) {
@@ -183,6 +194,8 @@ class ApplyRetention
             ->pluck($conversationModel->getKeyName());
 
         if ($conversationIds->isNotEmpty()) {
+            // The conversation's own AI turns (before it became this ticket).
+            DB::table($this->tableFor(Ticketing::aiTurnModel()))->whereIn('conversation_id', $conversationIds)->delete();
             DB::table($this->tableFor(Ticketing::conversationMessageModel()))->whereIn('conversation_id', $conversationIds)->delete();
             DB::table($conversationModel->getTable())->whereIn($conversationModel->getKeyName(), $conversationIds)->delete();
         }
