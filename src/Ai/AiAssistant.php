@@ -109,7 +109,7 @@ class AiAssistant
                 $usage = $usage->plus($classification->usage);
 
                 if ($ticket->ai_status === null) {
-                    $this->applyClassification($ticket, $classification);
+                    $this->applyClassification($ticket, $turn, $classification);
                 }
             }
 
@@ -602,39 +602,51 @@ class AiAssistant
      * Language, sentiment and — when allowed — category and a higher priority
      * from the classifier, on the ticket's first AI turn.
      */
-    protected function applyClassification(Ticket $ticket, AiClassification $classification): void
+    protected function applyClassification(Ticket $ticket, AiTurn $turn, AiClassification $classification): void
     {
-        $changes = array_filter([
-            'language' => $classification->language !== null ? mb_substr($classification->language, 0, 12) : null,
-            'sentiment' => $classification->sentiment,
-        ], fn (mixed $value): bool => $value !== null);
+        // Under the ticket lock, on the stored state: a classifier that was
+        // still running when an agent took over (or resolved, or this turn was
+        // reclaimed) must not overwrite anything.
+        DB::transaction(function () use ($ticket, $turn, $classification): void {
+            if (! $this->stillOwns($turn)) {
+                return;
+            }
 
-        if ($classification->category !== null && $ticket->category === null
-            && config('ticketing.ai.classification.apply_category', true) !== false) {
-            $changes['category'] = mb_substr($classification->category, 0, 255);
-        }
+            /** @var Ticket $locked */
+            $locked = Ticketing::ticketModel()::query()->withoutTenancy()
+                ->lockForUpdate()
+                ->whereKey($ticket->getKey())
+                ->firstOrFail();
 
-        if ($changes !== []) {
-            $ticket->forceFill($changes)->save();
-        }
+            if ($locked->ai_status !== null || $this->requests->isClosed($locked)) {
+                return;
+            }
 
-        $suggested = $classification->priority;
+            $changes = array_filter([
+                'language' => $classification->language !== null ? mb_substr($classification->language, 0, 12) : null,
+                'sentiment' => $classification->sentiment,
+            ], fn (mixed $value): bool => $value !== null);
 
-        if ($suggested instanceof Priority && config('ticketing.ai.classification.apply_priority', true) !== false) {
-            // Raise-only, compared with the stored priority under the row lock:
-            // an agent may have raised it while the classifier was running.
-            DB::transaction(function () use ($ticket, $suggested): void {
-                /** @var Ticket $locked */
-                $locked = Ticketing::ticketModel()::query()->withoutTenancy()
-                    ->lockForUpdate()
-                    ->whereKey($ticket->getKey())
-                    ->firstOrFail();
+            if ($classification->category !== null && $locked->category === null
+                && config('ticketing.ai.classification.apply_category', true) !== false) {
+                $changes['category'] = mb_substr($classification->category, 0, 255);
+            }
 
-                if ($suggested->value > $locked->priority->value) {
-                    app(Ticketing::class)->changePriority($locked, $suggested);
-                }
-            });
-        }
+            if ($changes !== []) {
+                $locked->forceFill($changes)->save();
+                $ticket->forceFill($changes);
+            }
+
+            // Raise-only, against the stored priority (an agent may have
+            // raised it while the classifier was running).
+            $suggested = $classification->priority;
+
+            if ($suggested instanceof Priority
+                && config('ticketing.ai.classification.apply_priority', true) !== false
+                && $suggested->value > $locked->priority->value) {
+                app(Ticketing::class)->changePriority($locked, $suggested);
+            }
+        });
     }
 
     /**

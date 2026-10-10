@@ -789,3 +789,39 @@ it('takes over from an agent reply posted with a stale ticket copy', function ()
 
     expect($ticket->refresh()->ai_status)->toBe(AiStatus::Suspended);
 });
+
+it('applies no classification once an agent took over during it', function (): void {
+    $customer = Ticketing::contacts()->remember('customer@example.com');
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: $customer);
+
+    app(AiManager::class)->extend('slow-classifier', fn () => new class($ticket) implements AiDriver
+    {
+        public function __construct(private Ticket $ticket) {}
+
+        public function classify(AiRequest $request): AiClassification
+        {
+            Ticketing::takeOver($this->ticket->refresh(), makeUser(['name' => 'Agent']), assign: false);
+
+            return new AiClassification(category: 'ai-guess', priority: Priority::Urgent, language: 'de');
+        }
+
+        public function answer(AiRequest $request): AiAnswer
+        {
+            return confidentAnswer();
+        }
+
+        public function summarize(AiRequest $request): AiSummary
+        {
+            return new AiSummary('');
+        }
+    });
+    config()->set('ticketing.ai.driver', 'slow-classifier');
+
+    Ticketing::postMessage($ticket, $customer, 'Question');
+    $ticket->refresh();
+
+    expect($ticket->category)->toBeNull()
+        ->and($ticket->language)->toBeNull()
+        ->and($ticket->priority)->toBe(Priority::Normal)
+        ->and($ticket->ai_status)->toBe(AiStatus::Suspended);
+});
