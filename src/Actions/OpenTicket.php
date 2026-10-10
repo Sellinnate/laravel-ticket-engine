@@ -6,6 +6,7 @@ namespace Selli\Ticketing\Actions;
 
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
+use InvalidArgumentException;
 use Selli\Ticketing\Data\OpenTicketData;
 use Selli\Ticketing\Enums\ParticipantRole;
 use Selli\Ticketing\Enums\TicketChannel;
@@ -123,7 +124,7 @@ class OpenTicket
             // caller did not specify one.
             'priority' => $data->priority ?? $type->default_priority,
             'category' => $data->category,
-            'channel' => $data->channel ?? TicketChannel::Web->value,
+            'channel' => $this->channel($data->channel),
             'status' => $initialState,
             // References are allocated atomically (see ReferenceGenerator), so a
             // single insert is collision-free under concurrency.
@@ -153,6 +154,22 @@ class OpenTicket
         ], array_merge($ticket->tenantAttributes(), [
             'notify' => true,
         ]));
+    }
+
+    /**
+     * The channel column holds at most 32 characters: refuse anything the
+     * database would reject (or silently truncate) instead of failing the
+     * insert halfway through the open.
+     */
+    protected function channel(?string $channel): string
+    {
+        $channel ??= TicketChannel::Web->value;
+
+        if (trim($channel) === '' || mb_strlen($channel) > 32) {
+            throw new InvalidArgumentException('A ticket channel must be 1 to 32 characters long.');
+        }
+
+        return $channel;
     }
 
     protected function initialState(string $workflow): string

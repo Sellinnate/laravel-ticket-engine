@@ -75,8 +75,12 @@ class TicketQuery
      */
     public function filter(array $filters, ?Model $actor = null): static
     {
-        if (is_string($state = $filters['state'] ?? null) && in_array($state, ['open', 'closed', 'paused'], true)) {
-            $this->state($state);
+        // A filter that was supplied but names nothing valid matches nothing —
+        // it never silently widens the listing.
+        if (is_string($state = $filters['state'] ?? null) && $state !== '') {
+            in_array($state, ['open', 'closed', 'paused'], true)
+                ? $this->state($state)
+                : $this->query->whereRaw('1 = 0');
         }
 
         foreach (['status', 'type', 'category', 'channel', 'tag'] as $key) {
@@ -93,13 +97,16 @@ class TicketQuery
             }
         }
 
+        $requestedPriorities = self::stringList($filters['priority'] ?? null);
         $priorities = array_values(array_filter(array_map(
             static fn (string $value): ?Priority => is_numeric($value) ? Priority::tryFrom((int) $value) : null,
-            self::stringList($filters['priority'] ?? null),
+            $requestedPriorities,
         )));
 
         if ($priorities !== []) {
             $this->priority($priorities);
+        } elseif ($requestedPriorities !== []) {
+            $this->query->whereRaw('1 = 0');
         }
 
         if (is_scalar($team = $filters['team'] ?? null) && (string) $team !== '') {

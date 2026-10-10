@@ -65,8 +65,10 @@ final class SpatieTenantResolver implements TenantResolver
 ],
 ```
 
-Returning `null` means "no tenant": reads then see only shared rows (fail closed), and with
-`require_tenant_for_writes` writes throw.
+Returning `null` means "no tenant": reads then see only shared rows (fail closed). With
+`require_tenant_for_writes` on, creating a tenant-scoped row then throws — but only when the row has no
+explicit tenant value of its own: a tenant column set on the model (even to `null`, for an intentionally
+shared row) is always honoured.
 
 ## Single-tenant mode
 

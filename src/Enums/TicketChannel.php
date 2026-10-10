@@ -5,9 +5,9 @@ declare(strict_types=1);
 namespace Selli\Ticketing\Enums;
 
 /**
- * The channel a ticket arrived through. The column is a plain string, so a host
- * may record its own channels (e.g. "whatsapp", "phone"); these are the ones
- * the package itself writes.
+ * The channel a ticket arrived through. The column is a plain string (at most
+ * 32 characters), so a host may record its own channels (e.g. "whatsapp",
+ * "phone"); these are the ones the package itself writes.
  */
 enum TicketChannel: string
 {

@@ -1,13 +1,13 @@
 ---
 title: "Listing & filtering tickets"
-description: "TicketQuery: the one filtering surface shared by your code, the REST API, the MCP tools and the exports."
+description: "TicketQuery: one tenant-scoped filtering surface for your code and the REST API."
 type: concept
 ---
 
 # Listing & filtering tickets
 
-`Ticketing::tickets()` returns a `TicketQuery`: a fluent, tenant-scoped listing of tickets. The REST API, the
-MCP tools and the CSV exports all use it, so a filter means the same thing everywhere.
+`Ticketing::tickets()` returns a `TicketQuery`: a fluent, tenant-scoped listing of tickets. The REST API's
+`GET /tickets` uses it too, so a filter means the same thing in your code and over HTTP.
 
 ::: callout info "In plain words"
 Instead of hand-writing `Ticket::query()->where(...)` in every controller, you describe *which* tickets you

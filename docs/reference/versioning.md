@@ -44,7 +44,7 @@ and Windows, plus MySQL and PostgreSQL jobs.
 
 ## Optional integrations
 
-Optional packages (`suggest` in `composer.json`) are integrated behind contracts and only activate when the
-package is installed. Their supported version ranges are documented on each integration page and follow
-the same rules: a minor release of `selli/ticketing` may add support for a new major version of an
+Integrations with optional packages (listed under `suggest` in `composer.json`) sit behind contracts and only
+activate when the package is installed. Each integration page documents the supported version range, and the
+same rules apply: a minor release of `selli/ticketing` may add support for a new major version of an
 integration, never drop one.

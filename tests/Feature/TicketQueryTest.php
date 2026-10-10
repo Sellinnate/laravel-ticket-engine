@@ -265,3 +265,25 @@ it('resolves state semantics for workflows only a custom driver knows', function
     expect(titles(Ticketing::tickets()->state('paused')->get()))->toBe(['waiting on insurer'])
         ->and(titles(Ticketing::tickets()->state('open')->get()))->toBe(['regular open']);
 });
+
+it('matches nothing for a supplied but invalid state or priority filter', function (): void {
+    Ticketing::open(type: 'support', title: 'one');
+
+    expect(Ticketing::tickets()->filter(['state' => 'archived'])->count())->toBe(0)
+        ->and(Ticketing::tickets()->filter(['priority' => '99'])->count())->toBe(0)
+        ->and(Ticketing::tickets()->filter(['priority' => 'abc,99'])->count())->toBe(0)
+        // Omitted (or empty) filters do not narrow anything.
+        ->and(Ticketing::tickets()->filter(['state' => '', 'priority' => ''])->count())->toBe(1)
+        ->and(Ticketing::tickets()->filter(['priority' => '99,20'])->count())->toBe(1);
+});
+
+it('refuses a channel the column cannot hold', function (string $channel): void {
+    expect(fn () => Ticketing::open(type: 'support', title: 'x', channel: $channel))
+        ->toThrow(InvalidArgumentException::class, '1 to 32 characters');
+
+    expect(Ticketing::tickets()->count())->toBe(0);
+})->with([
+    'empty' => [''],
+    'blank' => ['   '],
+    'too long' => [str_repeat('c', 33)],
+]);
