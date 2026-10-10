@@ -17,5 +17,6 @@ final readonly class RagHit
         public string $excerpt,
         public ?string $url = null,
         public ?string $locale = null,
+        public ?string $version = null,
     ) {}
 }

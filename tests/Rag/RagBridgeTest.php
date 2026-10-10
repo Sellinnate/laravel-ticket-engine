@@ -126,6 +126,22 @@ it('never hands out an article changed since it was indexed', function (): void 
         ->and(ragFind($question, KnowledgeAudience::agent()))->toBe(['Discount codes']);
 });
 
+it('never uses the excerpt of an older version of an article', function (): void {
+    $article = kb('Wire transfer', 'Pay by wire transfer to the bank account number listed on the invoice.');
+    $question = 'wire transfer bank account number invoice';
+
+    // Edited (say, a wrong bank account removed) while the re-index is still pending.
+    config()->set('ticketing.rag.index.articles', false);
+    Ticketing::knowledge()->save(new ArticleData(body: 'Pay by wire transfer: the bank details are in your customer area.'), $article);
+
+    expect(ragFind($question, KnowledgeAudience::public()))->toBe([]);
+
+    config()->set('ticketing.rag.index.articles', true);
+    app(RagKnowledge::class)->indexArticle($article->refresh());
+
+    expect(ragFind('wire transfer bank details customer area', KnowledgeAudience::public()))->toBe(['Wire transfer']);
+});
+
 it('keeps the requested locale for every tenant searched', function (): void {
     config()->set('ticketing.knowledge.default_locale', 'en');
     app(TenantContext::class)->forTenant(1, fn () => Ticketing::knowledge()->publish(Ticketing::knowledge()->save(new ArticleData(title: 'Refund policy', body: 'Refund requests within thirty days, refund policy details.', locale: 'en'))));

@@ -136,6 +136,8 @@ class RagKnowledge
             'category' => $article->category_id !== null ? (string) $article->category_id : '',
             'slug' => $article->slug,
             'url' => $this->articleUrl($article) ?? '',
+            // Checked at search time: an excerpt of an older version is never used.
+            'version' => (string) $article->version,
         ]);
     }
 
@@ -223,15 +225,29 @@ class RagKnowledge
     {
         $count = 0;
 
-        RequesterTickets::query($requester)->each(function (Ticket $ticket) use (&$count): void {
+        // First every exclusion — durable, and already enough to keep the
+        // conversations out of every search — then the fallible purges.
+        $tickets = [];
+
+        RequesterTickets::query($requester)->each(function (Ticket $ticket) use (&$tickets): void {
             if (! $this->excluded($ticket)) {
                 app(AuditLogger::class)->record(ticket: $ticket, event: self::EXCLUDED, context: ['reason' => 'requester_anonymized']);
             }
 
-            // Re-read under the lock: excluded now, so it is purged.
-            $this->syncTicket($ticket->getKey(), $ticket->getAttribute($ticket->getTenantColumn()));
-            $count++;
+            $tickets[] = [$ticket->getKey(), $ticket->getAttribute($ticket->getTenantColumn())];
         });
+
+        foreach ($tickets as [$id, $tenant]) {
+            try {
+                // Re-read under the lock: excluded now, so it is purged.
+                $this->syncTicket($id, $tenant);
+                $count++;
+            } catch (\Throwable $exception) {
+                // The vector store is down, a lock timed out: retried on the queue.
+                report($exception);
+                RagSyncJob::dispatch(self::TYPE_TICKET, $id, $tenant);
+            }
+        }
 
         return $count;
     }
@@ -353,6 +369,7 @@ class RagKnowledge
                     $url = $hit->metadata['url'] ?? null;
                     $hitLocale = $hit->metadata['locale'] ?? null;
                     $title = $hit->metadata['title'] ?? null;
+                    $version = $hit->metadata['version'] ?? null;
 
                     $best[$key] = new RagHit(
                         type: $type,
@@ -362,6 +379,7 @@ class RagKnowledge
                         excerpt: mb_strimwidth(trim($hit->content), 0, 600, '…'),
                         url: is_string($url) && $url !== '' ? $url : null,
                         locale: is_string($hitLocale) ? $hitLocale : null,
+                        version: is_string($version) ? $version : null,
                     );
                 }
             }
@@ -393,13 +411,21 @@ class RagKnowledge
 
         $allowed = [self::TYPE_ARTICLE => [], self::TYPE_TICKET => []];
 
+        // Articles: readable by this audience now, and the indexed version is
+        // the current one (an edit not synced yet must not leak the old text).
+        $versions = [];
+
         if ($ids[self::TYPE_ARTICLE] !== []) {
             $model = Ticketing::kbArticleModel();
-            $allowed[self::TYPE_ARTICLE] = $this->inTenant($model::query()->withoutTenancy()->visibleTo($audience), $tenant)
+            $articles = $this->inTenant($model::query()->withoutTenancy()->visibleTo($audience), $tenant)
                 ->whereKey($ids[self::TYPE_ARTICLE])
-                ->pluck((new $model)->getKeyName())
-                ->map(fn (mixed $key): string => (string) $key)
-                ->all();
+                ->get([(new $model)->getKeyName(), 'version']);
+
+            foreach ($articles as $article) {
+                $versions[(string) $article->getKey()] = (string) $article->version;
+            }
+
+            $allowed[self::TYPE_ARTICLE] = array_map('strval', array_keys($versions));
         }
 
         // Tickets are agents' knowledge only, and only while still resolved
@@ -423,7 +449,8 @@ class RagKnowledge
                 ->all();
         }
 
-        return array_values(array_filter($hits, fn (RagHit $hit): bool => in_array($hit->id, $allowed[$hit->type] ?? [], true)));
+        return array_values(array_filter($hits, fn (RagHit $hit): bool => in_array($hit->id, $allowed[$hit->type] ?? [], true)
+            && ($hit->type !== self::TYPE_ARTICLE || $hit->version === ($versions[$hit->id] ?? null))));
     }
 
     /**
