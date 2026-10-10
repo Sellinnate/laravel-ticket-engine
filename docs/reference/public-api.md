@@ -33,8 +33,8 @@ you are on your own.
 | Models | `Selli\Ticketing\Models\*` | Relations, scopes, documented helper methods and `@property` attributes |
 | Traits | `Concerns\HasTickets`, `Concerns\HasCustomFields`, `Concerns\BelongsToTenant`, `Models\Concerns\ConfiguresTicketingTable` | Public methods |
 | Tenancy | `Tenancy\TenantContext`, `Tenancy\DefaultTenantResolver` | `current()`, `forTenant()`, `enabled()`, `column()`, `allowsShared()` |
-| Default implementations | `Mail\ConfigInboundMailRouter`, `Mail\NullInboundRequesterResolver`, `Collaboration\NullMentionResolver`, `Notifications\ConfigNotificationPreferences`, `Broadcasting\DefaultChannelAuthorizer`, `Policies\TicketPolicy`, `Workflow\ConfigWorkflowDriver`, `Workflow\Guards\RequireResolutionNote` | Behaviour as documented; safe to extend |
-| Extension points | `Routing\AssignmentManager::extend()`, `Workflow\WorkflowManager::extend()` | Signatures |
+| Default implementations | `Mail\ConfigInboundMailRouter`, `Mail\NullInboundRequesterResolver`, `Mail\ImapMailbox`, `Collaboration\NullMentionResolver`, `Notifications\ConfigNotificationPreferences`, `Broadcasting\DefaultChannelAuthorizer`, `Policies\TicketPolicy`, `Workflow\ConfigWorkflowDriver`, `Workflow\Guards\RequireResolutionNote` | Behaviour as documented; safe to extend |
+| Extension points | `Routing\AssignmentManager::extend()`, `Workflow\WorkflowManager::extend()`, `Mail\MailboxManager::extend()` | Signatures |
 | Value objects | `Mail\InboundEmail`, `Mail\MailRoute`, `Workflow\Transition`, `Workflow\TransitionContext` | Constructor and public properties |
 | Helpers | `Support\AuditLogger::record()`, `Support\WebhookSigner::sign()` / `verify()`, `Broadcasting\Channels` | Signatures |
 | Migrations helper | `Database\Migrations\HasTicketingSchema` | Every method — your published migrations call it |

@@ -11,9 +11,14 @@ use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 use Illuminate\Queue\SerializesModels;
 use Selli\Ticketing\Contracts\NotificationPreferences;
+use Selli\Ticketing\Exceptions\InvalidConfigurationException;
+use Selli\Ticketing\Mail\MailMessageIds;
 use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Notifications\Channels\SlackWebhookChannel;
 use Selli\Ticketing\Support\Ticketing;
+use Symfony\Component\Mime\Address;
+use Symfony\Component\Mime\Email;
+use Symfony\Component\Mime\Exception\RfcComplianceException;
 
 /**
  * Base class for the package's ticket notifications. Channel selection is
@@ -90,10 +95,7 @@ abstract class TicketNotification extends Notification implements ShouldQueue
 
     public function toMail(object $notifiable): MailMessage
     {
-        $mail = (new MailMessage)
-            ->subject($this->title())
-            ->line($this->body())
-            ->line('Reference: '.$this->ticket->reference);
+        $mail = $this->mailContent(new MailMessage);
 
         // Tag the Reply-To so a recipient's reply threads straight back to this
         // ticket (the +t_<token> address the inbound channel understands).
@@ -103,7 +105,67 @@ abstract class TicketNotification extends Notification implements ShouldQueue
             $mail->replyTo($replyTo);
         }
 
-        return $mail;
+        return $this->threaded($mail);
+    }
+
+    protected function mailContent(MailMessage $mail): MailMessage
+    {
+        return $mail
+            ->subject($this->title())
+            ->line($this->body())
+            ->line('Reference: '.$this->ticket->reference);
+    }
+
+    /**
+     * Thread the email with the ticket's others in the recipient's client, and
+     * mark it as ours: a signed Message-ID, In-Reply-To / References pointing
+     * at the customer's latest email (or the ticket's thread root), and an
+     * X-Ticketing-Mailer header the inbound channel drops on sight.
+     */
+    protected function threaded(MailMessage $mail): MailMessage
+    {
+        return $mail->withSymfonyMessage(function (Email $message): void {
+            $headers = $message->getHeaders();
+            $headers->addTextHeader('X-Ticketing-Mailer', 'selli/ticketing');
+
+            try {
+                $id = MailMessageIds::forTicket($this->ticket->getKey());
+                $root = MailMessageIds::root($this->ticket->getKey());
+            } catch (InvalidConfigurationException) {
+                return; // no token secret: the client threads on the subject
+            }
+
+            $inbound = Ticketing::ticketMessageModel()::query()->withoutTenancy()
+                ->where('ticket_id', $this->ticket->getKey())
+                ->whereNotNull('email_message_id')
+                ->where('email_message_id', 'not like', 'sha256:%');
+            $first = self::validId((clone $inbound)->oldest()->value('email_message_id')) ?? $root;
+            $parent = self::validId((clone $inbound)->latest()->value('email_message_id')) ?? $root;
+
+            $headers->remove('Message-ID');
+            $headers->addIdHeader('Message-ID', $id);
+            $headers->addIdHeader('In-Reply-To', $parent);
+            $headers->addIdHeader('References', array_values(array_unique([$first, $parent])));
+        });
+    }
+
+    /**
+     * A stored Message-ID usable in a header (a sender's client may have
+     * written one the RFC does not allow), or null.
+     */
+    protected static function validId(mixed $id): ?string
+    {
+        if (! is_string($id) || $id === '') {
+            return null;
+        }
+
+        try {
+            new Address($id);
+        } catch (RfcComplianceException) {
+            return null;
+        }
+
+        return $id;
     }
 
     /**

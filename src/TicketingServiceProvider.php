@@ -24,6 +24,7 @@ use Selli\Ticketing\Broadcasting\DefaultChannelAuthorizer;
 use Selli\Ticketing\Collaboration\NullMentionResolver;
 use Selli\Ticketing\Commands\DemoCommand;
 use Selli\Ticketing\Commands\EscalateCommand;
+use Selli\Ticketing\Commands\PollMailCommand;
 use Selli\Ticketing\Commands\PruneCommand;
 use Selli\Ticketing\Commands\RecalculateSlaCommand;
 use Selli\Ticketing\Contacts\ContactDirectory;
@@ -58,6 +59,7 @@ use Selli\Ticketing\Listeners\Subscriber;
 use Selli\Ticketing\Listeners\WorkflowSubscriber;
 use Selli\Ticketing\Mail\ConfigInboundMailRouter;
 use Selli\Ticketing\Mail\ContactInboundRequesterResolver;
+use Selli\Ticketing\Mail\MailboxManager;
 use Selli\Ticketing\Mail\NullInboundRequesterResolver;
 use Selli\Ticketing\Models\WidgetKey;
 use Selli\Ticketing\Notifications\ConfigNotificationPreferences;
@@ -87,6 +89,7 @@ class TicketingServiceProvider extends PackageServiceProvider
                 RecalculateSlaCommand::class,
                 PruneCommand::class,
                 DemoCommand::class,
+                PollMailCommand::class,
             ])
             ->hasInstallCommand(function (InstallCommand $command): void {
                 $command
@@ -183,6 +186,7 @@ class TicketingServiceProvider extends PackageServiceProvider
         // Email-to-ticket: config-driven recipient routing + a null requester
         // resolver by default. bindIf so a host's own bindings win.
         $this->app->bindIf(InboundMailRouter::class, ConfigInboundMailRouter::class);
+        $this->app->singletonIf(MailboxManager::class);
         $this->app->bindIf(InboundRequesterResolver::class, fn (): InboundRequesterResolver => config('ticketing.contacts.inbound_email', true) !== false
             ? $this->app->make(ContactInboundRequesterResolver::class)
             : $this->app->make(NullInboundRequesterResolver::class));

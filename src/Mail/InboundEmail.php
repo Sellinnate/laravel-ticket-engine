@@ -22,6 +22,7 @@ final readonly class InboundEmail
      * @param  list<string>  $references  Message-IDs from the References header
      * @param  array<string, string>  $headers  lower-cased header name => value (for anti-loop checks)
      * @param  list<array{filename: string, mime: string, content: string}>  $attachments
+     * @param  list<string>  $cc  the Cc addresses alone (they become `cc` participants)
      */
     public function __construct(
         public string $from,
@@ -35,6 +36,7 @@ final readonly class InboundEmail
         public array $headers = [],
         public array $attachments = [],
         public ?string $fromName = null,
+        public array $cc = [],
     ) {}
 
     /**
@@ -65,6 +67,7 @@ final readonly class InboundEmail
             headers: $headers,
             attachments: self::normaliseAttachments($data['attachments'] ?? []),
             fromName: isset($data['from_name']) ? (string) $data['from_name'] : null,
+            cc: self::stringList($data['cc'] ?? []),
         );
     }
 
@@ -115,6 +118,55 @@ final readonly class InboundEmail
         }
 
         return false;
+    }
+
+    /**
+     * A delivery report: a bounce (DSN), a read receipt, or anything sent by a
+     * mailer daemon. Never a customer message.
+     */
+    public function isBounce(): bool
+    {
+        $headers = array_change_key_case($this->headers, CASE_LOWER);
+
+        if (str_contains(strtolower((string) ($headers['content-type'] ?? '')), 'multipart/report')) {
+            return true;
+        }
+
+        if (trim((string) ($headers['x-failed-recipients'] ?? '')) !== '') {
+            return true;
+        }
+
+        // RFC 5321: the null reverse-path marks every delivery notification.
+        if (isset($headers['return-path']) && trim($headers['return-path']) === '<>') {
+            return true;
+        }
+
+        return in_array($this->senderLocalPart(), ['mailer-daemon', 'postmaster'], true);
+    }
+
+    /**
+     * A sender that says nobody reads its replies (noreply@, do-not-reply@, …).
+     */
+    public function isFromNoReply(): bool
+    {
+        return preg_match('/^(no|do[-_.]?not)[-_.]?reply\b/', $this->senderLocalPart()) === 1;
+    }
+
+    /**
+     * Anything that must never open a ticket nor be answered: auto-replies,
+     * bulk and list mail, bounces, no-reply senders.
+     */
+    public function isAutomated(): bool
+    {
+        return $this->isAutoReply() || $this->isBounce() || $this->isFromNoReply();
+    }
+
+    private function senderLocalPart(): string
+    {
+        $from = strtolower(trim($this->from));
+        $at = strrpos($from, '@');
+
+        return $at === false ? $from : substr($from, 0, $at);
     }
 
     /**

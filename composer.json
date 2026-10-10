@@ -34,6 +34,7 @@
         "illuminate/contracts": "^11.0||^12.0||^13.0"
     },
     "require-dev": {
+        "directorytree/imapengine": "^1.25",
         "larastan/larastan": "^3.0",
         "laravel/pint": "^1.14",
         "nunomaduro/collision": "^8.8",
@@ -45,7 +46,9 @@
         "phpstan/phpstan-deprecation-rules": "^2.0",
         "phpstan/phpstan-phpunit": "^2.0"
     },
-    "suggest": {},
+    "suggest": {
+        "directorytree/imapengine": "Poll inbound email over IMAP with php artisan ticketing:mail:poll (^1.25)."
+    },
     "autoload": {
         "psr-4": {
             "Selli\\Ticketing\\": "src/",

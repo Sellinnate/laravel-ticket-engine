@@ -40,6 +40,7 @@ use Selli\Ticketing\Gdpr\AnonymizeRequester;
 use Selli\Ticketing\Gdpr\ExportRequesterData;
 use Selli\Ticketing\Knowledge\KnowledgeBase;
 use Selli\Ticketing\Mail\InboundEmail;
+use Selli\Ticketing\Mail\MailboxManager;
 use Selli\Ticketing\Mail\ProcessInboundEmail;
 use Selli\Ticketing\Models\AiTurn;
 use Selli\Ticketing\Models\AutomationRule;
@@ -463,6 +464,15 @@ class Ticketing
         bool $notifyCustomer = false,
     ): Ticket {
         return $this->container->make(EscalateTicket::class)->handle($ticket, $reason, $actor, $notifyCustomer);
+    }
+
+    /**
+     * The inbound mailboxes polled by `ticketing:mail:poll` (extend() adds a
+     * driver next to the built-in imap one).
+     */
+    public function mailboxes(): MailboxManager
+    {
+        return $this->container->make(MailboxManager::class);
     }
 
     /**

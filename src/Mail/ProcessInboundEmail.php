@@ -14,13 +14,17 @@ use Selli\Ticketing\Contracts\InboundMailRouter;
 use Selli\Ticketing\Contracts\InboundRequesterResolver;
 use Selli\Ticketing\Data\AddAttachmentData;
 use Selli\Ticketing\Data\PostMessageData;
+use Selli\Ticketing\Enums\BodyFormat;
 use Selli\Ticketing\Enums\MessageSource;
 use Selli\Ticketing\Enums\MessageVisibility;
+use Selli\Ticketing\Enums\ParticipantRole;
 use Selli\Ticketing\Enums\TicketChannel;
+use Selli\Ticketing\Events\ParticipantAdded;
 use Selli\Ticketing\Exceptions\InvalidConfigurationException;
 use Selli\Ticketing\Exceptions\TicketingException;
 use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Models\TicketMessage;
+use Selli\Ticketing\Models\TicketParticipant;
 use Selli\Ticketing\Support\MailThreadToken;
 use Selli\Ticketing\Support\Ticketing;
 use Selli\Ticketing\Tenancy\TenantContext;
@@ -29,10 +33,15 @@ use Selli\Ticketing\Tenancy\TenantContext;
  * Turns a normalised {@see InboundEmail} into a ticket or a reply.
  *
  * Threading is layered: the +t_ reply-address token is primary, then the
- * In-Reply-To / References headers against stored Message-IDs, then (failing
- * both) a new ticket via the configured route. The method is loop- and
- * duplicate-safe: automated mail is dropped, a sender is rate limited, and the
- * same Message-ID is never ingested twice.
+ * In-Reply-To / References headers (stored Message-IDs and our own signed
+ * ones), then the ticket reference in the subject ("[SUP-2026-00042]") — the
+ * last two only for a sender already on the ticket — and failing all of them a
+ * new ticket via the configured route. The method is loop- and duplicate-safe:
+ * automated mail (auto-replies, bounces, no-reply senders, our own mail) is
+ * dropped, a sender is rate limited, and the same Message-ID is never ingested
+ * twice. Quoted history and signatures are cut from the stored body (the
+ * original stays in `meta.original_body`); Cc addresses become `cc`
+ * participants.
  *
  * @internal
  */
@@ -44,6 +53,7 @@ class ProcessInboundEmail
         protected TenantContext $tenant,
         protected PostMessage $postMessage,
         protected AddAttachment $addAttachment,
+        protected ReplyParser $parser,
     ) {}
 
     public function handle(InboundEmail $email): ?TicketMessage
@@ -52,12 +62,15 @@ class ProcessInboundEmail
             return null;
         }
 
-        // Anti-loop: never let an autoresponder/bulk message open or reply.
-        if ($email->isAutoReply()) {
+        // Anti-loop: never let an autoresponder, a bounce, a no-reply sender or
+        // our own notification coming back open a ticket or reply.
+        if ($email->isAutomated() || $this->isOwnMail($email)) {
             return null;
         }
 
-        $messageId = $email->messageId === null ? '' : $this->normaliseId($email->messageId);
+        // The claim key: hashed when longer than the column (a client may send
+        // a Message-ID of any length).
+        $messageId = $email->messageId === null ? '' : MailMessageIds::column($email->messageId);
 
         // Cheap pre-check (a read) so an obvious redelivery is dropped BEFORE the
         // rate limiter, never burning the sender's flood-control slot. The
@@ -156,6 +169,10 @@ class ProcessInboundEmail
             }
         }
 
+        // Last resort: a reply whose client dropped the headers still carries
+        // the reference we put in the subject.
+        $ticket ??= $this->threadBySubject($email);
+
         if ($ticket instanceof Ticket) {
             // Operate inside the ticket's tenant — an inbound webhook has no
             // ambient context — and resolve the requester there too.
@@ -227,7 +244,9 @@ class ProcessInboundEmail
      * In-Reply-To names the DIRECT parent, so it's tried first; References is
      * ordered oldest→newest, so its newest (closest ancestor) is tried next.
      * Each id is resolved on its own — never a whereIn+latest() that could pick
-     * the most recent of several matches over the actual parent.
+     * the most recent of several matches over the actual parent. An id is
+     * either a stored inbound Message-ID (indexed column) or one of the signed
+     * ids our own notifications are sent with.
      */
     protected function threadByHeader(InboundEmail $email): ?Ticket
     {
@@ -241,13 +260,19 @@ class ProcessInboundEmail
 
             $seen[$id] = true;
 
-            /** @var TicketMessage|null $message */
-            $message = Ticketing::ticketMessageModel()::withoutTenancy()
-                ->where('meta->message_id', $id)
-                ->latest()
-                ->first();
+            $ours = MailMessageIds::ticketFrom($id);
 
-            $ticket = $message?->ticket()->withoutTenancy()->first();
+            if ($ours !== null) {
+                $ticket = Ticketing::ticketModel()::withoutTenancy()->find($ours);
+            } else {
+                /** @var TicketMessage|null $message */
+                $message = Ticketing::ticketMessageModel()::withoutTenancy()
+                    ->where('email_message_id', MailMessageIds::column($id))
+                    ->latest()
+                    ->first();
+
+                $ticket = $message?->ticket()->withoutTenancy()->first();
+            }
 
             if ($ticket instanceof Ticket) {
                 return $ticket;
@@ -258,8 +283,39 @@ class ProcessInboundEmail
     }
 
     /**
-     * Has this sender already appeared on the ticket (as the requester's opening
-     * message or a prior reply)? Gate for header threading only.
+     * A bracketed ticket reference in the subject, e.g. "Re: Printer
+     * [SUP-2026-00042]" — in the routed tenant when the recipient has one, and
+     * only when exactly one such ticket has the sender on it.
+     */
+    protected function threadBySubject(InboundEmail $email): ?Ticket
+    {
+        if (preg_match_all('/\[([A-Za-z0-9][A-Za-z0-9._\/-]{1,62})\]/', $email->subject, $matches) < 1) {
+            return null;
+        }
+
+        $tenant = $this->router->route($email)?->tenant;
+        $model = Ticketing::ticketModel();
+
+        foreach (array_unique($matches[1]) as $reference) {
+            $candidates = $model::query()->withoutTenancy()
+                ->where('reference', $reference)
+                ->when($tenant !== null, fn ($query) => $query->where((new $model)->getTenantColumn(), $tenant))
+                ->limit(5)
+                ->get()
+                ->filter(fn (Ticket $ticket): bool => $this->senderOnTicket($ticket, $email));
+
+            if ($candidates->count() === 1) {
+                return $candidates->first();
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Has this sender already appeared on the ticket — as the sender of an
+     * earlier email, or as a contact requester/participant (a widget visitor,
+     * a Cc'd colleague)? Gate for header and subject threading only.
      */
     protected function senderOnTicket(Ticket $ticket, InboundEmail $email): bool
     {
@@ -269,9 +325,27 @@ class ProcessInboundEmail
             return false;
         }
 
-        return Ticketing::ticketMessageModel()::withoutTenancy()
+        $wrote = Ticketing::ticketMessageModel()::withoutTenancy()
             ->where('ticket_id', $ticket->getKey())
             ->where('meta->from', $from)
+            ->exists();
+
+        if ($wrote) {
+            return true;
+        }
+
+        $contact = new (Ticketing::contactModel());
+        $tenant = $ticket->getAttribute($ticket->getTenantColumn());
+        $contacts = $contact::query()->withoutTenancy()
+            ->where($contact->getTenantColumn(), $tenant)
+            ->where('email', $from)
+            ->pluck($contact->getKeyName())
+            ->map(fn (mixed $key): string => (string) $key)
+            ->all();
+
+        return $contacts !== [] && $ticket->participants()->withoutTenancy()
+            ->where('participant_type', $contact->getMorphClass())
+            ->whereIn('participant_id', $contacts)
             ->exists();
     }
 
@@ -279,16 +353,21 @@ class ProcessInboundEmail
     {
         $message = $this->append($ticket, $email, $author);
         $this->importAttachments($message, $email);
+        $this->addCcParticipants($ticket, $email);
 
         return $message;
     }
 
     protected function append(Ticket $ticket, InboundEmail $email, ?Model $author): TicketMessage
     {
-        return $this->postMessage->handle(new PostMessageData(
+        $original = $email->body();
+        $body = config('ticketing.mail.inbound.strip_quotes', true) === false ? $original
+            : ($email->bodyFormat() === BodyFormat::Html ? $this->parser->html($original) : $this->parser->text($original));
+
+        $message = $this->postMessage->handle(new PostMessageData(
             ticket: $ticket,
             author: $author,
-            body: $email->body(),
+            body: $body,
             visibility: MessageVisibility::Public,
             bodyFormat: $email->bodyFormat(),
             source: MessageSource::Email,
@@ -298,8 +377,96 @@ class ProcessInboundEmail
                 'from' => strtolower(trim($email->from)),
                 'from_name' => $email->fromName,
                 'in_reply_to' => $email->inReplyTo !== null ? $this->normaliseId($email->inReplyTo) : null,
+                // What the sender's client sent, quotes and signature included.
+                'original_body' => $body !== $original ? $original : null,
             ], fn ($value): bool => $value !== null && $value !== ''),
         ));
+
+        if ($email->messageId !== null && ($id = MailMessageIds::column($email->messageId)) !== '') {
+            $message->forceFill(['email_message_id' => $id])->saveQuietly();
+        }
+
+        return $message;
+    }
+
+    /**
+     * Cc'd people follow the conversation as `cc` participants (contacts) —
+     * never our own addresses nor the sender, and at most ten per email.
+     */
+    protected function addCcParticipants(Ticket $ticket, InboundEmail $email): void
+    {
+        if (config('ticketing.mail.inbound.cc_participants', true) === false || config('ticketing.contacts.inbound_email', true) === false) {
+            return;
+        }
+
+        $from = strtolower(trim($email->from));
+        $addresses = array_unique(array_map(fn (string $address): string => strtolower(trim($address)), $email->cc));
+        $added = 0;
+
+        foreach ($addresses as $address) {
+            if ($added >= 10) {
+                break;
+            }
+
+            if ($address === $from || filter_var($address, FILTER_VALIDATE_EMAIL) === false || $this->isOwnAddress($address)) {
+                continue;
+            }
+
+            $contact = app(Ticketing::class)->contacts()->remember($address);
+            $model = Ticketing::ticketParticipantModel();
+
+            /** @var TicketParticipant $participant */
+            $participant = $model::query()->withoutTenancy()->firstOrCreate(
+                [
+                    'ticket_id' => $ticket->getKey(),
+                    'participant_type' => $contact->getMorphClass(),
+                    'participant_id' => $contact->getKey(),
+                    'role' => ParticipantRole::Cc->value,
+                ],
+                array_merge($ticket->tenantAttributes(), ['notify' => true]),
+            );
+
+            if ($participant->wasRecentlyCreated) {
+                ParticipantAdded::dispatch($ticket, $participant);
+            }
+
+            $added++;
+        }
+    }
+
+    /**
+     * One of our addresses: a tagged reply address, the reply-to base, or an
+     * address an inbound route names explicitly.
+     */
+    protected function isOwnAddress(string $address): bool
+    {
+        if (MailThreadToken::tokenFromAddress($address) !== null) {
+            return true;
+        }
+
+        $own = [strtolower(trim((string) config('ticketing.mail.outbound.reply_to_base', '')))];
+
+        foreach ((array) config('ticketing.mail.inbound.routes', []) as $route) {
+            $match = is_array($route) ? ($route['match'] ?? null) : null;
+
+            if (is_string($match) && str_contains($match, '@') && ! str_starts_with($match, '/')) {
+                $own[] = strtolower(trim($match));
+            }
+        }
+
+        return in_array($address, $own, true);
+    }
+
+    /**
+     * One of our own notifications delivered back to us (an agent whose
+     * address is the support inbox, a forwarding loop).
+     */
+    protected function isOwnMail(InboundEmail $email): bool
+    {
+        $headers = array_change_key_case($email->headers, CASE_LOWER);
+
+        return isset($headers['x-ticketing-mailer'])
+            || ($email->messageId !== null && MailMessageIds::ticketFrom($email->messageId) !== null);
     }
 
     protected function importAttachments(TicketMessage $message, InboundEmail $email): void
