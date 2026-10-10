@@ -1,6 +1,6 @@
 {
     "name": "selli/ticketing",
-    "description": "The agnostic, headless, multi-tenant ticketing domain engine for Laravel. Attach tickets to anything — your models, your UI, your tenant.",
+    "description": "The headless, multi-tenant help-desk engine for Laravel: tickets on any model, workflow, SLA, routing, email & widget channels, AI with human hand-over, knowledge base, KPIs, MCP and RAG.",
     "keywords": [
         "selli",
         "sellinnate",
@@ -11,7 +11,17 @@
         "support",
         "sla",
         "multi-tenant",
-        "headless"
+        "headless",
+        "help-desk",
+        "customer-support",
+        "knowledge-base",
+        "ai",
+        "rag",
+        "mcp",
+        "email-to-ticket",
+        "chat-widget",
+        "kpi",
+        "gdpr"
     ],
     "homepage": "https://laravel-ticketing.selli.io",
     "license": "MIT",
@@ -51,6 +61,7 @@
     "suggest": {
         "directorytree/imapengine": "Poll inbound email over IMAP with php artisan ticketing:mail:poll (^1.25).",
         "laravel/mcp": "Expose the help desk to AI agents as MCP tools (Selli\\Ticketing\\Mcp\\TicketingServer; Laravel 12.41+).",
+        "laravel/reverb": "Realtime ticket updates over WebSockets (ticketing.broadcasting).",
         "sellinnate/rag-engine": "Semantic knowledge-base search, RAG answers with citations, similar tickets (Selli\\Ticketing\\Integrations\\RagEngine; ^1.4)."
     },
     "autoload": {
