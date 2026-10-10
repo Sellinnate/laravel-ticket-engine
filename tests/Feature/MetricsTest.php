@@ -135,12 +135,23 @@ it('reports SLA compliance per target', function (): void {
     $clock(pastTicket(), 'first_response', '2026-03-02 12:00:00', '2026-03-02 13:00:00');
     // Answered late, before any sweep marked the breach.
     $clock(pastTicket(), 'first_response', null, '2026-03-02 12:30:00');
-    $clock(pastTicket(), 'resolution', null, null);
+    // Still running, due next week.
+    DB::table((new (Ticketing::slaClockModel()))->getTable())->insert([
+        'ticket_id' => pastTicket(), 'target' => 'resolution', 'started_at' => '2026-03-02 08:00:00', 'due_at' => '2026-04-07 08:00:00',
+        'breached_at' => null, 'completed_at' => null, 'threshold_notified' => false,
+        'created_at' => '2026-03-02 08:00:00', 'updated_at' => '2026-03-02 08:00:00',
+    ]);
+    // Overdue and still open, but the sweep has not marked it yet.
+    DB::table((new (Ticketing::slaClockModel()))->getTable())->insert([
+        'ticket_id' => pastTicket(), 'target' => 'resolution', 'started_at' => '2026-03-02 08:00:00', 'due_at' => '2026-03-30 08:00:00',
+        'breached_at' => null, 'completed_at' => null, 'threshold_notified' => false,
+        'created_at' => '2026-03-02 08:00:00', 'updated_at' => '2026-03-02 08:00:00',
+    ]);
     $clock(pastTicket(['created_at' => '2026-02-01 08:00:00']), 'resolution', '2026-02-02 08:00:00', null);
 
     expect(Ticketing::metrics()->between(...period())->sla())->toBe([
         'first_response' => ['met' => 2, 'breached' => 2, 'running' => 0, 'compliance' => 0.5],
-        'resolution' => ['met' => 0, 'breached' => 0, 'running' => 1, 'compliance' => null],
+        'resolution' => ['met' => 0, 'breached' => 1, 'running' => 1, 'compliance' => 0.0],
     ]);
 });
 

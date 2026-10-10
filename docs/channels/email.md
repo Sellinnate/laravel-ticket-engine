@@ -131,8 +131,9 @@ else's thread. Anything else opens a new ticket.
   English, Italian, German, French and Spanish), the signature (`-- `) and mobile footers are cut. The
   message as sent stays in `meta.original_body`. Turn it off with `mail.inbound.strip_quotes = false`.
 - **Cc'd people** become `cc` participants (as [contacts](/concepts/contacts)) — at most ten per email,
-  never your own addresses nor the sender — so they can reply into the thread and receive the public
-  replies. Turn it off with `mail.inbound.cc_participants = false`.
+  never the sender nor your own addresses (the reply-to base, the outbound sender, the polled mailboxes,
+  the literal route addresses and `mail.inbound.own_addresses`) — so they can reply into the thread and
+  receive the public replies. Turn it off with `mail.inbound.cc_participants = false`.
 - The sender becomes the requester ([contacts](/concepts/contacts)) unless you bind an
   `InboundRequesterResolver`.
 

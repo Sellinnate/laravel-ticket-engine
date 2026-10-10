@@ -200,6 +200,21 @@ it('adds Cc addresses as cc participants, never our own or the sender', function
     expect(Ticket::query()->findOrFail($other?->ticket_id)->participants()->where('role', ParticipantRole::Cc->value)->count())->toBe(0);
 });
 
+it('never adds a support mailbox or our sender as a Cc participant', function (): void {
+    config()->set('ticketing.mail.inbound.routes', [['match' => '*', 'type' => 'support']]);
+    config()->set('ticketing.mail.outbound.reply_to_base', null);
+    config()->set('mail.from.address', 'noreply@app.test');
+    config()->set('ticketing.mail.inbound.mailboxes', ['support' => ['username' => 'Desk@Example.test']]);
+    config()->set('ticketing.mail.inbound.own_addresses', ['billing@example.test']);
+
+    $message = Ticketing::receiveEmail(incoming(['cc' => ['desk@example.test', 'noreply@app.test', 'billing@example.test', 'colleague@example.test']]));
+
+    $cc = Ticket::query()->findOrFail($message?->ticket_id)->participants()->where('role', ParticipantRole::Cc->value)->get();
+
+    expect($cc)->toHaveCount(1)
+        ->and(Contact::query()->findOrFail($cc->first()->participant_id)->email)->toBe('colleague@example.test');
+});
+
 it('caps the Cc participants of one email', function (): void {
     $cc = array_map(fn (int $i): string => "cc{$i}@example.test", range(1, 15));
 

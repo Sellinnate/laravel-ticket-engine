@@ -238,16 +238,17 @@ class Metrics
     public function sla(): array
     {
         $model = Ticketing::slaClockModel();
+        $now = Carbon::now();
 
         $rows = $model::query()
             ->whereIn('ticket_id', $this->createdInPeriod()->select((new (Ticketing::ticketModel()))->getKeyName()))
             ->toBase()
             ->select('target')
-            // A deadline missed between two sweeps is completed late without a
-            // breach marker: the completion is compared with the deadline too.
-            ->selectRaw('sum(case when breached_at is not null or completed_at > due_at then 1 else 0 end) as breached')
+            // The sweep marks breaches only when it runs: a deadline missed in
+            // between — completed late, or still open and overdue — counts too.
+            ->selectRaw('sum(case when breached_at is not null or completed_at > due_at or (completed_at is null and paused_at is null and due_at < ?) then 1 else 0 end) as breached', [$now])
             ->selectRaw('sum(case when breached_at is null and completed_at is not null and completed_at <= due_at then 1 else 0 end) as met')
-            ->selectRaw('sum(case when breached_at is null and completed_at is null then 1 else 0 end) as running')
+            ->selectRaw('sum(case when breached_at is null and completed_at is null and (paused_at is not null or due_at >= ?) then 1 else 0 end) as running', [$now])
             ->groupBy('target')
             ->orderBy('target')
             ->get();

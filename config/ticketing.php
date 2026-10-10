@@ -554,6 +554,11 @@ return [
             // Cc'd addresses follow the ticket as `cc` participants (contacts).
             'cc_participants' => true,
 
+            // Your own addresses, never added as Cc participants (besides the
+            // reply-to base, the outbound sender, the polled mailboxes and
+            // the literal route addresses, which are recognised already).
+            'own_addresses' => [],
+
             // Mailboxes polled by `php artisan ticketing:mail:poll` (schedule it
             // every minute with ->withoutOverlapping()). The imap driver needs
             // directorytree/imapengine; without processed_folder a message is

@@ -451,8 +451,9 @@ class ProcessInboundEmail
     }
 
     /**
-     * One of our addresses: a tagged reply address, the reply-to base, or an
-     * address an inbound route names explicitly.
+     * One of our addresses: a tagged reply address, the reply-to base, the
+     * sender of our mail, a polled mailbox, an address an inbound route names
+     * explicitly, or one listed in `mail.inbound.own_addresses`.
      */
     protected function isOwnAddress(string $address): bool
     {
@@ -460,7 +461,19 @@ class ProcessInboundEmail
             return true;
         }
 
-        $own = [strtolower(trim((string) config('ticketing.mail.outbound.reply_to_base', '')))];
+        $outboundFrom = config('ticketing.mail.outbound.from');
+        $own = [
+            config('ticketing.mail.outbound.reply_to_base'),
+            is_array($outboundFrom) ? ($outboundFrom['address'] ?? null) : null,
+            config('mail.from.address'),
+            ...(array) config('ticketing.mail.inbound.own_addresses', []),
+        ];
+
+        foreach ((array) config('ticketing.mail.inbound.mailboxes', []) as $mailbox) {
+            $own[] = is_array($mailbox) ? ($mailbox['address'] ?? $mailbox['username'] ?? null) : null;
+        }
+
+        $own = array_map(fn (mixed $value): string => is_string($value) ? strtolower(trim($value)) : '', $own);
 
         foreach ((array) config('ticketing.mail.inbound.routes', []) as $route) {
             $match = is_array($route) ? ($route['match'] ?? null) : null;
