@@ -71,7 +71,8 @@ capitalised, upper case).
 Every filter compiles to SQL; nothing is filtered in PHP. The v1 migrations add tenant-leading indexes for
 the default order (`created_at`), an agent's and a team's queue, channels, categories and resolution dates,
 and the pagination tie-breaks on the primary key so pages are stable. Prefer `cursorPaginate()` for deep
-lists and infinite scroll: it never scans an `OFFSET`.
+lists and infinite scroll: it never scans an `OFFSET`. It needs a sort column that is never NULL, so it refuses the
+`due_at` and `resolved_at` sorts — use `paginate()` (or another sort) for those.
 
 ## Tenancy
 
