@@ -256,6 +256,13 @@ it('cleans up merged tickets and keeps an erased conversation out through a merg
 
     expect(ragDocuments('ticket:'.$resolved->getKey()))->toBe(0)
         ->and(app(RagKnowledge::class)->excluded($resolved))->toBeTrue();
+
+    // Split out of it, then resolved: still out.
+    $split = Ticketing::for($resolved->refresh())->split([$resolved->messages()->oldest('id')->value('id')]);
+    Ticketing::transition($split, 'resolve');
+
+    expect(app(RagKnowledge::class)->excluded($split))->toBeTrue()
+        ->and(ragDocuments('ticket:'.$split->getKey()))->toBe(0);
 });
 
 it('reindexes a resolved ticket whose messages were split out', function (): void {

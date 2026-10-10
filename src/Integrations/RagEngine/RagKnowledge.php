@@ -263,8 +263,9 @@ class RagKnowledge
     }
 
     /**
-     * Carry the exclusion of merged-in tickets over to the target, whose
-     * conversation now holds their messages.
+     * Carry the exclusion of merged-in tickets over to the target — or of a
+     * split ticket over to the new one — whose conversation now holds their
+     * messages.
      *
      * @param  list<int|string>  $sourceIds
      */
