@@ -120,6 +120,8 @@ it('runs a whole conversation over HTTP', function (): void {
         ->assertJsonPath('data.messages.1.body', 'Use the reset link.')
         ->assertJsonPath('data.messages.1.sources.0.title', 'Reset');
 
+    expect($this->getJson(WIDGET."/conversations/{$id}/messages", widgetHeaders($key, $token))->json('data.messages.0.id'))->toHaveLength(20);
+
     $this->getJson(WIDGET."/conversations/{$id}/messages", widgetHeaders($key, $token))
         ->assertOk()
         ->assertJsonCount(2, 'data.messages');

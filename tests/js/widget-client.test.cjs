@@ -83,11 +83,11 @@ test('ignores an expired stored session and needs endpoint, key and fetch', () =
     assert.throws(() => new TicketingWidget({ key: 'k' }), TypeError);
 });
 
-test('de-duplicates polled messages and stops on demand', async () => {
-    const message = { role: 'assistant', body: 'Hello', at: 't1' };
+test('de-duplicates polled messages by id and stops on demand', async () => {
+    const message = { id: 'a1', role: 'assistant', body: 'Hello', at: 't1' };
     const { fetch } = fakeFetch([
         { body: { data: { status: 'open', messages: [message] } } },
-        { body: { data: { status: 'open', messages: [message, { role: 'visitor', body: 'Hi', at: 't2' }] } } },
+        { body: { data: { status: 'open', messages: [message, { id: 'a2', role: 'assistant', body: 'Hello', at: 't1' }] } } },
     ]);
 
     const widget = new TicketingWidget({ endpoint: 'https://app.example', key: 'k', fetch, storage: null });
@@ -99,7 +99,8 @@ test('de-duplicates polled messages and stops on demand', async () => {
     await new Promise((resolve) => setTimeout(resolve, 1100));
     stop();
 
-    assert.deepEqual(batches, [['Hello'], ['Hi']]);
+    // Same role, body and second: still two messages, told apart by id.
+    assert.deepEqual(batches, [['Hello'], ['Hello']]);
 });
 
 test('searches, reads and votes on articles with the conversation attached', async () => {

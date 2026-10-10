@@ -623,3 +623,38 @@ it('re-checks the exchange limit under the lock', function (): void {
         ->and($ticket->messages()->where('body', 'One too many')->exists())->toBeFalse()
         ->and($ticket->refresh()->ai_exchanges)->toBe(2);
 });
+
+it('does not escalate a resolved ticket when the provider fails late', function (): void {
+    $customer = Ticketing::contacts()->remember('customer@example.com');
+    $ticket = Ticketing::open(type: 'support', title: 'x', requester: $customer);
+
+    app(AiManager::class)->extend('failing', fn () => new class($ticket) implements AiDriver
+    {
+        public function __construct(private Ticket $ticket) {}
+
+        public function classify(AiRequest $request): AiClassification
+        {
+            return AiClassification::none();
+        }
+
+        public function answer(AiRequest $request): AiAnswer
+        {
+            Ticketing::transition($this->ticket->refresh(), 'resolve');
+
+            throw new RuntimeException('provider down');
+        }
+
+        public function summarize(AiRequest $request): AiSummary
+        {
+            return new AiSummary('');
+        }
+    });
+    config()->set('ticketing.ai.driver', 'failing');
+
+    Ticketing::postMessage($ticket, $customer, 'Question');
+
+    expect($ticket->refresh()->status)->toBe('resolved')
+        ->and($ticket->escalated_at)->toBeNull()
+        ->and($ticket->messages()->where('body', 'A human will follow up.')->exists())->toBeFalse()
+        ->and(AiTurn::query()->sole()->outcome)->toBe(AiOutcome::Failed);
+});

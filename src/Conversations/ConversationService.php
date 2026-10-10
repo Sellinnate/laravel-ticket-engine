@@ -340,7 +340,7 @@ class ConversationService
      * notes, never the transcript copy). With $since, only messages at or after
      * that instant (timestamps have second precision: clients de-duplicate).
      *
-     * @return list<array{role: string, body: string, sources: list<array<string, mixed>>, at: string|null}>
+     * @return list<array{id: string, role: string, body: string, sources: list<array<string, mixed>>, at: string|null}>
      */
     public function timeline(Conversation $conversation, ?Carbon $since = null): array
     {
@@ -355,6 +355,7 @@ class ConversationService
 
         foreach ($messages as $message) {
             $items[] = [
+                'id' => self::opaqueId('conversation_message', $message->getKey()),
                 'role' => $message->role->value,
                 'body' => $message->body,
                 'sources' => $this->publicSources($message->sources ?? []),
@@ -379,6 +380,7 @@ class ConversationService
                 }
 
                 $items[] = [
+                    'id' => self::opaqueId('ticket_message', $message->getKey()),
                     'role' => $this->ticketRole($conversation, $message),
                     'body' => $message->body,
                     'sources' => $this->publicSources((array) data_get($message->meta, 'ai.sources', [])),
@@ -388,6 +390,15 @@ class ConversationService
         }
 
         return $items;
+    }
+
+    /**
+     * A stable, opaque message id for the browser: unique per message, but
+     * neither the internal key nor reversible to it.
+     */
+    protected static function opaqueId(string $kind, int|string $key): string
+    {
+        return substr(hash_hmac('sha256', $kind.':'.$key, (string) config('app.key')), 0, 20);
     }
 
     protected function appendToTicket(Conversation $conversation, string $body): TicketMessage

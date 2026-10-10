@@ -96,8 +96,8 @@ Every request sends `X-Ticketing-Key: tk_pub_…`; conversation routes also `Aut
 | `GET /kb/articles/{slug}?locale=` | one public article |
 | `POST /kb/articles/{slug}/feedback` | `{helpful, comment?}` — one vote per conversation or visitor |
 
-Messages carry `role` (`visitor`, `assistant`, `agent`, `system`), `body`, `sources` (title, type, url) and
-`at`. `since` returns messages at or after that instant; de-duplicate on the client.
+Messages carry an opaque `id`, `role` (`visitor`, `assistant`, `agent`, `system`), `body`, `sources`
+(title, type, url) and `at`. `since` returns messages at or after that instant; de-duplicate on `id`.
 
 ### Help center {#knowledge-base}
 

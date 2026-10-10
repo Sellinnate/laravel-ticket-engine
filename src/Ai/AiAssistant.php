@@ -345,13 +345,35 @@ class AiAssistant
     {
         report($exception);
 
-        $this->finish($turn, AiOutcome::Failed, EscalationReason::AiError, null, $usage, $started, $exception->getMessage(), status: AiTurn::STATUS_HANDOFF);
+        // Always on: a provider error hands the customer to a human — unless,
+        // meanwhile, a human took over or the ticket was resolved.
+        $handOver = DB::transaction(function () use ($ticket, $turn, $usage, $started, $exception): bool {
+            /** @var Ticket $locked */
+            $locked = Ticketing::ticketModel()::query()->withoutTenancy()
+                ->lockForUpdate()
+                ->whereKey($ticket->getKey())
+                ->firstOrFail();
+
+            if (($locked->ai_status !== null && ! $locked->ai_status->answers()) || $this->requests->isClosed($locked)) {
+                $this->finish($turn, AiOutcome::Failed, null, null, $usage, $started, $exception->getMessage());
+
+                return false;
+            }
+
+            if ($locked->ai_status === null) {
+                $locked->forceFill(['ai_status' => AiStatus::Active])->save();
+            }
+
+            $this->markEscalated($locked, EscalationReason::AiError);
+            $this->finish($turn, AiOutcome::Failed, EscalationReason::AiError, null, $usage, $started, $exception->getMessage(), status: AiTurn::STATUS_HANDOFF);
+
+            return true;
+        });
 
         AiUsageRecorded::dispatch($turn);
         AiTurnFailed::dispatch($turn, $exception->getMessage());
 
-        // Always on: a provider error hands the customer to a human.
-        return $this->resumeTicketHandoff($ticket, $turn);
+        return $handOver ? $this->resumeTicketHandoff($ticket, $turn) : $turn;
     }
 
     /**

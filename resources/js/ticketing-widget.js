@@ -181,7 +181,7 @@
             const fresh = [];
 
             for (const message of messages) {
-                const id = message.at + '|' + message.role + '|' + message.body;
+                const id = message.id || (message.at + '|' + message.role + '|' + message.body);
                 if (!this.seen.has(id)) {
                     this.seen.add(id);
                     fresh.push(message);
