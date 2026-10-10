@@ -194,8 +194,18 @@ class RagKnowledge
 
         $lines = [$ticket->title];
 
+        // A long conversation keeps its opening (the problem) and its latest
+        // 199 messages (where the solution is).
+        $public = fn () => $ticket->messages()->withoutTenancy()->with('author')->where('visibility', MessageVisibility::Public->value);
+        $messages = $public()->latest()->orderByDesc((new (Ticketing::ticketMessageModel()))->getKeyName())->limit(199)->get()->reverse()->values();
+        $first = $public()->oldest()->orderBy((new (Ticketing::ticketMessageModel()))->getKeyName())->first();
+
+        if ($first instanceof TicketMessage && ! $messages->contains(fn (TicketMessage $message): bool => $message->is($first))) {
+            $messages->prepend($first);
+        }
+
         /** @var TicketMessage $message */
-        foreach ($ticket->messages()->withoutTenancy()->with('author')->where('visibility', MessageVisibility::Public->value)->oldest()->limit(200)->get() as $message) {
+        foreach ($messages as $message) {
             $role = $message->author instanceof CanActOnTickets ? 'Agent' : ($message->author_id === null && $message->source->value === 'ai' ? 'Assistant' : 'Customer');
             $body = $message->body_format === BodyFormat::Html ? $this->plain($message->body) : $message->body;
             $lines[] = $role.': '.trim($body);

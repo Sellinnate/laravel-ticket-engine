@@ -9,6 +9,7 @@ use Selli\Ticketing\Ai\AiRequest;
 use Selli\Ticketing\Ai\EscalationPolicy;
 use Selli\Ticketing\Data\ArticleData;
 use Selli\Ticketing\Enums\AiStatus;
+use Selli\Ticketing\Enums\ArticleType;
 use Selli\Ticketing\Enums\EscalationReason;
 use Selli\Ticketing\Enums\KnowledgeVisibility;
 use Selli\Ticketing\Enums\MessageSource;
@@ -24,6 +25,7 @@ use Selli\Ticketing\Support\AuditLogger;
 use Selli\Ticketing\Tenancy\TenantContext;
 use Selli\Ticketing\Tests\Fixtures\TestRequester;
 use Sellinnate\RagEngine\Contracts\Llm;
+use Sellinnate\RagEngine\Facades\Rag;
 use Sellinnate\RagEngine\Managers\LlmManager;
 use Sellinnate\RagEngine\Models\Document;
 
@@ -256,6 +258,24 @@ it('cleans up merged tickets and keeps an erased conversation out through a merg
         ->and(app(RagKnowledge::class)->excluded($resolved))->toBeTrue();
 });
 
+it('keeps the opening and the latest replies of a long conversation', function (): void {
+    $ticket = Ticketing::open(type: 'support', title: 'Router keeps rebooting');
+    Ticketing::postMessage($ticket, null, 'My router keeps rebooting every hour.');
+    foreach (range(1, 205) as $i) {
+        Ticketing::postMessage($ticket, null, "No {$i}.");
+    }
+    Ticketing::postMessage($ticket, makeUser(), 'Solution: replace the faulty power adapter of the router.');
+    Ticketing::transition($ticket, 'resolve');
+
+    $content = Rag::forTenant('tk-shared', fn () => Rag::ingestor()->content(
+        Document::query()->withoutGlobalScopes()->where('metadata->document_key', 'ticket:'.$ticket->getKey())->sole(),
+    ));
+
+    expect($content)->toContain('My router keeps rebooting every hour.')
+        ->and($content)->toContain('replace the faulty power adapter')
+        ->and($content)->not->toContain('No 7.');
+});
+
 it('powers the knowledge-base search, re-checked against the database', function (): void {
     $article = kb('Two-factor login', 'Enable two-factor login with an authenticator app from account security.');
 
@@ -263,6 +283,11 @@ it('powers the knowledge-base search, re-checked against the database', function
 
     expect($results)->toHaveCount(1)
         ->and($results[0]->article->is($article))->toBeTrue();
+
+    // Moved to another type behind the bridge's back: no longer an answer for a type filter.
+    KbArticle::query()->whereKey($article->getKey())->update(['type' => 'faq']);
+    expect(Ticketing::knowledge()->search('how to enable two-factor login with an authenticator', KnowledgeAudience::public(), type: ArticleType::Article))->toBe([]);
+    KbArticle::query()->whereKey($article->getKey())->update(['type' => 'article']);
 
     // Unpublished behind the bridge's back (no event): the stale vector is not trusted.
     KbArticle::query()->whereKey($article->getKey())->update(['status' => 'draft']);
