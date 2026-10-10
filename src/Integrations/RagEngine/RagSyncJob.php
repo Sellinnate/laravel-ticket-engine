@@ -8,9 +8,6 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
-use Selli\Ticketing\Models\KbArticle;
-use Selli\Ticketing\Models\Ticket;
-use Selli\Ticketing\Support\Ticketing;
 
 /**
  * Brings one article or ticket of the RAG index up to date (indexes it, or
@@ -44,22 +41,8 @@ class RagSyncJob implements ShouldQueue
 
     public function handle(RagKnowledge $rag): void
     {
-        if ($this->kind === RagKnowledge::TYPE_ARTICLE) {
-            $article = Ticketing::kbArticleModel()::query()->withoutTenancy()->withTrashed()->find($this->id);
-
-            if ($article instanceof KbArticle) {
-                $rag->indexArticle($article);
-            } else {
-                $rag->forgetArticleById($this->id, $this->tenantId);
-            }
-
-            return;
-        }
-
-        $ticket = Ticketing::ticketModel()::query()->withoutTenancy()->find($this->id);
-
-        $ticket instanceof Ticket
-            ? $rag->indexTicket($ticket)
-            : $rag->forgetTicket($this->id, $this->tenantId);
+        $this->kind === RagKnowledge::TYPE_ARTICLE
+            ? $rag->syncArticle($this->id, $this->tenantId)
+            : $rag->syncTicket($this->id, $this->tenantId);
     }
 }

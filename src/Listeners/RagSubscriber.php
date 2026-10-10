@@ -4,9 +4,12 @@ declare(strict_types=1);
 
 namespace Selli\Ticketing\Listeners;
 
+use Selli\Ticketing\Ai\AiRequestFactory;
+use Selli\Ticketing\Enums\MessageVisibility;
 use Selli\Ticketing\Events\ArticleArchived;
 use Selli\Ticketing\Events\ArticlePublished;
 use Selli\Ticketing\Events\ArticleSaved;
+use Selli\Ticketing\Events\MessagePosted;
 use Selli\Ticketing\Events\RequesterAnonymized;
 use Selli\Ticketing\Events\TicketClosed;
 use Selli\Ticketing\Events\TicketErased;
@@ -26,7 +29,10 @@ use Selli\Ticketing\Integrations\RagEngine\RagSyncJob;
  */
 class RagSubscriber implements Subscriber
 {
-    public function __construct(protected RagKnowledge $rag) {}
+    public function __construct(
+        protected RagKnowledge $rag,
+        protected AiRequestFactory $requests,
+    ) {}
 
     public function onArticle(ArticlePublished|ArticleSaved|ArticleArchived $event): void
     {
@@ -38,6 +44,21 @@ class RagSubscriber implements Subscriber
     public function onTicket(TicketResolved|TicketClosed|TicketReopened $event): void
     {
         if (config('ticketing.rag.index.tickets', true) !== false) {
+            RagSyncJob::sync(RagKnowledge::TYPE_TICKET, $event->ticket->getKey(), $event->ticket->getAttribute($event->ticket->getTenantColumn()));
+        }
+    }
+
+    /**
+     * A public reply on a ticket already resolved (or closed) changes the
+     * conversation that is indexed.
+     */
+    public function onMessage(MessagePosted $event): void
+    {
+        if (config('ticketing.rag.index.tickets', true) === false || $event->message->visibility !== MessageVisibility::Public) {
+            return;
+        }
+
+        if ($this->requests->isClosed($event->ticket)) {
             RagSyncJob::sync(RagKnowledge::TYPE_TICKET, $event->ticket->getKey(), $event->ticket->getAttribute($event->ticket->getTenantColumn()));
         }
     }
@@ -78,6 +99,7 @@ class RagSubscriber implements Subscriber
             TicketResolved::class => 'onTicket',
             TicketClosed::class => 'onTicket',
             TicketReopened::class => 'onTicket',
+            MessagePosted::class => 'onMessage',
             TicketErased::class => 'onErased',
             TicketMerged::class => 'onMerged',
             RequesterAnonymized::class => 'onAnonymized',

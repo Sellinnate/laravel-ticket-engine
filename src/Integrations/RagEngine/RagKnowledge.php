@@ -93,10 +93,31 @@ class RagKnowledge
      */
     public function indexArticle(KbArticle $article): void
     {
+        $this->syncArticle($article->getKey(), $article->getAttribute($article->getTenantColumn()));
+    }
+
+    /**
+     * Bring one article's index entry up to date with the database, read
+     * under the document's lock — a worker holding an older snapshot can
+     * never overwrite a newer version.
+     */
+    public function syncArticle(int|string $id, int|string|null $tenant): void
+    {
+        $this->locked($tenant, self::TYPE_ARTICLE.':'.$id, function () use ($id, $tenant): void {
+            $article = Ticketing::kbArticleModel()::query()->withoutTenancy()->withTrashed()->find($id);
+
+            $article instanceof KbArticle
+                ? $this->writeArticle($article)
+                : $this->purge($tenant, self::TYPE_ARTICLE.':'.$id);
+        });
+    }
+
+    protected function writeArticle(KbArticle $article): void
+    {
         $tenant = $article->getAttribute($article->getTenantColumn());
 
         if ($article->status !== ArticleStatus::Published || $article->trashed()) {
-            $this->forget($tenant, self::TYPE_ARTICLE, $article->getKey());
+            $this->purge($tenant, self::TYPE_ARTICLE.':'.$article->getKey());
 
             return;
         }
@@ -125,7 +146,9 @@ class RagKnowledge
 
     public function forgetArticleById(int|string $articleId, int|string|null $tenant): void
     {
-        $this->forget($tenant, self::TYPE_ARTICLE, $articleId);
+        $key = self::TYPE_ARTICLE.':'.$articleId;
+
+        $this->locked($tenant, $key, fn () => $this->purge($tenant, $key));
     }
 
     /**
@@ -135,12 +158,32 @@ class RagKnowledge
      */
     public function indexTicket(Ticket $ticket): void
     {
+        $this->syncTicket($ticket->getKey(), $ticket->getAttribute($ticket->getTenantColumn()));
+    }
+
+    /**
+     * Bring one ticket's index entry up to date with the database, read
+     * under the document's lock (see syncArticle()).
+     */
+    public function syncTicket(int|string $id, int|string|null $tenant): void
+    {
+        $this->locked($tenant, self::TYPE_TICKET.':'.$id, function () use ($id, $tenant): void {
+            $ticket = Ticketing::ticketModel()::query()->withoutTenancy()->find($id);
+
+            $ticket instanceof Ticket
+                ? $this->writeTicket($ticket)
+                : $this->purge($tenant, self::TYPE_TICKET.':'.$id);
+        });
+    }
+
+    protected function writeTicket(Ticket $ticket): void
+    {
         $tenant = $ticket->getAttribute($ticket->getTenantColumn());
 
         // An erased requester's conversation never comes back (a backfill, a
         // late job): the exclusion is recorded in the ticket's audit trail.
         if (! $this->requests->isClosed($ticket) || $ticket->trashed() || $this->excluded($ticket)) {
-            $this->forget($tenant, self::TYPE_TICKET, $ticket->getKey());
+            $this->purge($tenant, self::TYPE_TICKET.':'.$ticket->getKey());
 
             return;
         }
@@ -164,7 +207,9 @@ class RagKnowledge
 
     public function forgetTicket(int|string $ticketId, int|string|null $tenant): void
     {
-        $this->forget($tenant, self::TYPE_TICKET, $ticketId);
+        $key = self::TYPE_TICKET.':'.$ticketId;
+
+        $this->locked($tenant, $key, fn () => $this->purge($tenant, $key));
     }
 
     /**
@@ -181,7 +226,8 @@ class RagKnowledge
                 app(AuditLogger::class)->record(ticket: $ticket, event: self::EXCLUDED, context: ['reason' => 'requester_anonymized']);
             }
 
-            $this->forgetTicket($ticket->getKey(), $ticket->getAttribute($ticket->getTenantColumn()));
+            // Re-read under the lock: excluded now, so it is purged.
+            $this->syncTicket($ticket->getKey(), $ticket->getAttribute($ticket->getTenantColumn()));
             $count++;
         });
 
@@ -388,7 +434,8 @@ class RagKnowledge
     }
 
     /**
-     * Ingest (or re-ingest) one document and drop its older versions.
+     * Ingest (or re-ingest) one document and drop its older versions (the
+     * caller holds its lock).
      *
      * @param  array<string, string>  $metadata
      */
@@ -397,12 +444,12 @@ class RagKnowledge
         $key = $type.':'.$id;
 
         if (trim($text) === '') {
-            $this->forget($tenant, $type, $id);
+            $this->purge($tenant, $key);
 
             return;
         }
 
-        $this->locked($tenant, $key, fn () => Rag::forTenant($this->ragTenant($tenant), function () use ($key, $type, $id, $title, $text, $metadata): void {
+        Rag::forTenant($this->ragTenant($tenant), function () use ($key, $type, $id, $title, $text, $metadata): void {
             $document = Rag::ingest(Rag::source()->text($text, [
                 'document_key' => $key,
                 'title' => $title,
@@ -420,16 +467,17 @@ class RagKnowledge
             // The engine keeps a replaced version searchable: purge it.
             $this->documents($key)->whereKeyNot($document->getKey())->get()
                 ->each(fn (Document $old) => Rag::ingestor()->purge($old));
-        }));
+        });
     }
 
-    protected function forget(int|string|null $tenant, string $type, int|string $id): void
+    /**
+     * Remove every version of a document (the caller holds its lock).
+     */
+    protected function purge(int|string|null $tenant, string $key): void
     {
-        $key = $type.':'.$id;
-
-        $this->locked($tenant, $key, fn () => Rag::forTenant($this->ragTenant($tenant), function () use ($key): void {
+        Rag::forTenant($this->ragTenant($tenant), function () use ($key): void {
             $this->documents($key)->get()->each(fn (Document $document) => Rag::ingestor()->purge($document));
-        }));
+        });
     }
 
     /**

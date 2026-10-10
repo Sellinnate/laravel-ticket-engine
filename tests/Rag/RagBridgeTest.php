@@ -20,6 +20,7 @@ use Selli\Ticketing\Integrations\RagEngine\RagHit;
 use Selli\Ticketing\Integrations\RagEngine\RagKnowledge;
 use Selli\Ticketing\Knowledge\KnowledgeAudience;
 use Selli\Ticketing\Models\KbArticle;
+use Selli\Ticketing\Support\AuditLogger;
 use Selli\Ticketing\Tenancy\TenantContext;
 use Selli\Ticketing\Tests\Fixtures\TestRequester;
 use Sellinnate\RagEngine\Contracts\Llm;
@@ -156,6 +157,11 @@ it('indexes resolved tickets as internal knowledge, without internal notes', fun
         // Customers never get tickets.
         ->and(app(RagKnowledge::class)->search('printer offline after driver update', KnowledgeAudience::customer(), null, types: [RagKnowledge::TYPE_TICKET]))->toBe([]);
 
+    // A late public reply on the resolved ticket joins the indexed conversation.
+    Ticketing::postMessage($ticket->refresh(), makeUser(), 'Follow-up: the vendor released a fixed driver, version 2.1.');
+
+    expect(app(RagKnowledge::class)->similarTickets('printer offline after driver update', null)[0]->excerpt)->toContain('version 2.1');
+
     // Reopened: not resolved knowledge any more — even before its sync job ran.
     config()->set('ticketing.rag.index.tickets', false);
     Ticketing::transition($ticket->refresh(), 'reopen');
@@ -200,7 +206,7 @@ it('never hands out an excluded conversation, even if its vectors survived', fun
     expect(app(RagKnowledge::class)->similarTickets('broken phone screen replacement', null))->toHaveCount(1);
 
     // The purge failed after the exclusion was recorded.
-    app(Selli\Ticketing\Support\AuditLogger::class)->record(ticket: $ticket, event: RagKnowledge::EXCLUDED);
+    app(AuditLogger::class)->record(ticket: $ticket, event: RagKnowledge::EXCLUDED);
 
     expect(ragDocuments('ticket:'.$ticket->getKey()))->toBe(1)
         ->and(app(RagKnowledge::class)->similarTickets('broken phone screen replacement', null))->toBe([]);
