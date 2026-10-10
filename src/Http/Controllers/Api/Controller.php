@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 use Selli\Ticketing\Exceptions\AttachmentRejectedException;
 use Selli\Ticketing\Exceptions\CsatException;
+use Selli\Ticketing\Exceptions\EscalationNotAllowedException;
 use Selli\Ticketing\Exceptions\TicketingException;
 use Selli\Ticketing\Exceptions\TransitionNotAllowedException;
 use Selli\Ticketing\Exceptions\UnknownTicketTypeException;
@@ -44,7 +45,7 @@ abstract class Controller
     {
         try {
             return $callback();
-        } catch (UnknownTicketTypeException|UnknownTransitionException|TransitionNotAllowedException|CsatException|AttachmentRejectedException $exception) {
+        } catch (UnknownTicketTypeException|UnknownTransitionException|TransitionNotAllowedException|CsatException|AttachmentRejectedException|EscalationNotAllowedException $exception) {
             throw ValidationException::withMessages([$field => $exception->getMessage()]);
         }
     }

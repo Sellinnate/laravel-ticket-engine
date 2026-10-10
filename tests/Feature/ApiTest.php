@@ -13,8 +13,6 @@ use Selli\Ticketing\Routing\Strategies\ManualStrategy;
 use Selli\Ticketing\Tenancy\TenantContext;
 use Selli\Ticketing\Tests\Fixtures\TestRequester;
 
-const API = '/ticketing/api/v1';
-
 it('creates a ticket', function (): void {
     $this->actingAs(makeUser());
 

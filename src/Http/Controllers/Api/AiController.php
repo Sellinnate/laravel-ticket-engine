@@ -9,6 +9,7 @@ use Selli\Ticketing\Contracts\CanActOnTickets;
 use Selli\Ticketing\Enums\EscalationReason;
 use Selli\Ticketing\Facades\Ticketing;
 use Selli\Ticketing\Http\Resources\TicketResource;
+use Selli\Ticketing\Models\Ticket;
 
 /**
  * Human takeover and escalation over the API.
@@ -44,6 +45,6 @@ class AiController extends Controller
         $actor = $this->actor($request);
         $reason = $actor instanceof CanActOnTickets ? EscalationReason::Manual : EscalationReason::HumanRequested;
 
-        return new TicketResource(Ticketing::escalate($model, $reason, $actor, notifyCustomer: $reason === EscalationReason::HumanRequested));
+        return new TicketResource($this->guard('ticket', fn (): Ticket => Ticketing::escalate($model, $reason, $actor, notifyCustomer: $reason === EscalationReason::HumanRequested)));
     }
 }

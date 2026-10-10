@@ -78,7 +78,8 @@ The AI only sees **public** messages: internal notes never leave the team.
 ```
 
 A customer asking for a person and a provider error **always** escalate. Escalating (`EscalateTicket`, also
-`Ticketing::escalate($ticket)`):
+`Ticketing::escalate($ticket)`) works on tickets that are not resolved or closed — otherwise it throws
+`EscalationNotAllowedException` (`422` over REST): reopen the ticket first. It:
 
 - sets `ai_status = escalated`, `escalation_reason` and `escalated_at`, and audits `ticket.escalated`;
 - makes sure someone owns the ticket: routing rules first, then the escalation team;

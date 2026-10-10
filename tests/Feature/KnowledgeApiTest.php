@@ -7,6 +7,7 @@ use Selli\Ticketing\Data\ArticleData;
 use Selli\Ticketing\Enums\AiStatus;
 use Selli\Ticketing\Enums\EscalationReason;
 use Selli\Ticketing\Enums\KnowledgeVisibility;
+use Selli\Ticketing\Exceptions\EscalationNotAllowedException;
 use Selli\Ticketing\Facades\Ticketing;
 use Selli\Ticketing\Models\KbArticle;
 use Selli\Ticketing\Models\KbCategory;
@@ -117,6 +118,20 @@ it('lets agents take over and anyone on the ticket ask for a human', function ()
         ->assertOk()
         ->assertJsonPath('data.ai.status', 'suspended')
         ->assertJsonPath('data.assignee.id', (string) $agent->getKey());
+});
+
+it('refuses to escalate a resolved ticket', function (): void {
+    config()->set('ticketing.ai.escalation.handoff_message', 'A human will follow up.');
+    $requester = TestRequester::query()->create(['name' => 'Customer']);
+    $ticket = Ticketing::open(type: 'support', title: 'Help', requester: $requester);
+    Ticketing::transition($ticket, 'resolve');
+
+    $this->actingAs($requester);
+    $this->postJson(API."/tickets/{$ticket->getKey()}/escalate")->assertUnprocessable()->assertJsonValidationErrors('ticket');
+
+    expect($ticket->refresh()->ai_status)->toBeNull()
+        ->and($ticket->messages()->where('body', 'A human will follow up.')->exists())->toBeFalse()
+        ->and(fn () => Ticketing::escalate($ticket))->toThrow(EscalationNotAllowedException::class);
 });
 
 it('exposes the AI sources on AI messages', function (): void {

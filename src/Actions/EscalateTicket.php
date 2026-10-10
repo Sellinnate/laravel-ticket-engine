@@ -7,6 +7,7 @@ namespace Selli\Ticketing\Actions;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
+use Selli\Ticketing\Ai\AiRequestFactory;
 use Selli\Ticketing\Ai\TicketSummarizer;
 use Selli\Ticketing\Data\AssignTicketData;
 use Selli\Ticketing\Data\PostMessageData;
@@ -15,6 +16,7 @@ use Selli\Ticketing\Enums\EscalationReason;
 use Selli\Ticketing\Enums\MessageSource;
 use Selli\Ticketing\Enums\MessageVisibility;
 use Selli\Ticketing\Events\TicketEscalated;
+use Selli\Ticketing\Exceptions\EscalationNotAllowedException;
 use Selli\Ticketing\Models\Team;
 use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Routing\RoutingEngine;
@@ -31,6 +33,9 @@ use Selli\Ticketing\Support\Ticketing;
  * escalating it twice — unless $resume asks to finish a hand-over whose side
  * effects were interrupted (a crashed worker): every step is idempotent, so a
  * resumed hand-over never posts the customer message or the summary twice.
+ *
+ * A resolved or closed ticket cannot be escalated (reopen it first): a resumed
+ * hand-over on one just stops.
  */
 class EscalateTicket
 {
@@ -52,6 +57,16 @@ class EscalateTicket
             // the AI must not override the takeover.
             if ($locked->ai_status === AiStatus::Suspended) {
                 return null;
+            }
+
+            // Checked first, so no entry point (REST, facade, a resumed AI
+            // hand-over) promises a human on a ticket that stays closed.
+            if ($this->container->make(AiRequestFactory::class)->isClosed($locked)) {
+                if ($resume) {
+                    return null;
+                }
+
+                throw EscalationNotAllowedException::closed();
             }
 
             if ($locked->ai_status === AiStatus::Escalated) {

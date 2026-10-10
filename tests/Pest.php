@@ -11,6 +11,9 @@ use Selli\Ticketing\Tests\WidgetApiGroupTestCase;
 
 uses(TestCase::class)->in('Feature', 'Unit');
 
+// Base path of the REST API, shared by every API test file.
+const API = '/ticketing/api/v1';
+
 // The widget API behind the host's real "api" middleware group.
 uses(WidgetApiGroupTestCase::class)->in('Widget');
 

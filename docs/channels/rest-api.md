@@ -36,7 +36,7 @@ and wire it yourself.
 | `POST /tickets/{ticket}/assignment` | assign to a team/agent or self |
 | `POST /tickets/{ticket}/attachments` | upload an attachment |
 | `POST /tickets/{ticket}/csat` | submit a satisfaction rating |
-| `POST /tickets/{ticket}/escalate` | hand the ticket to humans (a requester asks for a person; an agent escalates manually) |
+| `POST /tickets/{ticket}/escalate` | hand the ticket to humans (a requester asks for a person; an agent escalates manually); `422` on a resolved or closed ticket |
 | `POST /tickets/{ticket}/takeover` | an agent takes the ticket from the AI (`assign=false` to keep the assignee) |
 | `POST /tickets/{ticket}/articles` | link a knowledge-base article: `{article_id, relation?}` (agents) |
 
