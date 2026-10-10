@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use DirectoryTree\ImapEngine\Connection\ImapQueryBuilder;
+use DirectoryTree\ImapEngine\MessageQuery;
 use DirectoryTree\ImapEngine\Testing\FakeFolder;
 use DirectoryTree\ImapEngine\Testing\FakeMailbox;
 use DirectoryTree\ImapEngine\Testing\FakeMessage;
@@ -92,6 +94,19 @@ it('never lets a failing message keep newer mail out', function (): void {
         ->and($mailbox->poll($handler, limit: 1))->toBe(1) // it waits; the next one goes through
         ->and($fine->isSeen())->toBeTrue()
         ->and($poison->isSeen())->toBeFalse();
+});
+
+it('leaves the messages waiting for a retry out of the IMAP search', function (): void {
+    $mailbox = new class(new FakeMailbox) extends ImapMailbox
+    {
+        public function searchFor(array $waiting): string
+        {
+            return $this->search(new MessageQuery(new FakeFolder('inbox'), new ImapQueryBuilder), $waiting)->toImap();
+        }
+    };
+
+    expect($mailbox->searchFor([]))->toBe('UNSEEN')
+        ->and($mailbox->searchFor([9, 3, 4, 5]))->toBe('UNSEEN NOT UID 3:5,9');
 });
 
 it('sets a message aside after repeated failures, with a growing delay in between', function (): void {

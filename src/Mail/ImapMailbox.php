@@ -7,11 +7,15 @@ namespace Selli\Ticketing\Mail;
 use Closure;
 use DirectoryTree\ImapEngine\Address;
 use DirectoryTree\ImapEngine\Attachment;
+use DirectoryTree\ImapEngine\Connection\RawQueryValue;
+use DirectoryTree\ImapEngine\Enums\ImapSearchKey;
 use DirectoryTree\ImapEngine\Mailbox;
 use DirectoryTree\ImapEngine\MailboxInterface;
 use DirectoryTree\ImapEngine\Message;
 use DirectoryTree\ImapEngine\MessageInterface;
 use DirectoryTree\ImapEngine\MessageQuery;
+use DirectoryTree\ImapEngine\MessageQueryInterface;
+use DirectoryTree\ImapEngine\Support\Str;
 use Illuminate\Contracts\Cache\Repository;
 use Illuminate\Support\Facades\Cache;
 use Selli\Ticketing\Contracts\InboundMailbox;
@@ -77,26 +81,26 @@ class ImapMailbox implements InboundMailbox
         $folder = strtoupper($this->folder) === 'INBOX' ? $this->mailbox->inbox() : $this->mailbox->folders()->findOrFail($this->folder);
         $now = now()->getTimestamp();
         $state = $this->state();
-        $waiting = count(array_filter($state, fn (array $entry): bool => $entry['retry_at'] > $now));
 
-        $query = $folder->messages();
-
-        if ($query instanceof MessageQuery) {
-            $query->unseen(); // IMAP SEARCH UNSEEN, on the server
+        // The messages still waiting for a retry are left out of the search, so
+        // however many there are they never keep newer mail out of the batch.
+        $waiting = [];
+        foreach ($state as $key => $entry) {
+            if ($entry['retry_at'] > $now) {
+                $waiting[] = (int) substr($key, 4);
+            }
         }
 
-        // Read past the messages still waiting for a retry, so they never
-        // keep newer mail out of the batch.
-        $messages = $query->withHeaders()->withBody()->withFlags()->leaveUnread()->oldest()
-            ->limit(min($limit + $waiting, $limit * 10))
-            ->get();
+        $query = $this->search($folder->messages(), $waiting);
+
+        $messages = $query->withHeaders()->withBody()->withFlags()->leaveUnread()->oldest()->limit($limit)->get();
 
         $handled = 0;
         $processed = 0;
 
         foreach ($messages as $message) {
-            // The server already filtered on UNSEEN; this guards a mailbox
-            // whose query cannot (a fake, a custom folder implementation).
+            // The server already filtered on UNSEEN and the waiting UIDs; this
+            // guards a mailbox whose query cannot (a fake, a custom folder).
             if ($handled >= $limit || $message->isSeen()) {
                 continue;
             }
@@ -148,6 +152,28 @@ class ImapMailbox implements InboundMailbox
         $this->saveState($state);
 
         return $processed;
+    }
+
+    /**
+     * The unseen messages, without those waiting for a retry — narrowed on the
+     * server when the query speaks IMAP.
+     *
+     * @param  list<int>  $waiting  UIDs
+     */
+    protected function search(MessageQueryInterface $query, array $waiting): MessageQueryInterface
+    {
+        if (! $query instanceof MessageQuery) {
+            return $query;
+        }
+
+        $query->unseen();
+
+        if ($waiting !== []) {
+            sort($waiting);
+            $query->whereNot(ImapSearchKey::Uid, new RawQueryValue(Str::set(array_slice($waiting, 0, 5000))));
+        }
+
+        return $query;
     }
 
     /**
