@@ -20,8 +20,8 @@ found, each time with a test that would catch it again.
 ## Method
 
 - **Automated adversarial review** of every change set (OpenAI Codex review) until it reported nothing
-  actionable — 42 rounds on the support phase, 13 on channels, 12 on the RAG bridge — plus CodeRabbit on
-  every pull request.
+  actionable — 42 rounds on the support phase, 18 on channels, 19 on the RAG bridge, plus the documentation
+  — and CodeRabbit on every pull request.
 - **Every finding fixed with a regression test**, verified to fail without the fix.
 - **Three databases on every change**: SQLite, MySQL 8.4 and PostgreSQL 16 run the whole suite (JSON paths,
   string/integer comparisons, NULLs in unique indexes, row locks and isolation levels differ).
@@ -51,6 +51,8 @@ found, each time with a test that would catch it again.
 | Knowledge-base listings could show what a direct read refuses | Every result passes the article policy |
 | The AI could put a stale excerpt (article made internal, restricted or archived, not re-indexed yet) into a customer's answer | Every RAG hit is re-read in the database — audience, tenant, current version — before use |
 | A ticket passage could be cited after the ticket was reopened, split or merged | Ticket hits must still be resolved and match the indexed conversation revision |
+| A requester who can also act on tickets had their own reply taken for the answer, or their name kept | Answers and names decided by role on the ticket and the requester contract |
+| MCP references could pick a shared ticket over the tenant's own; reports were open to agents of another tenant | The tenant's own ticket wins, ambiguity is refused; `viewReports` requires membership of the current tenant |
 | MCP tools could reach the database with keys that are not keys (bigint vs ULID), or edit a published article | Key validation per id strategy; drafts only, checked under the article lock |
 | A KB category filter that is not an id crashed PostgreSQL | Validated as a key (422) |
 
@@ -93,7 +95,9 @@ found, each time with a test that would catch it again.
 | Finding | Fix |
 | --- | --- |
 | AI question excerpts, widget traces, vote comments survived erasure | Scrubbed by erasure and retention |
-| Erased requesters' conversations could re-enter the RAG index (backfill, late job, merge, split) | Durable `rag.excluded` audit marker, inherited through merge and split, checked under the document lock and at search time |
+| Erased requesters' conversations could re-enter the RAG index (backfill, late job, merge, split) | Durable `rag.excluded` audit marker, inherited through merge and split, checked under the document lock and at search time; recorded before the (fallible, retried) purges |
+| Indexed tickets carried whole conversations, names and contact data | Only the question and the final answer, with emails, phone/card/IBAN numbers and the names of the people on the ticket removed |
+| Retention anonymisation left the ticket in the RAG index | New `TicketAnonymized` event; the bridge excludes and purges it |
 | Contacts' unique key allowed one NULL on SQL Server (second anonymisation failed) | Filtered unique index on SQL Server |
 
 ### Metrics

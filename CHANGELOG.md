@@ -29,9 +29,11 @@ First stable release: the public API is now covered by semantic versioning (see
   reopen rate, SLA compliance, AI share and cost, CSAT, knowledge gaps, breakdowns; streamed CSV exports;
   `GET /reports/*` endpoints behind `viewReports`.
 - **MCP tools** (optional, `laravel/mcp`) — `Mcp\TicketingServer` with policy-checked help-desk tools.
-- **RAG Engine bridge** (optional, `sellinnate/rag-engine`) — indexing of articles and resolved tickets,
-  fail-closed semantic search, `rag-engine` AI driver with citations, similar tickets, GDPR purges,
+- **RAG Engine bridge** (optional, `sellinnate/rag-engine`) — indexing of articles, canned responses and
+  resolved tickets (question + final answer, personal data removed), hybrid fail-closed semantic search
+  re-verified in the database, `rag-engine` AI driver with citations, similar tickets, GDPR purges,
   `ticketing:rag:index`.
+- `TicketAnonymized` event when retention anonymises a ticket.
 - `TicketQuery` (`Ticketing::tickets()`): listing filters, sort, offset/cursor pagination, used by the REST
   index; `channel` on tickets; reopen on requester reply; `SqlDialect` for portable SQL.
 - Documentation site (docmd) with guides, references, security and FAQ; Cloudflare Worker config.
