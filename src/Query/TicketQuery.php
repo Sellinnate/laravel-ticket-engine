@@ -559,6 +559,12 @@ class TicketQuery
             return null; // an impossible calendar date such as 2026-02-31
         }
 
-        return $endOfDay && strlen($value) === 10 ? $date->endOfDay() : $date;
+        if ($endOfDay && strlen($value) === 10) {
+            $date = $date->endOfDay();
+        }
+
+        // Timestamps are stored in the application timezone and bound without an
+        // offset, so an offset-bearing filter is converted first.
+        return $date->setTimezone((string) config('app.timezone', 'UTC'));
     }
 }
