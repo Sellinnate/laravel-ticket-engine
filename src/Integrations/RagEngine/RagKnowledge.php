@@ -6,6 +6,7 @@ namespace Selli\Ticketing\Integrations\RagEngine;
 
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Cache;
 use Selli\Ticketing\Actions\Knowledge\SaveArticle;
 use Selli\Ticketing\Ai\AiRequestFactory;
 use Selli\Ticketing\Contracts\CanActOnTickets;
@@ -334,8 +335,17 @@ class RagKnowledge
         // Tickets are agents' knowledge only, and only while still resolved
         // (a reopened ticket's answer did not hold).
         if ($ids[self::TYPE_TICKET] !== [] && $audience->agent) {
+            // An erased requester's conversation never shows, even if its
+            // vectors could not be purged.
+            $excluded = Ticketing::ticketActivityModel()::query()->withoutTenancy()
+                ->whereIn('ticket_id', $ids[self::TYPE_TICKET])
+                ->whereIn('event', [self::EXCLUDED, 'requester.anonymized'])
+                ->pluck('ticket_id')
+                ->map(fn (mixed $key): string => (string) $key)
+                ->all();
+
             $allowed[self::TYPE_TICKET] = $this->inTenant(Ticketing::ticketModel()::query()->withoutTenancy(), $tenant)
-                ->whereKey($ids[self::TYPE_TICKET])
+                ->whereKey(array_values(array_diff($ids[self::TYPE_TICKET], $excluded)))
                 ->get()
                 ->filter(fn (Ticket $ticket): bool => $this->requests->isClosed($ticket))
                 ->map(fn (Ticket $ticket): string => (string) $ticket->getKey())
@@ -392,7 +402,7 @@ class RagKnowledge
             return;
         }
 
-        Rag::forTenant($this->ragTenant($tenant), function () use ($key, $type, $id, $title, $text, $metadata): void {
+        $this->locked($tenant, $key, fn () => Rag::forTenant($this->ragTenant($tenant), function () use ($key, $type, $id, $title, $text, $metadata): void {
             $document = Rag::ingest(Rag::source()->text($text, [
                 'document_key' => $key,
                 'title' => $title,
@@ -410,14 +420,27 @@ class RagKnowledge
             // The engine keeps a replaced version searchable: purge it.
             $this->documents($key)->whereKeyNot($document->getKey())->get()
                 ->each(fn (Document $old) => Rag::ingestor()->purge($old));
-        });
+        }));
     }
 
     protected function forget(int|string|null $tenant, string $type, int|string $id): void
     {
-        Rag::forTenant($this->ragTenant($tenant), function () use ($type, $id): void {
-            $this->documents($type.':'.$id)->get()->each(fn (Document $document) => Rag::ingestor()->purge($document));
-        });
+        $key = $type.':'.$id;
+
+        $this->locked($tenant, $key, fn () => Rag::forTenant($this->ragTenant($tenant), function () use ($key): void {
+            $this->documents($key)->get()->each(fn (Document $document) => Rag::ingestor()->purge($document));
+        }));
+    }
+
+    /**
+     * One writer per document at a time: two workers re-indexing the same
+     * article must not each purge the other's fresh version.
+     *
+     * @param  \Closure(): mixed  $callback
+     */
+    protected function locked(int|string|null $tenant, string $key, \Closure $callback): void
+    {
+        Cache::lock('ticketing:rag:'.hash('sha256', $this->ragTenant($tenant).'|'.$key), 300)->block(60, $callback);
     }
 
     /**

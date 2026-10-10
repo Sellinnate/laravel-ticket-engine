@@ -192,6 +192,20 @@ it('purges the vectors of erased tickets and anonymised requesters', function ()
     expect(ragDocuments('ticket:'.$other->getKey()))->toBe(0);
 });
 
+it('never hands out an excluded conversation, even if its vectors survived', function (): void {
+    $ticket = Ticketing::open(type: 'support', title: 'Broken screen replacement');
+    Ticketing::postMessage($ticket, null, 'My phone screen is broken, I need a replacement screen.');
+    Ticketing::transition($ticket, 'resolve');
+
+    expect(app(RagKnowledge::class)->similarTickets('broken phone screen replacement', null))->toHaveCount(1);
+
+    // The purge failed after the exclusion was recorded.
+    app(Selli\Ticketing\Support\AuditLogger::class)->record(ticket: $ticket, event: RagKnowledge::EXCLUDED);
+
+    expect(ragDocuments('ticket:'.$ticket->getKey()))->toBe(1)
+        ->and(app(RagKnowledge::class)->similarTickets('broken phone screen replacement', null))->toBe([]);
+});
+
 it('powers the knowledge-base search, re-checked against the database', function (): void {
     $article = kb('Two-factor login', 'Enable two-factor login with an authenticator app from account security.');
 
