@@ -22,7 +22,10 @@ return new class extends Migration
             // Default listing order (latest first) and period-bounded reports.
             $this->indexScoped($table, ['created_at'], 'tickets_tenant_created_idx');
             // An agent's queue and the least-busy / skill-based load counts.
-            $this->indexScoped($table, ['assignee_type', 'assignee_id', 'status'], 'tickets_tenant_assignee_idx');
+            // Status is deliberately left out: with a string tenant column on
+            // MySQL utf8mb4, four VARCHAR(255) parts exceed InnoDB's 3072-byte
+            // key limit; three fit (3060 bytes) and already narrow to one agent.
+            $this->indexScoped($table, ['assignee_type', 'assignee_id'], 'tickets_tenant_assignee_idx');
             // A team's queue.
             $this->indexScoped($table, ['team_id', 'status'], 'tickets_tenant_team_idx');
             // Resolution-time and per-category reports.

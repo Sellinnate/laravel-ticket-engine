@@ -81,6 +81,13 @@ manager and `ReferenceGenerator`. They are fixed in code, not baselined.
 
 New indexes ship in **new, additive migrations** — the 14 existing migrations are never edited.
 
+Testing the widest key settings on MySQL surfaced two limits in those original migrations that, since they
+cannot be edited, are documented instead (installation page, *Database notes*): with ULID ids the
+participants unique index exceeds InnoDB's 3072-byte key limit unless `Schema::defaultStringLength(191)` is
+set before migrating, and a table prefix longer than three characters pushes some generated index names
+past MySQL's 64-character identifier limit. A dedicated test migrates every table on MySQL with a string
+tenant column, and with ULIDs plus the documented setting.
+
 ### Concurrency
 
 Assignment, transitions, references, CSAT, SLA breaches and inbound email are already guarded by row
