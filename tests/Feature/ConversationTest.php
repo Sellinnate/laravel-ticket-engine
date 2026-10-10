@@ -631,3 +631,15 @@ it('finishes a failed turn quietly when the visitor closed the conversation mean
         ->and($conversation->refresh()->status)->toBe(ConversationStatus::Closed)
         ->and(Ticket::query()->count())->toBe(0);
 });
+
+it('stops the AI on the ticket of a conversation handed over before any answer', function (): void {
+    ['key' => $key] = widgetKey();
+    ['conversation' => $conversation] = Ticketing::conversations()->start($key);
+
+    $ticket = Ticketing::conversations()->escalate($conversation, null, 'Jane', 'jane@example.com');
+
+    expect($ticket?->ai_status)->toBe(AiStatus::Escalated);
+
+    Ticketing::conversations()->post($conversation->refresh(), 'Anyone there?');
+    expect(AiTurn::query()->count())->toBe(0);
+});

@@ -112,8 +112,15 @@ class SaveArticle
             $changes = array_merge($changes, $this->morph('audience', $data->audience));
         }
 
-        if ($data->slug !== null && Str::slug($data->slug) !== $article->slug) {
-            $changes['slug'] = $this->uniqueSlug($data->slug, $article->locale, $article, $article->getAttribute($article->getTenantColumn()));
+        // A new locale (fixing a wrong one) re-checks the slug in that locale.
+        $locale = $data->locale !== null && $data->locale !== $article->locale ? $data->locale : $article->locale;
+
+        if ($locale !== $article->locale) {
+            $changes['locale'] = $locale;
+        }
+
+        if (($data->slug !== null && Str::slug($data->slug) !== $article->slug) || $locale !== $article->locale) {
+            $changes['slug'] = $this->uniqueSlug($data->slug ?? $article->slug, $locale, $article, $article->getAttribute($article->getTenantColumn()));
         }
 
         $article->fill($changes);

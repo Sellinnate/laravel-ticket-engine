@@ -274,10 +274,11 @@ class ConversationService
                 $this->draftOnTranscript($ticket);
             }
 
-            // The AI was answering: hand over formally (routing fallback, the
-            // team leads' notification, the agent summary). Without an
-            // answering AI the ticket was routed on open like any other.
-            if ($mode === AiMode::Auto && ($reason !== null || $locked->ai_exchanges > 0)) {
+            // An answering AI (auto mode) is handed over formally — routing
+            // fallback, team leads' notification, agent summary — and stops on
+            // the ticket, even before its first answer. Otherwise the ticket was
+            // routed on open like any other.
+            if ($mode === AiMode::Auto) {
                 $ticket = $this->container->make(EscalateTicket::class)->handle(
                     $ticket,
                     $reason ?? EscalationReason::HumanRequested,

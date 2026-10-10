@@ -330,3 +330,13 @@ it('searches numeric terms', function (): void {
     expect(resultTitles(Ticketing::knowledge()->search('error 500', KnowledgeAudience::public())))->toBe(['Error 500 on checkout'])
         ->and(resultTitles(Ticketing::knowledge()->search('2026', KnowledgeAudience::public())))->toBe([]);
 });
+
+it('moves an article to another locale, re-checking the slug there', function (): void {
+    article('Billing', 'B', ['locale' => 'it'], publish: false);
+    $wrong = article('Billing', 'B', publish: false);
+
+    $moved = Ticketing::knowledge()->save(new ArticleData(locale: 'it'), $wrong);
+
+    expect($moved->locale)->toBe('it')
+        ->and($moved->slug)->toBe('billing-2');
+});
