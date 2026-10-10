@@ -165,7 +165,9 @@ class ConversationService
 
                 $max = (int) config('ticketing.widget.max_messages_per_conversation', 50);
 
-                if ($max > 0 && $locked->message_count >= $max) {
+                // The cap guards the AI phase; once a person handles the ticket
+                // the visitor may keep answering (rate limits still apply).
+                if ($locked->status === ConversationStatus::Open && $max > 0 && $locked->message_count >= $max) {
                     throw ConversationException::tooManyMessages();
                 }
 
@@ -573,6 +575,12 @@ class ConversationService
     {
         if ($message->source === MessageSource::Ai) {
             return ConversationRole::Assistant->value;
+        }
+
+        // The visitor's own words, also without a requester (an anonymous
+        // hand-over): written from this widget conversation.
+        if ($message->source === MessageSource::Widget && ($message->meta['conversation'] ?? null) === $conversation->public_id) {
+            return ConversationRole::Visitor->value;
         }
 
         $requester = $this->existingRequester($conversation);

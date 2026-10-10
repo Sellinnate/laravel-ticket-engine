@@ -53,6 +53,10 @@ class ApplyRetention
             $erased = [];
 
             DB::transaction(function () use ($type, $cutoff, $action, &$count, &$erased): void {
+                // Per attempt: a re-run transaction must not announce the
+                // tickets of an attempt that rolled back.
+                $erased = [];
+
                 // Re-select (and lock) inside the transaction so a ticket reopened
                 // between selection and action isn't erased on a stale snapshot.
                 $tickets = $this->dueTickets($type, $cutoff)->lockForUpdate()->get();

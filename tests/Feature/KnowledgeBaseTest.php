@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
 use Selli\Ticketing\Actions\Knowledge\SaveArticle;
@@ -368,11 +369,24 @@ it('retries the insert when a concurrent save took the slug', function (): void 
         }
     });
 
+    $locking = [];
+    DB::listen(function ($query) use (&$locking): void {
+        if (str_contains($query->sql, 'kb_articles') && preg_match('/for share|lock in share mode|holdlock/i', $query->sql) === 1) {
+            $locking[] = $query->sql;
+        }
+    });
+
     $article = article('Race', 'Body', publish: false);
 
     expect($attempts)->toBe(2)
         ->and($article->exists)->toBeTrue()
         ->and($article->slug_key)->toBe(SaveArticle::slugKey(null, 'en', $article->slug));
+
+    // The retry reads the latest committed rows (InnoDB would otherwise reuse
+    // its snapshot and pick the colliding slug again). SQLite has no row locks.
+    if (DB::connection()->getDriverName() !== 'sqlite') {
+        expect($locking)->not->toBeEmpty();
+    }
 });
 
 it('enforces one shared slug per locale at the database level', function (): void {

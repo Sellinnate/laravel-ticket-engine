@@ -396,6 +396,37 @@ it('enforces message limits', function (): void {
         ->and(fn () => Ticketing::conversations()->post($conversation, '   '))->toThrow(ConversationException::class, 'empty');
 });
 
+it('lets the visitor keep answering past the cap once a person handles the ticket', function (): void {
+    config()->set('ticketing.widget.max_messages_per_conversation', 2);
+    config()->set('ticketing.ai.mode', 'off');
+    config()->set('ticketing.widget.require_email_to_escalate', false);
+    ['key' => $key] = widgetKey();
+    ['conversation' => $conversation] = Ticketing::conversations()->start($key);
+
+    foreach (['one', 'two', 'three', 'four'] as $body) {
+        Ticketing::conversations()->post($conversation, $body);
+    }
+
+    expect($conversation->refresh()->status)->toBe(ConversationStatus::Escalated)
+        ->and(Ticket::query()->sole()->messages()->pluck('body')->all())->toBe(['one', 'two', 'three', 'four']);
+});
+
+it('shows an anonymous visitor\'s replies on the ticket as theirs', function (): void {
+    config()->set('ticketing.ai.mode', 'off');
+    config()->set('ticketing.widget.require_email_to_escalate', false);
+    ['key' => $key] = widgetKey();
+    ['conversation' => $conversation] = Ticketing::conversations()->start($key);
+
+    Ticketing::conversations()->post($conversation, 'Hello team');
+    Ticketing::postMessage(Ticket::query()->sole(), makeUser(), 'Hi, how can we help?');
+    Ticketing::conversations()->post($conversation->refresh(), 'My order is late');
+
+    $timeline = Ticketing::conversations()->timeline($conversation);
+
+    expect(array_column($timeline, 'role'))->toBe(['visitor', 'agent', 'visitor'])
+        ->and(Ticket::query()->sole()->participants()->where('role', 'requester')->exists())->toBeFalse();
+});
+
 it('lets an agent take a conversation over at any time', function (): void {
     ['key' => $key, 'secret' => $secret] = widgetKey();
     ['conversation' => $conversation] = Ticketing::conversations()->start($key, new VisitorIdentity(

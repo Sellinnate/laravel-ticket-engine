@@ -808,6 +808,57 @@ it('lets only the current owner of a reclaimed turn write', function (): void {
         ->and(AiTurn::query()->sole()->attempts)->toBe(2);
 });
 
+it('records nothing for a failure of a worker whose turn was taken over', function (): void {
+    Event::fake([AiTurnFailed::class, AiUsageRecorded::class, TicketEscalated::class]);
+    $customer = Ticketing::contacts()->remember('customer@example.com');
+    $ticket = Ticketing::open(type: 'support', title: 'Slow', requester: $customer);
+    config()->set('ticketing.ai.mode', 'off');
+    $question = Ticketing::postMessage($ticket, $customer, 'Question');
+    config()->set('ticketing.ai.mode', 'auto');
+
+    // The first worker's provider call fails only after a retry took the turn
+    // over and answered.
+    $driver = new class implements AiDriver
+    {
+        public int $calls = 0;
+
+        public ?Closure $whileThinking = null;
+
+        public function classify(AiRequest $request): AiClassification
+        {
+            return AiClassification::none();
+        }
+
+        public function answer(AiRequest $request): AiAnswer
+        {
+            if (++$this->calls === 1 && $this->whileThinking !== null) {
+                ($this->whileThinking)();
+
+                throw new RuntimeException('provider timeout');
+            }
+
+            return confidentAnswer('Inner answer');
+        }
+
+        public function summarize(AiRequest $request): AiSummary
+        {
+            return new AiSummary('');
+        }
+    };
+    $driver->whileThinking = fn () => app(AiAssistant::class)->respondToTicket($ticket, $question, retry: true);
+    app(AiManager::class)->extend('failing-twin', fn () => $driver);
+    config()->set('ticketing.ai.driver', 'failing-twin');
+
+    app(AiAssistant::class)->respondToTicket($ticket, $question);
+
+    expect($ticket->refresh()->ai_status)->toBe(AiStatus::Active)
+        ->and(AiTurn::query()->sole()->outcome)->toBe(AiOutcome::Answered);
+
+    Event::assertDispatchedTimes(AiUsageRecorded::class, 1);
+    Event::assertNotDispatched(AiTurnFailed::class);
+    Event::assertNotDispatched(TicketEscalated::class);
+});
+
 it('falls back to the escalation team configured by id', function (): void {
     $team = Team::factory()->create();
     config()->set('ticketing.ai.escalation.team', (string) $team->getKey());

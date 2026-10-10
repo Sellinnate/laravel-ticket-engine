@@ -179,7 +179,13 @@ class SaveArticle
      * A slug unique within the tenant and locale: "reset-password",
      * "reset-password-2", … (the unique index is the final arbiter).
      */
-    protected function uniqueSlug(string $source, string $locale, ?KbArticle $ignore, int|string|null $tenant): string
+    /**
+     * @param  bool  $currentRead  read the latest committed rows (a locking
+     *                             read): a retry inside a REPEATABLE READ
+     *                             transaction (InnoDB) would otherwise see the
+     *                             snapshot without the slug that just collided
+     */
+    protected function uniqueSlug(string $source, string $locale, ?KbArticle $ignore, int|string|null $tenant, bool $currentRead = false): string
     {
         $base = Str::slug($source);
         $base = $base !== '' ? mb_substr($base, 0, 180) : 'article';
@@ -190,12 +196,15 @@ class SaveArticle
 
             // Checked in the article's own tenant, unscoped: an update may run in
             // another ambient context than the one the article belongs to.
-            $exists = $model::query()->withoutTenancy()->withTrashed()
+            $query = $model::query()->withoutTenancy()->withTrashed()
                 ->where('slug', $slug)
                 ->where('locale', $locale)
                 ->where($this->tenant->column(), $tenant)
-                ->when($ignore !== null, fn ($query) => $query->whereKeyNot($ignore?->getKey()))
-                ->exists();
+                ->when($ignore !== null, fn ($query) => $query->whereKeyNot($ignore?->getKey()));
+
+            $exists = $currentRead
+                ? $query->sharedLock()->limit(1)->value((new $model)->getKeyName()) !== null
+                : $query->exists();
 
             if (! $exists) {
                 return $slug;
@@ -251,7 +260,7 @@ class SaveArticle
                     throw $exception;
                 }
 
-                $slug = $this->uniqueSlug($source, $locale, $ignore, $tenant);
+                $slug = $this->uniqueSlug($source, $locale, $ignore, $tenant, currentRead: true);
             }
         }
     }

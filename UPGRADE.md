@@ -15,8 +15,10 @@
    php artisan migrate
    ```
 
-4. Compare your published `config/ticketing.php` with the package's: new keys always have a default that
-   keeps the previous behaviour, so copying them is optional but recommended.
+4. Compare your published `config/ticketing.php` with the package's: new keys have a default that keeps
+   the previous behaviour, so copying them is optional but recommended — except where a version's
+   **Behaviour changes** below say otherwise (for 1.0.0: `contacts.inbound_email` and
+   `workflow.reopen_on_reply` are on by default).
 
 ## From a pre-release checkout (`dev-main` before 1.0.0) to 1.0.0
 
@@ -56,8 +58,8 @@ documented recipes on the [Multi-tenancy](https://laravel-ticketing.selli.io/con
 - **Inbound email senders become contacts.** With no `InboundRequesterResolver` of your own, the email
   channel now resolves the sender to a `Contact` (author and requester of the ticket) instead of leaving them
   empty. Set `ticketing.contacts.inbound_email` to `false` for the old behaviour.
-- **Requester replies reopen resolved tickets** within 7 days, through the workflow's `reopen` transition
-  (`ticketing.workflow.reopen_on_reply`). Set `enabled` to `false` to keep resolved tickets resolved.
+- **Requester replies reopen resolved or closed tickets** within 7 days, through the workflow's `reopen`
+  transition (`ticketing.workflow.reopen_on_reply`). Set `enabled` to `false` to keep them as they are.
 - **REST ids are strings.** `subject.id`, `assignee.id` and `author.id` are always serialised as strings
   (they are string columns); a freshly assigned ticket used to return an integer.
 - **Message sources** gain `ai` and `widget`.

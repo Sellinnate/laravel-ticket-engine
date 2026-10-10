@@ -392,9 +392,9 @@ class AiAssistant
 
         // Always on: a provider error hands the customer to a human — unless,
         // meanwhile, a human took over or the ticket was resolved.
-        $handOver = DB::transaction(function () use ($ticket, $turn, $usage, $started, $exception): bool {
+        $handOver = DB::transaction(function () use ($ticket, $turn, $usage, $started, $exception): ?bool {
             if (! $this->stillOwns($turn)) {
-                return false;
+                return null;
             }
 
             /** @var Ticket $locked */
@@ -418,6 +418,12 @@ class AiAssistant
 
             return true;
         });
+
+        // Another worker owns the turn now: its own outcome is the one
+        // recorded and announced (no usage counted twice).
+        if ($handOver === null) {
+            return $turn;
+        }
 
         AiUsageRecorded::dispatch($turn);
         AiTurnFailed::dispatch($turn, $exception->getMessage());
