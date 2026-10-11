@@ -391,6 +391,44 @@ it('never writes after a takeover that happens while the driver is thinking', fu
         ->and($ticket->refresh()->ai_status)->toBe(AiStatus::Suspended);
 });
 
+it('never answers a question split or merged into another ticket while the driver is thinking', function (string $move): void {
+    app(AiManager::class)->extend('moving', fn () => new class($move) implements AiDriver
+    {
+        public function __construct(private string $move) {}
+
+        public function classify(AiRequest $request): AiClassification
+        {
+            return AiClassification::none();
+        }
+
+        public function answer(AiRequest $request): AiAnswer
+        {
+            // An agent moves the question elsewhere mid-turn.
+            $ticket = $request->ticket;
+            assert($ticket instanceof Ticket);
+
+            if ($this->move === 'split') {
+                Ticketing::for($ticket)->split([$ticket->messages()->latest('id')->value('id')]);
+            } else {
+                Ticketing::for(Ticketing::open(type: 'support', title: 'Target'))->mergeFrom([$ticket]);
+            }
+
+            return new AiAnswer('Late answer', [new AiSource('faq', '1', 'F')], 0.99);
+        }
+
+        public function summarize(AiRequest $request): AiSummary
+        {
+            return new AiSummary('');
+        }
+    });
+    config()->set('ticketing.ai.driver', 'moving');
+
+    customerAsks('A question that moves');
+
+    expect(Ticketing::ticketMessageModel()::query()->where('body', 'Late answer')->exists())->toBeFalse()
+        ->and(AiTurn::query()->sole()->outcome)->toBe(AiOutcome::Skipped);
+})->with(['split', 'merge']);
+
 it('escalates on a provider error', function (): void {
     Event::fake([AiTurnFailed::class, TicketEscalated::class]);
     fakeAi()->failNext('timeout');

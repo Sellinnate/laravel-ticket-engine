@@ -302,15 +302,17 @@ class AiAssistant
                 return null;
             }
 
-            /** @var Ticket $locked */
             $locked = Ticketing::ticketModel()::query()->withoutTenancy()
                 ->lockForUpdate()
                 ->whereKey($ticket->getKey())
-                ->firstOrFail();
+                ->first();
 
-            // A human took over, the ticket was escalated or resolved while the
+            // A human took over, the ticket was escalated or resolved — or the
+            // question moved to another ticket (split, merge) — while the
             // driver was thinking: never write after any of those.
-            if (($locked->ai_status !== null && ! $locked->ai_status->answers())
+            if (! $locked instanceof Ticket
+                || ! $this->stillOn($locked, $trigger)
+                || ($locked->ai_status !== null && ! $locked->ai_status->answers())
                 || $this->agentRepliedSince($locked, $trigger)
                 || $this->requests->isClosed($locked)) {
                 $this->finish($turn, AiOutcome::Skipped, null, $answer, $usage, $started);
@@ -671,6 +673,18 @@ class AiAssistant
                 app(Ticketing::class)->changePriority($locked, $suggested);
             }
         });
+    }
+
+    /**
+     * Whether the triggering message is still part of the ticket's
+     * conversation (not split or merged away).
+     */
+    protected function stillOn(Ticket $ticket, TicketMessage $trigger): bool
+    {
+        return Ticketing::ticketMessageModel()::query()->withoutTenancy()
+            ->whereKey($trigger->getKey())
+            ->where('ticket_id', $ticket->getKey())
+            ->exists();
     }
 
     /**

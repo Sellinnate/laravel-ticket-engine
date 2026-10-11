@@ -62,6 +62,7 @@ found, each time with a test that would catch it again.
 | --- | --- |
 | A retried job, a reclaimed turn or a stale worker could answer twice, overwrite, or count usage twice | One turn per triggering message (unique `trigger_key`); an `attempts` generation fences the old worker; ownership re-checked under lock; stale failures emit nothing |
 | A takeover landing while the model was thinking could be overridden; classification could overwrite an agent's change | Every AI write re-checks the stored status under the ticket lock; priority is raise-only against the stored value |
+| A question split or merged into another ticket while the model was thinking could still be answered on the original ticket | The turn re-reads, under the ticket lock, that the triggering message is still on the ticket (and the ticket still exists) and is skipped otherwise |
 | Crashes between the hand-over steps left tickets half-escalated or announced twice | Hand-overs are resumable step by step (`handoff` turns), messages posted once under lock, the escalation announced once (audited marker) |
 | Escalation and takeover could overwrite an assignment made meanwhile | Owner decided and assigned under the ticket lock |
 | Providers were called for resolved tickets, off-mode tickets, or summaries with AI disabled | Checked before any call; no job queued for off-mode tickets |
