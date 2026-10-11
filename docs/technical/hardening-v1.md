@@ -116,6 +116,7 @@ found, each time with a test that would catch it again.
 | Late or unswept SLA deadlines counted as met/running | Compared with `due_at` and now |
 | Tickets an agent took before the AI ran counted as AI-handled; filtered metrics dropped conversation turns | AI involvement from actual turns |
 | Offset dates compared in the wrong timezone; SQL Server averaged integers | Converted to the app timezone; averages cast to float |
+| `metrics()->between()` and the widget's polling `since` bound times in another timezone as if they were local | Converted to the application timezone first |
 | CSV cells could run as spreadsheet formulas | Quoted |
 | A split ticket lost the source's channel and language (out of channel reports, routed and AI-configured without them) | Copied from the source |
 

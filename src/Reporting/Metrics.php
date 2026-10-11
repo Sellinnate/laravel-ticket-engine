@@ -78,8 +78,11 @@ class Metrics
             throw new InvalidArgumentException('The period must start before it ends.');
         }
 
-        $this->from = $from;
-        $this->to = $to;
+        // Timestamps are stored in the application timezone and bound without
+        // an offset: boundaries in another timezone are converted first.
+        $timezone = (string) config('app.timezone', 'UTC');
+        $this->from = $from->copy()->setTimezone($timezone);
+        $this->to = $to->copy()->setTimezone($timezone);
 
         return $this;
     }

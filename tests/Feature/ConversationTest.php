@@ -195,6 +195,20 @@ it('links a verified visitor to a verified contact, or to a host user via the re
         ->and($claimed->meta['claimed']['email'])->toBe('ceo@acme.example');
 });
 
+it('reads a polling "since" in another offset as the same instant', function (): void {
+    $this->travelTo(Carbon::parse('2026-10-11 10:30:00', 'UTC'));
+    ['key' => $key] = widgetKey();
+    ['conversation' => $conversation] = Ticketing::conversations()->start($key);
+    chatAi()->queueAnswer(sure('Use the reset link.'));
+    Ticketing::conversations()->post($conversation, 'How do I reset my password?');
+
+    // 11:00+02:00 is 09:00 UTC: both messages (10:30 UTC) are newer.
+    $since = Carbon::parse('2026-10-11T11:00:00+02:00');
+
+    expect(Ticketing::conversations()->timeline($conversation->refresh(), $since))->toHaveCount(2)
+        ->and($since->getOffset())->toBe(7200);
+});
+
 it('lets the AI answer while the conversation is open', function (): void {
     ['key' => $key] = widgetKey();
     ['conversation' => $conversation] = Ticketing::conversations()->start($key);

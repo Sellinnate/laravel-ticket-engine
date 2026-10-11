@@ -70,6 +70,17 @@ it('counts the tickets created, resolved and closed in the period, per day', fun
     ]);
 });
 
+it('reads a period given in another timezone as the same instants', function (): void {
+    pastTicket(['created_at' => '2026-03-02 09:00:00']); // UTC, the application timezone
+
+    // 09:30 in Rome is 08:30 UTC: the ticket is inside the period.
+    $from = Carbon::parse('2026-03-02 09:30:00', 'Europe/Rome');
+    $to = Carbon::parse('2026-03-02 23:00:00', 'Europe/Rome');
+
+    expect(Ticketing::metrics()->between($from, $to)->volume()['created'])->toBe(1)
+        ->and($from->getTimezone()->getName())->toBe('Europe/Rome');
+});
+
 it('reports the backlog by age, whatever the period', function (): void {
     pastTicket(['created_at' => '2026-03-31 08:00:00']);
     pastTicket(['created_at' => '2026-03-29 08:00:00', 'status' => 'pending', 'assignee_type' => 'user', 'assignee_id' => '1']);

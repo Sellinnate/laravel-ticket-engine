@@ -378,6 +378,10 @@ class ConversationService
     {
         $items = [];
 
+        // Timestamps are stored in the application timezone and bound without
+        // an offset: a client's "since" in another offset is converted first.
+        $since = $since?->copy()->setTimezone((string) config('app.timezone', 'UTC'));
+
         $messages = Ticketing::conversationMessageModel()::query()->withoutTenancy()
             ->where('conversation_id', $conversation->getKey())
             ->when($since !== null, fn ($query) => $query->where('created_at', '>=', $since))
