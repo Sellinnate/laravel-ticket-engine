@@ -9,6 +9,8 @@ use Illuminate\Database\Eloquent\Model;
 use Selli\Ticketing\Contracts\CanActOnTickets;
 use Selli\Ticketing\Knowledge\KnowledgeAudience;
 use Selli\Ticketing\Models\KbArticle;
+use Selli\Ticketing\Support\Ticketing;
+use Selli\Ticketing\Tenancy\TenantContext;
 
 /**
  * Default authorization for knowledge-base articles. Reading follows the
@@ -39,9 +41,18 @@ class KbArticlePolicy
         return $article->isVisibleTo(KnowledgeAudience::for($user));
     }
 
+    /**
+     * A new article is created in the current tenant: the same rule as any
+     * write to an article of that tenant (with no tenant resolved it would be
+     * shared, so only an agent tied to no tenant may create it).
+     */
     public function create(Authenticatable $user): bool
     {
-        return $user instanceof CanActOnTickets;
+        $model = Ticketing::kbArticleModel();
+        $article = new $model;
+        $article->setAttribute($article->getTenantColumn(), app(TenantContext::class)->current());
+
+        return $this->canWrite($user, $article);
     }
 
     public function update(Authenticatable $user, KbArticle $article): bool

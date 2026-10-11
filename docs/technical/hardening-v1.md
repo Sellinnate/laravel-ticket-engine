@@ -55,6 +55,7 @@ found, each time with a test that would catch it again.
 | MCP references could pick a shared ticket over the tenant's own; reports were open to agents of another tenant | The tenant's own ticket wins, ambiguity is refused; `viewReports` requires membership of the current tenant |
 | MCP tools could reach the database with keys that are not keys (bigint vs ULID), or edit a published article | Key validation per id strategy; drafts only, checked under the article lock |
 | A KB category filter that is not an id crashed PostgreSQL | Validated as a key (422) |
+| An agent could create an article in another tenant (the one resolved for the request) or a shared one | `KbArticlePolicy::create` applies the write rule to the current tenant |
 
 ### AI under concurrency
 
