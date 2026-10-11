@@ -6,6 +6,7 @@ namespace Selli\Ticketing\Integrations\RagEngine;
 
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 use Illuminate\Support\Facades\Cache;
 use Selli\Ticketing\Actions\Knowledge\SaveArticle;
@@ -27,7 +28,6 @@ use Selli\Ticketing\Models\CannedResponse;
 use Selli\Ticketing\Models\KbArticle;
 use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Models\TicketMessage;
-use Selli\Ticketing\Models\TicketParticipant;
 use Selli\Ticketing\Support\AuditLogger;
 use Selli\Ticketing\Support\Ticketing;
 use Selli\Ticketing\Tenancy\TenantContext;
@@ -249,7 +249,7 @@ class RagKnowledge
     {
         $model = Ticketing::ticketMessageModel();
         $key = (new $model)->getKeyName();
-        $public = fn () => $ticket->messages()->withoutTenancy()->with('author')->where('visibility', MessageVisibility::Public->value);
+        $public = fn () => $ticket->messages()->withoutTenancy()->where('visibility', MessageVisibility::Public->value);
 
         // The requester's own messages are never the answer, even when their
         // model can also act on tickets.
@@ -258,9 +258,11 @@ class RagKnowledge
             $requesters[$participant->participant_type.':'.$participant->participant_id] = true;
         }
 
+        // An agent's by the author's class, never by loading the author: a
+        // host's own tenancy scope would hide it from a queued sync.
         $isAnswer = fn (TicketMessage $message): bool => $message->author_id === null
             ? $message->source === MessageSource::Ai
-            : ! isset($requesters[$message->author_type.':'.$message->author_id]) && $message->author instanceof CanActOnTickets;
+            : ! isset($requesters[$message->author_type.':'.$message->author_id]) && self::modelImplements($message->author_type, CanActOnTickets::class);
 
         // Scanned lazily, in batches, until found: however long the ticket.
         $question = $public()->lazyById(50, $key)->first(fn (TicketMessage $message): bool => ! $isAnswer($message));
@@ -282,26 +284,32 @@ class RagKnowledge
         $names = [];
 
         // By role on the ticket — requesters, Cc'd people, watchers — never
-        // the assignee or collaborators (the agents answering). Read in the
-        // ticket's tenant: a queued sync has none, and a tenant-scoped
-        // contact would not load.
+        // the assignee or collaborators (the agents answering).
         $roles = [ParticipantRole::Requester->value, ParticipantRole::Cc->value, ParticipantRole::Watcher->value];
 
-        $people = $this->tenants->forTenant($ticket->getAttribute($ticket->getTenantColumn()), function () use ($ticket, $roles): array {
-            $people = $ticket->participants()->withoutTenancy()->with('participant')->whereIn('role', $roles)->get()
-                ->map(fn (TicketParticipant $participant): mixed => $participant->participant)
-                ->all();
+        $keys = [];
 
-            // A ticket opened about a requester (Ticketing::for($contact))
-            // is theirs with no participant row.
-            $subject = $ticket->subject_type !== null ? $ticket->subject()->first() : null;
+        foreach ($ticket->participants()->withoutTenancy()->whereIn('role', $roles)->get(['participant_type', 'participant_id']) as $participant) {
+            $keys[$participant->participant_type][] = $participant->participant_id;
+        }
 
-            if ($subject instanceof CanRequestTickets) {
-                $people[] = $subject;
+        // A ticket opened about a requester (Ticketing::for($contact)) is
+        // theirs with no participant row.
+        if ($ticket->subject_type !== null && $ticket->subject_id !== null && self::modelImplements($ticket->subject_type, CanRequestTickets::class)) {
+            $keys[$ticket->subject_type][] = $ticket->subject_id;
+        }
+
+        $people = [];
+
+        foreach ($keys as $type => $ids) {
+            $class = Relation::getMorphedModel($type) ?? $type;
+
+            // With every global scope off — the package's tenancy, a host's
+            // own, soft deletes: a name to take out must always load.
+            if (is_a($class, Model::class, true)) {
+                array_push($people, ...$class::query()->withoutGlobalScopes()->whereKey(array_values(array_unique($ids)))->get()->all());
             }
-
-            return $people;
-        });
+        }
 
         foreach ($people as $person) {
             // The requester contract first: a host model may name it otherwise.
@@ -321,6 +329,20 @@ class RagKnowledge
         }
 
         return array_values(array_unique($names));
+    }
+
+    /**
+     * Whether the model class a morph type stands for implements a contract.
+     *
+     * @param  class-string  $contract
+     */
+    protected static function modelImplements(?string $type, string $contract): bool
+    {
+        if ($type === null || $type === '') {
+            return false;
+        }
+
+        return is_a(Relation::getMorphedModel($type) ?? $type, $contract, true);
     }
 
     /**

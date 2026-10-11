@@ -30,6 +30,7 @@ use Selli\Ticketing\Models\KbArticle;
 use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Support\AuditLogger;
 use Selli\Ticketing\Tenancy\TenantContext;
+use Selli\Ticketing\Tests\Fixtures\HostScopedUser;
 use Selli\Ticketing\Tests\Fixtures\TestRequester;
 use Sellinnate\RagEngine\Contracts\Llm;
 use Sellinnate\RagEngine\Facades\Rag;
@@ -673,12 +674,17 @@ it('keeps out the messages of an erased requester even once the merged-away sour
         ->and(ragDocuments('ticket:'.$target->getKey()))->toBe(0);
 });
 
-it('takes out the name of a requester the ticket is about', function (): void {
+it('indexes a conversation whatever scopes hide its people, without their names', function (): void {
+    HostScopedUser::$tenant = 4;
+
     $ticketId = app(TenantContext::class)->forTenant(4, function (): int|string {
+        // A package contact the ticket is about, a requester and an agent
+        // under the host's own tenancy.
         $customer = Ticketing::contacts()->remember('subject.person@example.test', 'Ludovica Ferraris');
-        $ticket = Ticketing::for($customer)->open(type: 'support', title: 'Ludovica Ferraris cannot print');
-        Ticketing::postMessage($ticket, null, 'Hello, Ludovica Ferraris here: the printer jams on every page.');
-        Ticketing::postMessage($ticket, makeUser(), 'Clean the printer rollers.');
+        $colleague = HostScopedUser::query()->create(['name' => 'Bartolomeo Quadri', 'tenant_id' => 4]);
+        $ticket = Ticketing::for($customer)->open(type: 'support', title: 'Ludovica Ferraris cannot print', requester: $colleague);
+        Ticketing::postMessage($ticket, $colleague, 'Hello, Ludovica Ferraris and Bartolomeo Quadri here: the printer jams on every page.');
+        Ticketing::postMessage($ticket, HostScopedUser::query()->create(['name' => 'Agent', 'tenant_id' => 4]), 'Clean the printer rollers.');
 
         // Indexed by a queued job: no tenant in context.
         config()->set('ticketing.rag.index.tickets', false);
@@ -688,14 +694,18 @@ it('takes out the name of a requester the ticket is about', function (): void {
         return $ticket->getKey();
     });
 
+    HostScopedUser::$tenant = null;
     app(RagKnowledge::class)->syncTicket($ticketId, 4);
 
     $document = Document::query()->withoutGlobalScopes()->where('metadata->document_key', 'ticket:'.$ticketId)->sole();
     $content = Rag::forTenant('tk-n-4', fn () => Rag::ingestor()->content($document));
 
     expect($content)->toContain('the printer jams on every page')
+        ->and($content)->toContain('Answer: Clean the printer rollers.')
         ->and($content)->not->toContain('Ludovica')
         ->and($content)->not->toContain('Ferraris')
+        ->and($content)->not->toContain('Bartolomeo')
+        ->and($content)->not->toContain('Quadri')
         ->and((string) $document->getAttribute('title'))->not->toContain('Ferraris');
 });
 
