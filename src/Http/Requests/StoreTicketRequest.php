@@ -8,6 +8,9 @@ use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Selli\Ticketing\Enums\Priority;
 
+/**
+ * @internal
+ */
 class StoreTicketRequest extends FormRequest
 {
     public function authorize(): bool

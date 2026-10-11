@@ -10,6 +10,7 @@ use Selli\Ticketing\Enums\ParticipantRole;
 use Selli\Ticketing\Events\TicketOpened;
 use Selli\Ticketing\Events\TicketSplit;
 use Selli\Ticketing\Exceptions\InvalidConfigurationException;
+use Selli\Ticketing\Gdpr\ErasureMarkers;
 use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Models\TicketType;
 use Selli\Ticketing\Sla\SlaManager;
@@ -70,7 +71,7 @@ class SplitTicket
             $participantModel = Ticketing::ticketParticipantModel();
 
             // Lock the source so concurrent split/merge/message moves serialise.
-            $source = $ticketModel::query()->withoutTenancy()->lockForUpdate()->findOrFail($source->getKey());
+            $source = $ticketModel::query()->withoutTenancy()->lockForUpdate()->whereKey($source->getKey())->firstOrFail();
 
             // Require a non-empty set where every requested message belongs to
             // the source, so we never create an empty ticket nor silently drop
@@ -95,6 +96,10 @@ class SplitTicket
                 'subject_id' => $source->subject_id,
                 'category' => $source->category,
                 'priority' => $source->priority,
+                // Same request, same channel and language: reports, routing
+                // and AI settings see it as they saw the source.
+                'channel' => $source->channel,
+                'language' => $source->language,
                 // A split ticket is a fresh request: start at the initial state
                 // with clean lifecycle timestamps.
                 'status' => $this->initialState($source),
@@ -134,6 +139,10 @@ class SplitTicket
 
             $this->audit->record($source, 'ticket.split', $actor, context: ['created_id' => $created->getKey(), 'messages' => $messageIds]);
             $this->audit->record($created, 'ticket.split_from', $actor, context: ['source_id' => $source->getKey()]);
+
+            // The split-off messages of an erased person stay out of later
+            // copies (a search index) too.
+            app(ErasureMarkers::class)->inherit($created, [$source->getKey()]);
 
             // Reconcile first_response_at for BOTH sides INSIDE the transaction
             // (before the post-commit TicketOpened) so the split is atomic. The

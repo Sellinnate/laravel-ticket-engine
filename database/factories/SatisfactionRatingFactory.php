@@ -11,6 +11,8 @@ use Selli\Ticketing\Support\Ticketing;
 
 /**
  * @extends Factory<SatisfactionRating>
+ *
+ * @internal
  */
 class SatisfactionRatingFactory extends Factory
 {

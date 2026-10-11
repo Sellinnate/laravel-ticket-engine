@@ -10,6 +10,9 @@ use Selli\Ticketing\Facades\Ticketing;
 use Selli\Ticketing\Http\Requests\StoreMessageRequest;
 use Selli\Ticketing\Http\Resources\TicketMessageResource;
 
+/**
+ * @internal
+ */
 class MessageController extends Controller
 {
     public function store(StoreMessageRequest $request, string $ticket): JsonResponse

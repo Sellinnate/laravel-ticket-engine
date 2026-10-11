@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Eloquent\Relations\MorphToMany;
@@ -17,7 +18,10 @@ use Illuminate\Support\Carbon;
 use Selli\Ticketing\Concerns\BelongsToTenant;
 use Selli\Ticketing\Concerns\HasCustomFields;
 use Selli\Ticketing\Database\Factories\TicketFactory;
+use Selli\Ticketing\Enums\AiStatus;
+use Selli\Ticketing\Enums\EscalationReason;
 use Selli\Ticketing\Enums\Priority;
+use Selli\Ticketing\Enums\Sentiment;
 use Selli\Ticketing\Models\Concerns\ConfiguresTicketingTable;
 use Selli\Ticketing\Support\Ticketing;
 
@@ -32,6 +36,7 @@ use Selli\Ticketing\Support\Ticketing;
  * @property string|null $subject_type
  * @property int|string|null $subject_id
  * @property string|null $category
+ * @property string|null $channel
  * @property Priority $priority
  * @property string $status
  * @property string|null $assignee_type
@@ -44,6 +49,13 @@ use Selli\Ticketing\Support\Ticketing;
  * @property Carbon|null $closed_at
  * @property Carbon|null $due_at
  * @property int $reopened_count
+ * @property string|null $language
+ * @property Sentiment|null $sentiment
+ * @property AiStatus|null $ai_status
+ * @property int $ai_exchanges
+ * @property EscalationReason|null $escalation_reason
+ * @property Carbon|null $escalated_at
+ * @property Carbon|null $first_ai_response_at
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
@@ -78,6 +90,12 @@ class Ticket extends Model
             'closed_at' => 'datetime',
             'due_at' => 'datetime',
             'reopened_count' => 'integer',
+            'sentiment' => Sentiment::class,
+            'ai_status' => AiStatus::class,
+            'ai_exchanges' => 'integer',
+            'escalation_reason' => EscalationReason::class,
+            'escalated_at' => 'datetime',
+            'first_ai_response_at' => 'datetime',
         ];
     }
 
@@ -163,6 +181,36 @@ class Ticket extends Model
         $table = $prefix.(string) config('ticketing.tables.taggables', 'taggables');
 
         return $this->morphToMany(Ticketing::tagModel(), 'taggable', $table, 'taggable_id', 'tag_id')->withTimestamps();
+    }
+
+    /**
+     * Knowledge-base articles linked to this ticket.
+     *
+     * @return HasMany<KbArticleLink, $this>
+     */
+    public function articleLinks(): HasMany
+    {
+        return $this->hasMany(Ticketing::kbArticleLinkModel(), 'ticket_id');
+    }
+
+    /**
+     * The AI turns run on this ticket.
+     *
+     * @return HasMany<AiTurn, $this>
+     */
+    public function aiTurns(): HasMany
+    {
+        return $this->hasMany(Ticketing::aiTurnModel(), 'ticket_id');
+    }
+
+    /**
+     * The conversation this ticket was escalated from, if any.
+     *
+     * @return HasOne<Conversation, $this>
+     */
+    public function conversation(): HasOne
+    {
+        return $this->hasOne(Ticketing::conversationModel(), 'ticket_id');
     }
 
     /**

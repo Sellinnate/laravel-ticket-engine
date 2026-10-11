@@ -6,6 +6,8 @@ namespace Selli\Ticketing\Notifications;
 
 /**
  * Sent to the new assignee when a ticket is assigned to them.
+ *
+ * @internal
  */
 class TicketAssignedNotification extends TicketNotification
 {

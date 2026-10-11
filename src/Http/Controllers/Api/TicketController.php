@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Selli\Ticketing\Http\Controllers\Api;
 
-use Closure;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\JsonResponse;
@@ -13,15 +12,17 @@ use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Selli\Ticketing\Contracts\CanActOnTickets;
 use Selli\Ticketing\Enums\MessageVisibility;
 use Selli\Ticketing\Enums\Priority;
+use Selli\Ticketing\Enums\TicketChannel;
 use Selli\Ticketing\Facades\Ticketing;
 use Selli\Ticketing\Http\Requests\StoreTicketRequest;
 use Selli\Ticketing\Http\Resources\TicketResource;
-use Selli\Ticketing\Models\Ticket;
-use Selli\Ticketing\Support\Ticketing as TicketingManager;
+use Selli\Ticketing\Query\TicketQuery;
 
 /**
  * Tickets resource. Reads are tenant-scoped by the engine's global scope, so a
  * caller only ever sees its own tenant's tickets.
+ *
+ * @internal
  */
 class TicketController extends Controller
 {
@@ -29,58 +30,28 @@ class TicketController extends Controller
     {
         $this->authorizeAny($request->user(), 'viewAny');
 
-        $query = TicketingManager::ticketModel()::query();
+        $user = $request->user();
+        $actor = $user instanceof Model ? $user : null;
+
+        // Filters, sort and the per-page clamp live in TicketQuery, shared with
+        // the MCP tools and exports. It only accepts scalar (or list-of-scalar)
+        // values, so a malformed query string can never bind an array into SQL.
+        $tickets = TicketQuery::make()->filter($request->query(), $actor);
 
         // A non-agent (requester) only ever lists their OWN tickets — the tenant
         // scope alone would otherwise leak every tenant ticket's metadata to any
         // requester. Agents list the whole tenant.
-        $user = $request->user();
         if (! $user instanceof CanActOnTickets) {
             // A non-Eloquent requester has no morph identity to scope by, so it
             // must see nothing rather than the whole tenant (fail closed).
-            $user instanceof Model
-                ? $query->where($this->ownTicketConstraint($user))
-                : $query->whereRaw('1 = 0');
-        }
-
-        // Only scalar filter values: an array query param (?status[]=x) handed to
-        // where() would bind an array as a scalar and blow up with a 500.
-        foreach (['status', 'category'] as $field) {
-            $value = $request->query($field);
-
-            if (is_scalar($value)) {
-                $query->where($field, (string) $value);
-            }
-        }
-
-        if (is_scalar($priority = $request->query('priority'))) {
-            $query->where('priority', (int) $priority);
+            $actor !== null
+                ? $tickets->involving($actor)
+                : $tickets->where(fn (Builder $query) => $query->whereRaw('1 = 0'));
         }
 
         $requested = $request->query('per_page', 25);
-        $perPage = min(100, max(1, is_scalar($requested) ? (int) $requested : 25));
 
-        return TicketResource::collection($query->latest()->paginate($perPage));
-    }
-
-    /**
-     * Limit a listing to tickets the user is the subject of, or a participant on.
-     *
-     * @return Closure(Builder<Ticket>): void
-     */
-    protected function ownTicketConstraint(Model $user): Closure
-    {
-        return function (Builder $query) use ($user): void {
-            $query
-                ->where(function (Builder $subject) use ($user): void {
-                    $subject->where('subject_type', $user->getMorphClass())
-                        ->where('subject_id', $user->getKey());
-                })
-                ->orWhereHas('participants', function (Builder $participant) use ($user): void {
-                    $participant->where('participant_type', $user->getMorphClass())
-                        ->where('participant_id', $user->getKey());
-                });
-        };
+        return TicketResource::collection($tickets->paginate(is_scalar($requested) ? (int) $requested : 25));
     }
 
     public function show(Request $request, string $ticket): TicketResource
@@ -105,6 +76,7 @@ class TicketController extends Controller
             requester: $request->user(),
             priority: $request->filled('priority') ? Priority::from($request->integer('priority')) : null,
             category: $request->input('category'),
+            channel: TicketChannel::Api,
         ));
 
         return (new TicketResource($ticket))->response()->setStatusCode(201);

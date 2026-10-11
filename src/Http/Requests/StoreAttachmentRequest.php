@@ -6,6 +6,9 @@ namespace Selli\Ticketing\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
 
+/**
+ * @internal
+ */
 class StoreAttachmentRequest extends FormRequest
 {
     public function authorize(): bool

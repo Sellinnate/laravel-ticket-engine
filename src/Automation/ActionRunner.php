@@ -19,6 +19,8 @@ use Selli\Ticketing\Support\Ticketing;
  * allow-listed; an unknown type throws (fail closed). Each action reuses the
  * audited, tenant-safe domain Actions via the Ticketing manager, so automation
  * is no different from a manual operation.
+ *
+ * @internal
  */
 class ActionRunner
 {

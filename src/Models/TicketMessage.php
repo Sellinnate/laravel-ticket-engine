@@ -18,6 +18,7 @@ use Selli\Ticketing\Enums\MessageSource;
 use Selli\Ticketing\Enums\MessageVisibility;
 use Selli\Ticketing\Models\Concerns\ConfiguresTicketingTable;
 use Selli\Ticketing\Support\Ticketing;
+use Selli\Ticketing\Tenancy\TenantScope;
 
 /**
  * A single entry in a ticket's conversation. Visibility separates customer-facing
@@ -81,11 +82,15 @@ class TicketMessage extends Model
     }
 
     /**
+     * The person it names, whatever the ambient tenant: a listener running
+     * after commit (outside the ticket's tenant context) still finds a
+     * contact.
+     *
      * @return MorphTo<Model, $this>
      */
     public function author(): MorphTo
     {
-        return $this->morphTo();
+        return $this->morphTo()->withoutGlobalScope(TenantScope::class);
     }
 
     /**

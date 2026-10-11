@@ -10,8 +10,9 @@ use Selli\Ticketing\Contracts\WorkflowDriver;
 use Selli\Ticketing\Exceptions\InvalidConfigurationException;
 
 /**
- * Resolves the active {@see WorkflowDriver}. Custom drivers (e.g. a bridge to
- * spatie/laravel-model-states) register via extend() without touching the core.
+ * Resolves the active {@see WorkflowDriver}. Custom drivers (a database-backed
+ * workflow, typed state classes, …) register via extend() without touching the
+ * core.
  */
 class WorkflowManager
 {

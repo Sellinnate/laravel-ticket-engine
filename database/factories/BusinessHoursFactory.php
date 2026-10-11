@@ -9,6 +9,8 @@ use Selli\Ticketing\Models\BusinessHours;
 
 /**
  * @extends Factory<BusinessHours>
+ *
+ * @internal
  */
 class BusinessHoursFactory extends Factory
 {

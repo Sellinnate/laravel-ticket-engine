@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\DB;
 use Selli\Ticketing\Enums\ParticipantRole;
 use Selli\Ticketing\Events\TicketMerged;
 use Selli\Ticketing\Exceptions\CrossTenantException;
+use Selli\Ticketing\Gdpr\ErasureMarkers;
 use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Sla\SlaManager;
 use Selli\Ticketing\Support\AuditLogger;
@@ -54,7 +55,7 @@ class MergeTickets
             // Lock all involved rows in a canonical (sorted) order so two
             // concurrent merges of the overlapping tickets cannot deadlock.
             $locked = $this->lockInOrder(array_merge([$targetKey], $sourceKeys));
-            $target = $locked[$this->keyString($targetKey)] ?? $ticketModel::query()->withoutTenancy()->findOrFail($targetKey);
+            $target = $locked[$this->keyString($targetKey)] ?? $ticketModel::query()->withoutTenancy()->whereKey($targetKey)->firstOrFail();
 
             $mergedIds = [];
 
@@ -72,8 +73,18 @@ class MergeTickets
                 $this->moveContent($source, $target);
                 $this->copyRequesters($source, $target);
 
+                // A widget conversation that became the source follows it: the
+                // visitor keeps writing to, and reading, the merged ticket.
+                Ticketing::conversationModel()::query()->withoutTenancy()
+                    ->where('ticket_id', $source->getKey())
+                    ->update(array_merge(['ticket_id' => $target->getKey()], $target->tenantAttributes()));
+
                 $this->audit->record($target, 'ticket.merged_from', $actor, context: ['source_id' => $source->getKey()]);
                 $this->audit->record($source, 'ticket.merged_into', $actor, context: ['target_id' => $target->getKey()]);
+
+                // An erased person's moved messages keep the target out of
+                // later copies (a search index), whatever becomes of the source.
+                app(ErasureMarkers::class)->inherit($target, [$source->getKey()]);
 
                 $source->delete();
                 $mergedIds[] = $source->getKey();

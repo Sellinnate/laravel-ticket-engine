@@ -6,6 +6,7 @@ namespace Selli\Ticketing\Automation;
 
 use Illuminate\Database\Eloquent\Model;
 use Selli\Ticketing\Events\CsatSubmitted;
+use Selli\Ticketing\Events\HumanTookOver;
 use Selli\Ticketing\Events\MessagePosted;
 use Selli\Ticketing\Events\ParticipantAdded;
 use Selli\Ticketing\Events\PriorityChanged;
@@ -14,6 +15,7 @@ use Selli\Ticketing\Events\SlaThresholdReached;
 use Selli\Ticketing\Events\StateTransitioned;
 use Selli\Ticketing\Events\TicketAssigned;
 use Selli\Ticketing\Events\TicketClosed;
+use Selli\Ticketing\Events\TicketEscalated;
 use Selli\Ticketing\Events\TicketOpened;
 use Selli\Ticketing\Events\TicketReopened;
 use Selli\Ticketing\Events\TicketResolved;
@@ -22,6 +24,8 @@ use Selli\Ticketing\Models\Ticket;
 /**
  * Maps the domain events that can trigger automation to stable string keys (used
  * in rule config), and pulls the ticket/actor out of each event uniformly.
+ *
+ * @internal
  */
 class TriggerRegistry
 {
@@ -43,6 +47,8 @@ class TriggerRegistry
             SlaBreached::class => 'sla.breached',
             SlaThresholdReached::class => 'sla.threshold_reached',
             CsatSubmitted::class => 'csat.submitted',
+            TicketEscalated::class => 'ticket.escalated',
+            HumanTookOver::class => 'ticket.taken_over',
         ];
     }
 
@@ -60,8 +66,10 @@ class TriggerRegistry
 
     public static function actorOf(object $event): ?Model
     {
-        return property_exists($event, 'actor') && $event->actor instanceof Model
-            ? $event->actor
-            : null;
+        if (property_exists($event, 'actor') && $event->actor instanceof Model) {
+            return $event->actor;
+        }
+
+        return property_exists($event, 'agent') && $event->agent instanceof Model ? $event->agent : null;
     }
 }

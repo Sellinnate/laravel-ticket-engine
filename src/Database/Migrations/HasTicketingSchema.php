@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Selli\Ticketing\Database\Migrations;
 
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
 
 /**
  * Shared helpers for the package migrations so table names, primary keys, the
@@ -112,6 +113,33 @@ trait HasTicketingSchema
         }
 
         $table->unique($columns, $name);
+    }
+
+    /**
+     * A unique index on a nullable column that admits any number of NULLs on
+     * every database: a plain unique index on SQL Server allows a single NULL,
+     * so there it is filtered. Call it once the table exists.
+     */
+    protected function uniqueUnlessNull(string $table, string $column, string $name): void
+    {
+        $connection = Schema::getConnection();
+
+        if ($connection->getDriverName() !== 'sqlsrv') {
+            Schema::table($table, function (Blueprint $blueprint) use ($column, $name): void {
+                $blueprint->unique([$column], $name);
+            });
+
+            return;
+        }
+
+        $grammar = $connection->getQueryGrammar();
+        $connection->statement(sprintf(
+            'create unique index %s on %s (%s) where %s is not null',
+            $grammar->wrap($name),
+            $grammar->wrapTable($table),
+            $grammar->wrap($column),
+            $grammar->wrap($column),
+        ));
     }
 
     /**

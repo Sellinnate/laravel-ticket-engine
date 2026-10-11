@@ -13,6 +13,8 @@ use Selli\Ticketing\Exceptions\InvalidConfigurationException;
  * allow-list, and — by default — blocking hosts that resolve to private /
  * loopback / link-local-metadata addresses, with the validated IP pinned onto
  * the connection to close the DNS-rebinding window. Driven by `ticketing.webhooks.*`.
+ *
+ * @internal
  */
 class WebhookGuard
 {

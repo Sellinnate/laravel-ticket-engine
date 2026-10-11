@@ -1,37 +1,54 @@
-# Laravel Ticketing
+<p align="center">
+  <img src="art/banner.png" alt="Selli Ticketing — the headless, multi-tenant help-desk engine for Laravel" width="100%">
+</p>
 
-[![Latest Version on Packagist](https://img.shields.io/packagist/v/selli/ticketing.svg?style=flat-square)](https://packagist.org/packages/selli/ticketing)
-[![GitHub Tests Action Status](https://img.shields.io/github/actions/workflow/status/Sellinnate/laravel-ticketing/run-tests.yml?branch=main&label=tests&style=flat-square)](https://github.com/Sellinnate/laravel-ticketing/actions?query=workflow%3Arun-tests+branch%3Amain)
-[![Total Downloads](https://img.shields.io/packagist/dt/selli/ticketing.svg?style=flat-square)](https://packagist.org/packages/selli/ticketing)
+# Selli Ticketing
 
-**The agnostic, headless, multi-tenant ticketing domain engine for Laravel.**
-Attach tickets to anything — your models, your UI, your tenant.
+[![Latest Version on Packagist](https://img.shields.io/packagist/v/selli/ticketing.svg)](https://packagist.org/packages/selli/ticketing)
+[![Tests](https://img.shields.io/github/actions/workflow/status/Sellinnate/laravel-ticket-engine/run-tests.yml?branch=main&label=tests)](https://github.com/Sellinnate/laravel-ticket-engine/actions/workflows/run-tests.yml?query=branch%3Amain)
+[![Coverage](https://img.shields.io/badge/coverage-%E2%89%A590%25-brightgreen)](https://github.com/Sellinnate/laravel-ticket-engine/actions/workflows/coverage.yml?query=branch%3Amain)
+[![PHPStan](https://img.shields.io/badge/PHPStan-level%208-blue)](https://github.com/Sellinnate/laravel-ticket-engine/actions/workflows/phpstan.yml?query=branch%3Amain)
+[![PHP](https://img.shields.io/badge/PHP-8.3%20|%208.4%20|%208.5-777bb4)](https://packagist.org/packages/selli/ticketing)
+[![Laravel](https://img.shields.io/badge/Laravel-11%20|%2012%20|%2013-ff2d20)](https://packagist.org/packages/selli/ticketing)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE.md)
+[![Docs](https://img.shields.io/badge/docs-laravel--ticketing.selli.io-2563eb)](https://laravel-ticketing.selli.io)
 
-`selli/ticketing` is not a help-desk app and not a UI. It is the reusable domain
-layer you build any ticketing mechanism on — customer support, technical
-interventions, internal requests, incident management, work queues — in days
-instead of weeks. A ticket can be about any Eloquent model in your app (an order,
-a device, a contract), about a service, or about nothing at all. The link to your
-domain happens **by contract** (`Ticketable`), never by coupling to your schema.
+📖 **Full documentation: [laravel-ticketing.selli.io](https://laravel-ticketing.selli.io)**
 
-> Headless by design: zero UI, zero forced user model, multi-tenant by default,
-> workflow configurable per ticket type. The same engine serves a Filament
-> back-office, an Inertia/Vue front-end, a mobile API or a queued job without
-> changes.
+**The headless, multi-tenant help-desk engine for Laravel.** Tickets about anything in your app — an order,
+a device, a contract, or nothing at all — with the workflow, SLA, routing, channels, AI and reporting a
+support team needs, and no UI or product decisions imposed on you.
 
-📖 **Full documentation:** [laravel-ticketing.selli.io](https://laravel-ticketing.selli.io)
+> **An engine, not an app.** `selli/ticketing` is the domain layer you build customer support, technical
+> interventions, internal requests or incident management on. The same engine serves a Filament
+> back-office, an Inertia/Vue front-end, a mobile API, a chat widget on a customer's website or an AI agent.
+
+### What you can build
+
+- 🎫 **A help desk inside your product** — tickets attached to your own models, your users as requesters
+  and agents, every tenant isolated.
+- 💬 **A chat widget on any website** that answers with AI from your knowledge base and hands over to a
+  person — the conversation becomes a ticket with its transcript.
+- 📧 **Email support** — by webhook or IMAP, threaded, without quotes, autoresponders or loops.
+- 🤖 **An AI first line** that answers with sources, drafts for agents, classifies, and escalates by rule;
+  agents take over at any moment.
+- 📊 **Support KPIs** — volume, backlog, response and resolution times, SLA, AI share and cost, CSAT,
+  unanswered questions — with streamed CSV exports.
+- 🧠 **AI agents on your help desk** through MCP tools that obey your policies.
 
 ## Features
 
-- **Config-driven workflow** per ticket type, with guards and a Spatie state-class bridge — validated at boot.
-- **SLA & escalation** — first-response / next-response / resolution targets on business hours, with a pausing clock.
-- **Routing & assignment** — teams, pluggable strategies (round-robin, least-busy, skill-based, custom) and data-driven routing rules.
-- **Collaboration** — attachments (signed URLs), @mentions, canned responses, macros, merge/split, tags.
-- **CSAT** with stateless, signed rating links.
-- **Automation** — a data-driven trigger→conditions→actions rule engine, plus SSRF-guarded outbound webhooks.
-- **Notifications** — mail, database (in-app bell), broadcast and Slack, with per-user/per-tenant preferences.
-- **Channels** — an opt-in versioned [REST API](https://laravel-ticketing.selli.io/channels/rest-api), [email-to-ticket](https://laravel-ticketing.selli.io/channels/email) (threading, anti-loop, idempotent), and realtime [broadcasting](https://laravel-ticketing.selli.io/channels/broadcasting) over Reverb.
-- **Security** — agnostic [authorization policies](https://laravel-ticketing.selli.io/security/authorization), an immutable audit trail, and [GDPR](https://laravel-ticketing.selli.io/security/gdpr) anonymisation / export / retention.
+| Area | Highlights |
+| --- | --- |
+| **Core** | Tickets on any model (`Ticketable`), config-driven [workflow](https://laravel-ticketing.selli.io/concepts/workflow) per type with guards, custom fields, references, [listing & filtering](https://laravel-ticketing.selli.io/concepts/querying) (`TicketQuery`) |
+| **Operations** | [SLA on business hours](https://laravel-ticketing.selli.io/concepts/sla), [routing & assignment](https://laravel-ticketing.selli.io/concepts/routing) (round-robin, least-busy, skill-based), [collaboration](https://laravel-ticketing.selli.io/concepts/collaboration) (attachments, mentions, macros, merge/split, tags), [automation](https://laravel-ticketing.selli.io/concepts/automation) and webhooks, [notifications](https://laravel-ticketing.selli.io/concepts/notifications), [CSAT](https://laravel-ticketing.selli.io/concepts/csat) |
+| **People** | Your models as requesters/agents, [contacts](https://laravel-ticketing.selli.io/concepts/contacts) for people without an account, reopen on requester reply |
+| **Channels** | [REST API](https://laravel-ticketing.selli.io/channels/rest-api), [email](https://laravel-ticketing.selli.io/channels/email) (webhook or IMAP), [chat widget](https://laravel-ticketing.selli.io/channels/widget) with a reference JS client, [broadcasting](https://laravel-ticketing.selli.io/channels/broadcasting) |
+| **AI** | Provider-agnostic [AI layer](https://laravel-ticketing.selli.io/concepts/ai): auto / draft / off per tenant and type, escalation rules, human takeover, usage and cost per turn |
+| **Knowledge** | [Knowledge base](https://laravel-ticketing.selli.io/concepts/knowledge-base): articles and FAQs, versions, locales, audiences (public, customer, internal, per client) |
+| **Insight** | [KPIs and CSV exports](https://laravel-ticketing.selli.io/concepts/reporting), in the database, at any volume |
+| **Integrations** | [MCP tools](https://laravel-ticketing.selli.io/integrations/mcp) (`laravel/mcp`), [RAG Engine bridge](https://laravel-ticketing.selli.io/integrations/rag-engine) (`sellinnate/rag-engine`): semantic search, answers with citations, similar tickets |
+| **Security** | Fail-closed [multi-tenancy](https://laravel-ticketing.selli.io/concepts/tenancy), [policies](https://laravel-ticketing.selli.io/security/authorization), immutable [audit trail](https://laravel-ticketing.selli.io/security/audit-trail), [GDPR](https://laravel-ticketing.selli.io/security/gdpr) erasure / export / retention |
 
 ## Installation
 
@@ -41,9 +58,10 @@ php artisan ticketing:install   # publishes config + migrations, offers to migra
 php artisan ticketing:demo      # seeds a working example ticket
 ```
 
-## Quick start
+Requires PHP 8.3+ and Laravel 11, 12 or 13. Tested on MySQL 8.4, PostgreSQL 16 and SQLite (its SQL avoids
+vendor-specific constructs, SQL Server included).
 
-Make any model the subject of tickets:
+## Quick start
 
 ```php
 use Selli\Ticketing\Concerns\HasTickets;
@@ -55,86 +73,75 @@ class Order extends Model implements Ticketable
 }
 ```
 
-Open and work tickets through the facade or the host helper:
-
 ```php
 use Selli\Ticketing\Facades\Ticketing;
-use Selli\Ticketing\Enums\Priority;
-use Selli\Ticketing\Enums\MessageVisibility;
+use Selli\Ticketing\Enums\{MessageVisibility, Priority};
 
-// A free-standing request
-$ticket = Ticketing::open(
-    type: 'support',
-    title: 'Login is broken',
-    requester: $user,
-    priority: Priority::High,
-);
+$ticket = $order->openTicket(type: 'support', title: 'Missing shipment', requester: $customer, priority: Priority::High);
 
-// A ticket about any host entity
-$ticket = $order->openTicket(type: 'incident', title: 'Missing shipment', requester: $user);
+Ticketing::for($ticket)->postMessage($agent, 'Checking with the courier', MessageVisibility::Internal);
+Ticketing::for($ticket)->postMessage($agent, 'A new parcel leaves today.');
+Ticketing::transition($ticket, 'resolve', $agent);
 
-// Conversation, with public/internal visibility
-Ticketing::for($ticket)->postMessage($agent, 'Looking into it', MessageVisibility::Internal);
-Ticketing::for($ticket)->postMessage($agent, 'Refund issued', MessageVisibility::Public);
+$open = Ticketing::tickets()->state('open')->assignedTo($agent)->sort('priority')->paginate();
+$kpis = Ticketing::metrics()->between(now()->subMonth(), now())->summary();
 ```
 
-Actors are agnostic too — implement `CanRequestTickets` and/or `CanActOnTickets`
-on whichever model(s) represent your requesters and agents (even two different
-populations such as `Customer` and `Operator`).
+Actors are agnostic: implement `CanRequestTickets` and/or `CanActOnTickets` on whichever models represent
+your requesters and agents (even two different populations such as `Customer` and `Operator`).
 
 ## Multi-tenancy
 
-Tenancy is structural, not an afterthought. Every table carries a tenant column,
-every read is scoped by a global scope, every write is auto-assigned to the
-current tenant. With no tenant resolved the scope **fails closed** — only shared
-(null-tenant) rows are visible, never another tenant's data.
+Every table carries a tenant column, every read goes through a global scope, every write is assigned to the
+current tenant, and with no tenant resolved the scope **fails closed**. Bind your own `TenantResolver` to
+reuse stancl/tenancy, spatie/laravel-multitenancy or your own; act as a tenant in CLI and queues with
+`TenantContext::forTenant()`.
+
+## AI, with humans in charge
 
 ```php
-use Selli\Ticketing\Tenancy\TenantContext;
-
-// CLI / queues / email: act explicitly as a tenant
-app(TenantContext::class)->forTenant($tenantId, function () {
-    Ticketing::open(type: 'support', title: '...', requester: $requester);
-});
+// config/ticketing.php
+'ai' => ['enabled' => true, 'driver' => 'rag-engine', 'mode' => 'auto'],
 ```
 
-Bind your own `TenantResolver` (or a bridge to stancl/spatie tenancy) to inherit
-the current tenant from your existing infrastructure.
+The AI answers customers from what they may read, with sources; it hands over — to the routing rules, then
+the escalation team, notifying its leads — when it is unsure, finds nothing, meets a sensitive topic, or the
+customer asks for a person. The moment an agent replies, it steps aside for good. Drivers are pluggable:
+`null`, `fake` for tests, `rag-engine`, or your own.
 
-## Architecture at a glance
+## Stability
 
-- **Three-level API** — `Ticketing` facade for common cases, Action classes for
-  fine control and testing, domain events for extension.
-- **Everything is an event** — `TicketOpened`, `MessagePosted`, … are the primary
-  extension hooks. Automations, notifications, audit and integrations attach here.
-- **Override-friendly** — every model is resolved from the container and
-  replaceable: `Ticketing::useTicketModel(MyTicket::class)`.
-- **Immutable audit trail** — `ticket_activities` is append-only; updates/deletes
-  throw.
-- **Config-validated at boot** — a workflow that references a missing state fails
-  fast, not at runtime.
+`1.x` follows [semantic versioning](https://laravel-ticketing.selli.io/reference/versioning): the
+[public API](https://laravel-ticketing.selli.io/reference/public-api) — facade, actions, contracts, events,
+models and tables, config keys, REST routes, commands — never breaks within `1.x`; migrations are only ever
+added. See [UPGRADE.md](UPGRADE.md).
 
 ## Testing
 
 ```bash
-composer test            # Pest
-composer test-coverage   # Pest with a 90% minimum
-composer analyse         # PHPStan (Larastan) level 6
+composer test            # Pest (TICKETING_TEST_DB=mysql|pgsql for a real database)
+composer test-coverage   # with the 90 % minimum
+composer analyse         # PHPStan (Larastan) level 8
 composer format          # Laravel Pint
 ```
 
-## Changelog
+CI runs PHP 8.3–8.5 × Laravel 11–13 (lowest and stable dependencies) on Linux and Windows, the whole suite
+on MySQL 8.4 and PostgreSQL 16, coverage, static analysis and the widget client tests.
 
-Please see [CHANGELOG](CHANGELOG.md) for more information on what has changed recently.
+## Changelog, upgrading, contributing
 
-## Security Vulnerabilities
+- [CHANGELOG](CHANGELOG.md) — what changed in each release.
+- [UPGRADE.md](UPGRADE.md) — how to move between versions.
+- [CONTRIBUTING.md](CONTRIBUTING.md) — setup and quality gates.
 
-Please review [our security policy](../../security/policy) on how to report security vulnerabilities.
+## Security
+
+Please report vulnerabilities privately — see [SECURITY.md](SECURITY.md).
 
 ## Credits
 
 - [Sellinnate](https://github.com/Sellinnate)
-- [All Contributors](../../contributors)
+- [All Contributors](https://github.com/Sellinnate/laravel-ticket-engine/graphs/contributors)
 
 ## License
 

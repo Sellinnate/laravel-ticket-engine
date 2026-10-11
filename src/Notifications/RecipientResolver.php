@@ -11,6 +11,8 @@ use Selli\Ticketing\Models\Ticket;
  * Resolves the host models to notify for a ticket. Agnostic about the user model
  * (it follows the polymorphic assignee/participant relations); the resolved
  * models are whatever the host attached, which carry the Notifiable trait.
+ *
+ * @internal
  */
 class RecipientResolver
 {
@@ -37,7 +39,9 @@ class RecipientResolver
         $out = [];
         $seen = [];
 
-        foreach ($query->get() as $participant) {
+        // Eager-load every participant's host model in one query per morph type
+        // instead of one lazy load per participant.
+        foreach ($query->with('participant')->get() as $participant) {
             $model = $participant->participant;
 
             if (! $model instanceof Model || $this->same($model, $except)) {

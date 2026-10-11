@@ -11,6 +11,8 @@ use Illuminate\Support\Facades\Cache;
  * notification) within a short window so an agent isn't buried under repeated
  * mail/slack for the same ticket. In-app channels (database/broadcast) are not
  * throttled by default — the bell should always reflect reality.
+ *
+ * @internal
  */
 class NotificationThrottle
 {

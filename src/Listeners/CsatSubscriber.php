@@ -13,8 +13,10 @@ use Selli\Ticketing\Support\Csat;
  * Requests a satisfaction rating when a ticket is resolved (if CSAT is enabled
  * and configured to auto-request). The host app turns the resulting
  * {@see CsatRequested} into a mail/notification.
+ *
+ * @internal
  */
-class CsatSubscriber
+class CsatSubscriber implements Subscriber
 {
     public function __construct(protected RequestCsat $request) {}
 

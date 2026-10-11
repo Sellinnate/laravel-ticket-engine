@@ -13,4 +13,10 @@ enum MessageSource: string
     case Email = 'email';
     case System = 'system';
     case Web = 'web';
+
+    /** Written by the AI assistant. */
+    case Ai = 'ai';
+
+    /** Carried over from a widget/chat conversation. */
+    case Widget = 'widget';
 }

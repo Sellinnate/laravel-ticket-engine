@@ -1,6 +1,6 @@
 ---
 title: "Types & workflow"
-description: "Config-driven state machines per ticket type, with guards and a Spatie state-class bridge."
+description: "Config-driven state machines per ticket type, with guards and pluggable workflow drivers."
 type: concept
 ---
 
@@ -55,7 +55,29 @@ resolution note:
 'resolve' => ['from' => ['in_progress'], 'to' => 'resolved', 'guard' => RequireResolutionNote::class],
 ```
 
-## Spatie state classes (optional)
+## Reopening on a customer reply {#reopen-on-reply}
 
-Prefer typed state classes? The `WorkflowDriver` contract has a bridge to `spatie/laravel-model-states`
-(a suggested dependency) so you can drive the same transitions from state classes.
+A public reply from the requester reopens a resolved or closed ticket — through the workflow's own `reopen`
+transition, so guards, audit, SLA and events behave as for a manual reopen — if it arrives within a window:
+
+```php
+'workflow' => [
+    'reopen_on_reply' => ['enabled' => true, 'transition' => 'reopen', 'within_days' => 7], // 0 = any time
+],
+```
+
+Agents' replies and internal notes never reopen; a state the transition cannot leave is left alone.
+
+## Custom workflow drivers
+
+The rest of the engine (SLA, routing, events) talks to the `WorkflowDriver` contract, never to the config
+driver directly. To resolve states and transitions from somewhere else — a database table, typed state
+classes — implement the contract and register it:
+
+```php
+use Selli\Ticketing\Workflow\WorkflowManager;
+
+app(WorkflowManager::class)->extend('database', fn ($app) => $app->make(DatabaseWorkflowDriver::class));
+```
+
+then set `ticketing.workflow.driver` to `database`.

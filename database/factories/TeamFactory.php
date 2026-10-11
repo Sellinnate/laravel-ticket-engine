@@ -9,6 +9,8 @@ use Selli\Ticketing\Models\Team;
 
 /**
  * @extends Factory<Team>
+ *
+ * @internal
  */
 class TeamFactory extends Factory
 {

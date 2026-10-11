@@ -1,0 +1,11 @@
+{
+  // Cloudflare Worker serving the documentation site (https://laravel-ticketing.selli.io).
+  // Build first: `npm ci && npm run docs:build` (docmd writes ./site), then `npx wrangler deploy`.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "laravel-ticketing",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    "directory": "./site",
+    "not_found_handling": "404-page"
+  }
+}

@@ -11,6 +11,9 @@ use Selli\Ticketing\Http\Requests\StoreCsatRequest;
 use Selli\Ticketing\Http\Resources\SatisfactionRatingResource;
 use Selli\Ticketing\Support\CsatToken;
 
+/**
+ * @internal
+ */
 class CsatController extends Controller
 {
     public function store(StoreCsatRequest $request, string $ticket): JsonResponse

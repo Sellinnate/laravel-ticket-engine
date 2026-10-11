@@ -12,7 +12,8 @@ it('reads, writes and lists custom fields', function (): void {
 
     $ticket->setCustomField('region', 'EU')->save();
 
-    expect($ticket->fresh()->customFields())->toBe(['severity' => 'high', 'region' => 'EU']);
+    // toEqual, not toBe: MySQL's JSON type normalises object key order.
+    expect($ticket->fresh()->customFields())->toEqual(['severity' => 'high', 'region' => 'EU']);
 });
 
 it('returns an empty array when no custom fields are set', function (): void {

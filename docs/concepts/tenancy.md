@@ -31,10 +31,50 @@ app(\Selli\Ticketing\Tenancy\TenantContext::class)->forTenant(5, function () {
 });
 ```
 
+### Your own resolver {#custom-resolver}
+
+When "the current tenant" lives somewhere else — a tenancy package, a subdomain, a header — implement the
+one-method contract and point `ticketing.tenancy.resolver` at it. Two common recipes:
+
+```php
+use Selli\Ticketing\Contracts\TenantResolver;
+
+// stancl/tenancy
+final class StanclTenantResolver implements TenantResolver
+{
+    public function resolve(): int|string|null
+    {
+        return tenancy()->initialized ? tenant()->getTenantKey() : null;
+    }
+}
+
+// spatie/laravel-multitenancy
+final class SpatieTenantResolver implements TenantResolver
+{
+    public function resolve(): int|string|null
+    {
+        return \Spatie\Multitenancy\Models\Tenant::current()?->getKey();
+    }
+}
+```
+
+```php
+// config/ticketing.php
+'tenancy' => [
+    'resolver' => \App\Support\StanclTenantResolver::class,
+],
+```
+
+Returning `null` means "no tenant": reads then see only shared rows (fail closed). With
+`require_tenant_for_writes` on, creating a tenant-scoped row then throws — but only when the row has no
+explicit tenant value of its own: a tenant column set on the model (even to `null`, for an intentionally
+shared row) is always honoured.
+
 ## Single-tenant mode
 
 Set `ticketing.tenancy.enabled` to `false` for a single-pool deployment. Role/identity checks (authorization,
-broadcast channels) then apply without a tenant match.
+broadcast channels) then apply without a tenant match, and your models may keep a tenant value of their own:
+requesters, assignees and teams are never refused as "another tenant's".
 
 ## Configuration
 

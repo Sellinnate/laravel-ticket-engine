@@ -37,6 +37,27 @@ ticket.
 | `SlaThresholdReached` / `SlaBreached` | the escalation sweep crosses a threshold / breaches |
 | `CsatRequested` / `CsatSubmitted` | a rating is requested / submitted |
 
+## Knowledge base
+
+| Event | When |
+| --- | --- |
+| `ArticleSaved` | an article was created or its content changed (a new version) |
+| `ArticlePublished` / `ArticleArchived` | an article became visible / was withdrawn |
+| `ArticleFeedbackRecorded` | a "was this helpful?" vote (or a changed vote) |
+| `ArticleLinkedToTicket` | an article was linked to a ticket |
+
+## AI & conversations
+
+| Event | When |
+| --- | --- |
+| `AiReplied` | the AI answered a customer (ticket or conversation) |
+| `AiDraftCreated` | the AI wrote an internal draft (draft mode) |
+| `TicketEscalated` | a ticket was handed to humans (carries the `reason`) |
+| `HumanTookOver` | an agent took a ticket over from the AI |
+| `AiTurnFailed` | the AI driver failed (the ticket is escalated) |
+| `AiUsageRecorded` | an AI turn's tokens and cost were recorded |
+| `ConversationStarted` / `ConversationEscalated` / `ConversationClosed` | the widget conversation lifecycle |
+
 ## Channels & side effects
 
 | Event | When |
@@ -44,6 +65,9 @@ ticket.
 | `TicketBroadcasted` | a realtime update (queued, minimal payload) |
 | `WebhookFailed` | an outbound webhook is dead-lettered |
 | `RequesterAnonymized` | a requester's PII was scrubbed (anonymise the host model here) |
+| `ContactAnonymized` | a contact's personal data was erased |
+| `TicketErased` | retention permanently deleted a ticket (scalars only) |
+| `TicketAnonymized` | retention anonymised a ticket (scalars only) — integrations holding copies drop them |
 
 ## Listening
 

@@ -10,6 +10,8 @@ use Selli\Ticketing\Support\Ticketing;
 
 /**
  * @extends Factory<CannedResponse>
+ *
+ * @internal
  */
 class CannedResponseFactory extends Factory
 {

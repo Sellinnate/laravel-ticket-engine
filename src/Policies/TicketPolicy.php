@@ -88,9 +88,39 @@ class TicketPolicy
         return $this->isTenantAgent($user, $ticket);
     }
 
+    /** Hand the ticket to humans: anyone on it may ask for a person. */
+    public function escalate(Authenticatable $user, Ticket $ticket): bool
+    {
+        return $this->view($user, $ticket);
+    }
+
+    /** Take the ticket over from the AI: agents only. */
+    public function takeOver(Authenticatable $user, Ticket $ticket): bool
+    {
+        return $this->isTenantAgent($user, $ticket);
+    }
+
+    /** Link a knowledge-base article to the ticket: agents only. */
+    public function linkArticle(Authenticatable $user, Ticket $ticket): bool
+    {
+        return $this->isTenantAgent($user, $ticket);
+    }
+
     public function submitCsat(Authenticatable $user, Ticket $ticket): bool
     {
         return $this->view($user, $ticket);
+    }
+
+    /**
+     * Read the support KPIs and exports of the current tenant: agents of that
+     * tenant only (the tenant scope narrows the rows; it does not say the
+     * caller belongs there).
+     */
+    public function viewReports(Authenticatable $user): bool
+    {
+        return $user instanceof CanActOnTickets
+            && $user instanceof Model
+            && $this->tenants->belongsToCurrentTenant($user);
     }
 
     public function delete(Authenticatable $user, Ticket $ticket): bool
@@ -109,7 +139,9 @@ class TicketPolicy
     /** The ticket's subject (the for() target) or an explicit participant. */
     protected function isOnTicket(Authenticatable $user, Ticket $ticket): bool
     {
-        if (! $user instanceof Model) {
+        // Someone of another tenant is never "on" this ticket, whatever row
+        // names them.
+        if (! $user instanceof Model || ! $this->tenants->belongsToTicketTenant($user, $ticket)) {
             return false;
         }
 

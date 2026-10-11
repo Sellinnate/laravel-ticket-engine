@@ -16,6 +16,8 @@ use Selli\Ticketing\Support\Ticketing;
  * The tickets a given requester model is connected to — as the subject (the
  * for() target) or an explicit participant. Unscoped by tenant: a GDPR request
  * concerns the person across every tenant they appear in.
+ *
+ * @internal
  */
 class RequesterTickets
 {

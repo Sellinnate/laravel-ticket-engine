@@ -2,7 +2,63 @@
 
 All notable changes to `selli/ticketing` will be documented in this file.
 
-## Unreleased
+## 1.0.0 - 2026-10-10
+
+First stable release: the public API is now covered by semantic versioning (see
+[Public API](https://laravel-ticketing.selli.io/reference/public-api) and `UPGRADE.md`).
+
+### Added
+
+- **Contacts** — external requesters without an account (`Ticketing::contacts()`), de-duplicated per tenant
+  and email; inbound email senders become contacts.
+- **Knowledge base** — categories, articles and FAQs with versions, locales, audiences (public, customer,
+  internal, per client), feedback, ticket links, portable keyword search behind `KnowledgeSearch`; REST
+  endpoints and `KbArticlePolicy`.
+- **AI layer** — provider-agnostic `AiDriver` (`null`, `fake`, `rag-engine`, custom), modes auto / draft /
+  off per tenant and type, classification, escalation rules, `EscalateTicket` (routing → escalation team →
+  team leads), human takeover, one idempotent AI turn per message with usage and cost; events `AiReplied`,
+  `AiDraftCreated`, `TicketEscalated`, `HumanTookOver`, `AiTurnFailed`, `AiUsageRecorded`.
+- **Chat widget channel** — public JSON API with per-tenant keys, origin allow-list, HMAC-signed visitor
+  identity, hashed bearer tokens, rate limits, honeypot, `HumanVerifier`; conversations become tickets with
+  their transcript; a dependency-free reference JS client (`vendor:publish --tag=ticketing-widget`).
+- **Email channel, completed** — indexed Message-ID threading, signed outbound Message-IDs, subject
+  reference fallback, quote and signature stripping, Cc participants, bounce / no-reply / own-mail
+  anti-loop, threading headers and full replies in notifications, `Auto-Submitted` on AI answers;
+  `InboundMailbox` contract, IMAP implementation (`directorytree/imapengine`) and `ticketing:mail:poll`.
+- **Reporting** — `Ticketing::metrics()`: volume, backlog, first response and resolution (mean and median),
+  reopen rate, SLA compliance, AI share and cost, CSAT, knowledge gaps, breakdowns; streamed CSV exports;
+  `GET /reports/*` endpoints behind `viewReports`.
+- **MCP tools** (optional, `laravel/mcp`) — `Mcp\TicketingServer` with policy-checked help-desk tools.
+- **RAG Engine bridge** (optional, `sellinnate/rag-engine`) — indexing of articles, canned responses and
+  resolved tickets (question + final answer, personal data removed), hybrid fail-closed semantic search
+  re-verified in the database, `rag-engine` AI driver with citations, similar tickets, GDPR purges,
+  `ticketing:rag:index` (backfill and reconciliation, per-kind switches).
+- `TicketAnonymized` event when retention anonymises a ticket; durable erasure markers in the audit trail
+  (`requester.anonymized`, `ticket.anonymized`, `ticket.erasure_inherited` through merge, split and
+  retention deletes) that keep erased conversations out of later copies such as a search index.
+- `TicketQuery` (`Ticketing::tickets()`): listing filters, sort, offset/cursor pagination, used by the REST
+  index; `channel` on tickets; reopen on requester reply; `SqlDialect` for portable SQL.
+- Documentation site (docmd) with guides, references, security and FAQ; Cloudflare Worker config.
+
+### Changed
+
+- See `UPGRADE.md` → *Behaviour changes*: contacts for inbound email, reopen on reply, REST string ids and
+  list filters, inbound email storage and threading, reply notification content, tenant checks on
+  requesters and participants.
+- PHPStan level 8 (was 6); non-public classes marked `@internal`.
+
+### Fixed
+
+- Many concurrency, tenancy and idempotency issues found by the v1 adversarial review
+  (`docs/technical/hardening-v1.md`), each with a regression test.
+
+### Removed
+
+- Claims of integrations that never existed (a Spatie state-class workflow bridge, an auto-wired
+  laravel-mailbox bridge, tenancy/permission bridges); tenancy bridges are documented recipes.
+
+## Pre-release development (`dev-main`)
+
 
 ### Added — Collaboration
 

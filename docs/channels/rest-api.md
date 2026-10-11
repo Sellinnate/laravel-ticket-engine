@@ -36,6 +36,55 @@ and wire it yourself.
 | `POST /tickets/{ticket}/assignment` | assign to a team/agent or self |
 | `POST /tickets/{ticket}/attachments` | upload an attachment |
 | `POST /tickets/{ticket}/csat` | submit a satisfaction rating |
+| `POST /tickets/{ticket}/escalate` | hand the ticket to humans (a requester asks for a person; an agent escalates manually); `422` on a resolved or closed ticket |
+| `POST /tickets/{ticket}/takeover` | an agent takes the ticket from the AI (`assign=false` to keep the assignee) |
+| `POST /tickets/{ticket}/articles` | link a knowledge-base article: `{article_id, relation?}` (agents) |
+
+### Knowledge base {#knowledge-base}
+
+| Method & path | Action |
+| --- | --- |
+| `GET /kb/articles?q=&locale=&type=&category=` | list or search what the caller may read (by [audience](/concepts/knowledge-base#audiences)) |
+| `GET /kb/articles/{article}` | show (agents of the tenant also see drafts) |
+| `POST /kb/articles` / `PATCH /kb/articles/{article}` | create (draft) / update — agents |
+| `POST /kb/articles/{article}/publish` / `…/archive` | change visibility — agents |
+| `POST /kb/articles/{article}/feedback` | `{helpful, comment?}` |
+
+### Reports {#reports}
+
+| Method & path | Action |
+| --- | --- |
+| `GET /reports/metrics?from=&to=&…filters` | every [KPI](/concepts/reporting) of the period — agents |
+| `GET /reports/breakdown/{dimension}` | per `agent`, `team`, `channel`, `category`, `priority` or `type`; `format=csv` for a download — agents |
+| `GET /reports/tickets?from=&to=&…filters` | the tickets of the period as a streamed CSV — agents |
+
+Ticket responses include `channel`, `language`, `sentiment` and an `ai` block (`status`, `exchanges`,
+`escalation_reason`, `escalated_at`, `first_response_at`); AI-written messages carry `ai.sources` and
+`ai.confidence`. Polymorphic ids (`subject.id`, `assignee.id`, `author.id`) are always strings.
+
+## Listing and filtering {#listing}
+
+`GET /tickets` accepts the [TicketQuery](/concepts/querying) filters as query parameters, plus `per_page`
+(1–100, default 25):
+
+```bash
+GET /ticketing/api/v1/tickets?state=open&assignee=me&priority=30,40&tag=vip&q=printer&sort=-created_at
+```
+
+| Parameter | Example | Meaning |
+| --- | --- | --- |
+| `state` | `open` | `open`, `closed` or `paused`, per each type's workflow |
+| `status` | `new,triaged` | Raw workflow states |
+| `priority` | `30,40` | Priority weights |
+| `type`, `category`, `channel`, `tag` | `incident` | Any-of filters (comma list or `key[]=…`) |
+| `assignee` | `me`, `none`, `App\Models\User:5` | Current assignee |
+| `team` | `3` | Owning team |
+| `created_from`, `created_to` | `2026-01-01` | Creation date range |
+| `q` | `printer` | Exact reference or title substring |
+| `sort` | `-priority` | `created_at`, `updated_at`, `priority`, `due_at`, `resolved_at`, `reference`; `-` for descending |
+
+Malformed values never widen the result (a nested array is dropped, `assignee=me` for an anonymous caller
+matches nothing), and a requester still only sees their own tickets.
 
 ## Behaviour
 

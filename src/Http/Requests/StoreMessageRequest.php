@@ -9,6 +9,9 @@ use Illuminate\Validation\Rule;
 use Selli\Ticketing\Contracts\CanActOnTickets;
 use Selli\Ticketing\Enums\MessageVisibility;
 
+/**
+ * @internal
+ */
 class StoreMessageRequest extends FormRequest
 {
     public function authorize(): bool

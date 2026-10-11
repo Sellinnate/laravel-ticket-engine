@@ -11,6 +11,8 @@ use Selli\Ticketing\Support\Ticketing;
 
 /**
  * @extends Factory<SlaClock>
+ *
+ * @internal
  */
 class SlaClockFactory extends Factory
 {

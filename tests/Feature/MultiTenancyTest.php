@@ -2,8 +2,10 @@
 
 declare(strict_types=1);
 
+use Illuminate\Support\Facades\Gate;
 use Selli\Ticketing\Enums\MessageVisibility;
 use Selli\Ticketing\Enums\Priority;
+use Selli\Ticketing\Exceptions\CrossTenantException;
 use Selli\Ticketing\Exceptions\MissingTenantException;
 use Selli\Ticketing\Facades\Ticketing;
 use Selli\Ticketing\Models\Ticket;
@@ -139,4 +141,28 @@ it('shares null-tenant rows across tenants when enabled', function (): void {
     $visible = app(TenantContext::class)->forTenant(99, fn (): int => Ticket::query()->count());
 
     expect($visible)->toBe(1);
+});
+
+it('refuses to open a ticket for a requester of another tenant', function (): void {
+    $context = app(TenantContext::class);
+    $foreign = $context->forTenant(2, fn () => Ticketing::contacts()->remember('jane@example.test'));
+
+    expect(fn () => $context->forTenant(1, fn () => Ticketing::open(type: 'support', title: 'x', requester: $foreign)))
+        ->toThrow(CrossTenantException::class);
+
+    expect(Ticket::query()->withoutTenancy()->count())->toBe(0);
+});
+
+it('never lets someone of another tenant see a ticket through a participant row', function (): void {
+    $context = app(TenantContext::class);
+    $ticket = $context->forTenant(1, fn () => Ticketing::open(type: 'support', title: 'Tenant one'));
+    $outsider = makeUser(['tenant_id' => 2]);
+
+    // A stray participant row naming the outsider.
+    TicketParticipant::query()->withoutTenancy()->create([
+        'tenant_id' => 1, 'ticket_id' => $ticket->getKey(), 'participant_type' => $outsider->getMorphClass(),
+        'participant_id' => (string) $outsider->getKey(), 'role' => 'watcher', 'notify' => true,
+    ]);
+
+    expect(Gate::forUser($outsider)->allows('view', $ticket))->toBeFalse();
 });

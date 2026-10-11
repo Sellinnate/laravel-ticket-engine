@@ -11,6 +11,8 @@ use Selli\Ticketing\Support\Ticketing;
 
 /**
  * @extends Factory<TeamMember>
+ *
+ * @internal
  */
 class TeamMemberFactory extends Factory
 {

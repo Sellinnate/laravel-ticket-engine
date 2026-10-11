@@ -10,6 +10,8 @@ use Selli\Ticketing\Models\Ticket;
 
 /**
  * @mixin Ticket
+ *
+ * @internal
  */
 class TicketResource extends JsonResource
 {
@@ -26,14 +28,18 @@ class TicketResource extends JsonResource
             'priority' => $this->priority->value,
             'priority_label' => $this->priority->label(),
             'category' => $this->category,
+            'channel' => $this->channel,
             'ticket_type_id' => $this->ticket_type_id,
+            // Polymorphic ids are strings in the schema (agnostic to host key
+            // types): always serialise them as strings, never as the int a
+            // freshly assigned in-memory model may still hold.
             'subject' => [
                 'type' => $this->subject_type,
-                'id' => $this->subject_id,
+                'id' => $this->subject_id !== null ? (string) $this->subject_id : null,
             ],
             'assignee' => [
                 'type' => $this->assignee_type,
-                'id' => $this->assignee_id,
+                'id' => $this->assignee_id !== null ? (string) $this->assignee_id : null,
             ],
             'team_id' => $this->team_id,
             'reopened_count' => $this->reopened_count,
@@ -42,6 +48,15 @@ class TicketResource extends JsonResource
             'closed_at' => $this->closed_at?->toIso8601String(),
             'due_at' => $this->due_at?->toIso8601String(),
             'created_at' => $this->created_at?->toIso8601String(),
+            'language' => $this->language,
+            'sentiment' => $this->sentiment?->value,
+            'ai' => [
+                'status' => $this->ai_status?->value,
+                'exchanges' => $this->ai_exchanges,
+                'escalation_reason' => $this->escalation_reason?->value,
+                'escalated_at' => $this->escalated_at?->toIso8601String(),
+                'first_response_at' => $this->first_ai_response_at?->toIso8601String(),
+            ],
             'messages' => TicketMessageResource::collection($this->whenLoaded('messages')),
         ];
     }

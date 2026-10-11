@@ -12,6 +12,8 @@ use Selli\Ticketing\Support\Ticketing;
  * Evaluates a rule's data-driven conditions against a ticket. Fields and
  * operators are allow-listed: an unknown field or operator throws (fail closed)
  * rather than silently matching, so a misconfigured rule never fires blindly.
+ *
+ * @internal
  */
 class ConditionEvaluator
 {
@@ -84,6 +86,11 @@ class ConditionEvaluator
             'assignee_type' => $ticket->assignee_type,
             'reopened_count' => $ticket->reopened_count,
             'is_assigned' => $ticket->assignee_id !== null,
+            'channel' => $ticket->channel,
+            'language' => $ticket->language,
+            'sentiment' => $ticket->sentiment?->value,
+            'ai_status' => $ticket->ai_status?->value,
+            'escalation_reason' => $ticket->escalation_reason?->value,
             default => throw new InvalidConfigurationException("Unknown automation condition field [{$field}]."),
         };
     }

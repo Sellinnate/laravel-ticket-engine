@@ -14,8 +14,10 @@ use Selli\Ticketing\Sla\SlaManager;
 /**
  * Wires the SLA engine to the domain events. Registered as an event subscriber
  * so SLA management is fully decoupled from the actions that emit the events.
+ *
+ * @internal
  */
-class SlaSubscriber
+class SlaSubscriber implements Subscriber
 {
     public function __construct(protected SlaManager $sla) {}
 

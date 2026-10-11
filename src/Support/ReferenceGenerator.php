@@ -17,6 +17,8 @@ use Selli\Ticketing\Tenancy\TenantContext;
  * numbers — independent of soft-deleted rows or an engine's NULL-uniqueness
  * behaviour. This avoids the pitfalls of deriving the next number from a row
  * count.
+ *
+ * @internal
  */
 class ReferenceGenerator
 {
@@ -61,7 +63,11 @@ class ReferenceGenerator
                     [$column => $tenant, 'next_value' => 0],
                 );
 
-                $row = $this->lockedRow($scope);
+                // The row now exists (created here or by a concurrent opener);
+                // a miss would mean it was deleted in between — fail loudly
+                // rather than hand out an unallocated number.
+                $row = $this->lockedRow($scope)
+                    ?? throw new \RuntimeException("Ticket reference sequence [{$scope}] could not be allocated.");
             }
 
             $next = (int) $row->next_value + 1;

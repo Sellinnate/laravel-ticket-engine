@@ -9,6 +9,8 @@ use Selli\Ticketing\Exceptions\InvalidConfigurationException;
 
 /**
  * Typed, fail-closed access to the CSAT configuration.
+ *
+ * @internal
  */
 class Csat
 {

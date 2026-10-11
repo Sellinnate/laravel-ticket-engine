@@ -10,6 +10,8 @@ use Selli\Ticketing\Gdpr\ApplyRetention;
 /**
  * Applies the configured GDPR retention rules (ticketing.gdpr.retention).
  * Schedule it daily to anonymise/delete old closed tickets automatically.
+ *
+ * @internal
  */
 class PruneCommand extends Command
 {

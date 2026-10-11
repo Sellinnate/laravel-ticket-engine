@@ -5,10 +5,14 @@ declare(strict_types=1);
 use Illuminate\Support\Facades\Event;
 use Selli\Ticketing\Enums\MessageVisibility;
 use Selli\Ticketing\Events\RequesterAnonymized;
+use Selli\Ticketing\Events\TicketAnonymized;
 use Selli\Ticketing\Facades\Ticketing;
+use Selli\Ticketing\Gdpr\ApplyRetention;
+use Selli\Ticketing\Gdpr\ErasureMarkers;
 use Selli\Ticketing\Models\TicketActivity;
 use Selli\Ticketing\Models\TicketMessage;
 use Selli\Ticketing\Models\TicketParticipant;
+use Selli\Ticketing\Support\AuditLogger;
 use Selli\Ticketing\Tests\Fixtures\TestRequester;
 
 it('anonymises a requester’s denormalised personal data and keeps the ticket', function (): void {
@@ -129,4 +133,65 @@ it('does not touch a recently-closed ticket', function (): void {
     $this->artisan('ticketing:prune')->assertSuccessful();
 
     expect(Ticketing::ticketModel()::query()->withoutGlobalScopes()->find($ticket->getKey()))->not->toBeNull();
+});
+
+it('leaves a durable anonymisation marker on every ticket it touches', function (): void {
+    // A requester without any denormalised data to scrub still gets the marker.
+    $requester = makeUser(['name' => 'Quiet']);
+    $ticket = Ticketing::open(type: 'support', title: 'Nothing to scrub', requester: $requester);
+
+    expect(Ticketing::anonymiseRequester($requester))->toBe(0)
+        ->and($ticket->activities()->where('event', 'requester.anonymized')->sole()->context['scrubbed'])->toBeFalse();
+
+    // Retention anonymisation leaves one too.
+    $old = Ticketing::open(type: 'support', title: 'Old');
+    Ticketing::transition($old, 'close');
+    config()->set('ticketing.gdpr.retention', [['type' => '*', 'after_days' => 1, 'action' => 'anonymize']]);
+    $this->travel(2)->days();
+    app(ApplyRetention::class)->handle();
+
+    expect($old->activities()->where('event', 'ticket.anonymized')->exists())->toBeTrue();
+
+    // A later run selects it again, but neither audits nor announces it twice.
+    Event::fake([TicketAnonymized::class]);
+    app(ApplyRetention::class)->handle();
+
+    expect($old->activities()->where('event', 'ticket.anonymized')->count())->toBe(1);
+    Event::assertNotDispatched(TicketAnonymized::class);
+});
+
+it('hands an erasure marker on to the tickets holding the messages, beyond the source\'s deletion', function (): void {
+    $markers = app(ErasureMarkers::class);
+
+    // Anonymised, then merged: the target is marked in the same transaction.
+    $requester = makeUser(['name' => 'Erased']);
+    $erased = Ticketing::open(type: 'support', title: 'Erased', requester: $requester);
+    Ticketing::anonymiseRequester($requester);
+    $target = Ticketing::open(type: 'support', title: 'Target');
+    Ticketing::for($target)->mergeFrom([$erased]);
+
+    expect($target->activities()->where('event', ErasureMarkers::INHERITED)->sole()->context['source_ids'])->toBe([(string) $erased->getKey()]);
+
+    // Split off a marked ticket: the new one is marked too.
+    $message = Ticketing::postMessage($target, null, 'A second problem.');
+    $created = Ticketing::for($target->refresh())->split([$message->getKey()]);
+
+    expect($created->activities()->where('event', ErasureMarkers::INHERITED)->exists())->toBeTrue();
+
+    // Merged, marked afterwards, then deleted by retention: the marker passes
+    // to the ticket that took its messages before the trail goes.
+    $source = Ticketing::open(type: 'support', title: 'Source');
+    $heir = Ticketing::open(type: 'support', title: 'Heir');
+    Ticketing::for($heir)->mergeFrom([$source]);
+
+    expect($heir->activities()->where('event', ErasureMarkers::INHERITED)->exists())->toBeFalse();
+
+    app(AuditLogger::class)->record(ticket: $source, event: 'ticket.anonymized', context: ['reason' => 'retention']);
+    Ticketing::ticketModel()::query()->withoutGlobalScopes()->whereKey($source->getKey())->update(['closed_at' => now()->subDays(90)]);
+    config()->set('ticketing.gdpr.retention', [['type' => '*', 'after_days' => 30, 'action' => 'delete']]);
+    app(ApplyRetention::class)->handle();
+
+    expect(Ticketing::ticketModel()::query()->withoutGlobalScopes()->find($source->getKey()))->toBeNull()
+        ->and($heir->activities()->where('event', ErasureMarkers::INHERITED)->sole()->context['source_ids'])->toBe([(string) $source->getKey()])
+        ->and($markers->among([$heir->getKey(), $target->getKey()]))->toBe([(string) $heir->getKey(), (string) $target->getKey()]);
 });

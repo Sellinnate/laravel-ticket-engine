@@ -12,30 +12,49 @@ use Selli\Ticketing\Actions\AddAttachment;
 use Selli\Ticketing\Actions\ApplyMacro;
 use Selli\Ticketing\Actions\AssignTicket;
 use Selli\Ticketing\Actions\ChangePriority;
+use Selli\Ticketing\Actions\EscalateTicket;
 use Selli\Ticketing\Actions\MergeTickets;
 use Selli\Ticketing\Actions\OpenTicket;
 use Selli\Ticketing\Actions\PostMessage;
 use Selli\Ticketing\Actions\RequestCsat;
 use Selli\Ticketing\Actions\SplitTicket;
 use Selli\Ticketing\Actions\SubmitCsat;
+use Selli\Ticketing\Actions\TakeOverTicket;
 use Selli\Ticketing\Actions\TransitionTicket;
+use Selli\Ticketing\Ai\AiManager;
+use Selli\Ticketing\Contacts\ContactDirectory;
+use Selli\Ticketing\Conversations\ConversationService;
+use Selli\Ticketing\Conversations\WidgetKeys;
 use Selli\Ticketing\Data\AddAttachmentData;
 use Selli\Ticketing\Data\AssignTicketData;
 use Selli\Ticketing\Data\OpenTicketData;
 use Selli\Ticketing\Data\PostMessageData;
 use Selli\Ticketing\Data\TransitionData;
+use Selli\Ticketing\Enums\EscalationReason;
 use Selli\Ticketing\Enums\MessageVisibility;
 use Selli\Ticketing\Enums\Priority;
+use Selli\Ticketing\Enums\TicketChannel;
 use Selli\Ticketing\Exceptions\CsatException;
 use Selli\Ticketing\Exceptions\InvalidConfigurationException;
 use Selli\Ticketing\Gdpr\AnonymizeRequester;
 use Selli\Ticketing\Gdpr\ExportRequesterData;
+use Selli\Ticketing\Knowledge\KnowledgeBase;
 use Selli\Ticketing\Mail\InboundEmail;
+use Selli\Ticketing\Mail\MailboxManager;
 use Selli\Ticketing\Mail\ProcessInboundEmail;
+use Selli\Ticketing\Models\AiTurn;
 use Selli\Ticketing\Models\AutomationRule;
 use Selli\Ticketing\Models\BusinessHours;
 use Selli\Ticketing\Models\CannedResponse;
+use Selli\Ticketing\Models\Contact;
+use Selli\Ticketing\Models\Conversation;
+use Selli\Ticketing\Models\ConversationMessage;
 use Selli\Ticketing\Models\Holiday;
+use Selli\Ticketing\Models\KbArticle;
+use Selli\Ticketing\Models\KbArticleFeedback;
+use Selli\Ticketing\Models\KbArticleLink;
+use Selli\Ticketing\Models\KbArticleVersion;
+use Selli\Ticketing\Models\KbCategory;
 use Selli\Ticketing\Models\Macro;
 use Selli\Ticketing\Models\RoutingRule;
 use Selli\Ticketing\Models\SatisfactionRating;
@@ -51,6 +70,9 @@ use Selli\Ticketing\Models\TicketLink;
 use Selli\Ticketing\Models\TicketMessage;
 use Selli\Ticketing\Models\TicketParticipant;
 use Selli\Ticketing\Models\TicketType;
+use Selli\Ticketing\Models\WidgetKey;
+use Selli\Ticketing\Query\TicketQuery;
+use Selli\Ticketing\Reporting\Metrics;
 use Selli\Ticketing\Tenancy\TenantContext;
 
 /**
@@ -63,7 +85,7 @@ use Selli\Ticketing\Tenancy\TenantContext;
  */
 class Ticketing
 {
-    /** @var array<string, class-string> */
+    /** @var array<string, class-string<Model>> */
     protected static array $models = [];
 
     public function __construct(protected Container $container) {}
@@ -81,6 +103,7 @@ class Ticketing
         mixed $subject = null,
         ?string $category = null,
         array $attributes = [],
+        TicketChannel|string|null $channel = null,
     ): Ticket {
         return $this->container->make(OpenTicket::class)->handle(new OpenTicketData(
             type: $type,
@@ -90,6 +113,7 @@ class Ticketing
             subject: $subject,
             category: $category,
             attributes: $attributes,
+            channel: $channel instanceof TicketChannel ? $channel->value : $channel,
         ));
     }
 
@@ -100,6 +124,14 @@ class Ticketing
     public function for(mixed $target): PendingTicket
     {
         return new PendingTicket($this, $target);
+    }
+
+    /**
+     * A filterable, sortable listing of the current tenant's tickets.
+     */
+    public function tickets(): TicketQuery
+    {
+        return TicketQuery::make();
     }
 
     /**
@@ -413,76 +445,318 @@ class Ticketing
         return $this->container->make(ExportRequesterData::class)->handle($requester);
     }
 
+    /**
+     * An agent takes a ticket over: the AI stops on it for good, and an
+     * unassigned ticket is assigned to the agent (unless $assign is false).
+     */
+    public function takeOver(Ticket $ticket, Model $agent, bool $assign = true): Ticket
+    {
+        return $this->container->make(TakeOverTicket::class)->handle($ticket, $agent, $assign);
+    }
+
+    /**
+     * Hand a ticket to humans (routing fallback, team-lead notification, AI
+     * summary). The reason defaults to an explicit, manual escalation.
+     */
+    public function escalate(
+        Ticket $ticket,
+        EscalationReason $reason = EscalationReason::Manual,
+        ?Model $actor = null,
+        bool $notifyCustomer = false,
+    ): Ticket {
+        return $this->container->make(EscalateTicket::class)->handle($ticket, $reason, $actor, $notifyCustomer);
+    }
+
+    /**
+     * Support KPIs for a period (the last 30 days by default), for the current
+     * tenant: `Ticketing::metrics()->between($from, $to)->filter([...])->summary()`.
+     */
+    public function metrics(): Metrics
+    {
+        return new Metrics;
+    }
+
+    /**
+     * The inbound mailboxes polled by `ticketing:mail:poll` (extend() adds a
+     * driver next to the built-in imap one).
+     */
+    public function mailboxes(): MailboxManager
+    {
+        return $this->container->make(MailboxManager::class);
+    }
+
+    /**
+     * External contacts (requesters without an account in the host app).
+     */
+    public function contacts(): ContactDirectory
+    {
+        return $this->container->make(ContactDirectory::class);
+    }
+
+    /**
+     * The headless knowledge base (articles, FAQs, search, feedback).
+     */
+    public function knowledge(): KnowledgeBase
+    {
+        return $this->container->make(KnowledgeBase::class);
+    }
+
+    /**
+     * Widget/chat conversations that turn into tickets.
+     */
+    public function conversations(): ConversationService
+    {
+        return $this->container->make(ConversationService::class);
+    }
+
+    /**
+     * Public widget keys (issue, rotate, revoke, verify identities).
+     */
+    public function widgetKeys(): WidgetKeys
+    {
+        return $this->container->make(WidgetKeys::class);
+    }
+
+    /**
+     * The AI driver manager (resolve or register drivers).
+     */
+    public function ai(): AiManager
+    {
+        return $this->container->make(AiManager::class);
+    }
+
     // --- Model binding -----------------------------------------------------
 
+    /**
+     * @param  class-string<Ticket>  $model
+     */
     public static function useTicketModel(string $model): void
     {
         static::$models['ticket'] = $model;
     }
 
+    /**
+     * @param  class-string<TicketType>  $model
+     */
     public static function useTicketTypeModel(string $model): void
     {
         static::$models['ticket_type'] = $model;
     }
 
+    /**
+     * @param  class-string<TicketMessage>  $model
+     */
     public static function useTicketMessageModel(string $model): void
     {
         static::$models['ticket_message'] = $model;
     }
 
+    /**
+     * @param  class-string<TicketParticipant>  $model
+     */
     public static function useTicketParticipantModel(string $model): void
     {
         static::$models['ticket_participant'] = $model;
     }
 
+    /**
+     * @param  class-string<TicketActivity>  $model
+     */
     public static function useTicketActivityModel(string $model): void
     {
         static::$models['ticket_activity'] = $model;
     }
 
+    /**
+     * @param  class-string<SlaPolicy>  $model
+     */
     public static function useSlaPolicyModel(string $model): void
     {
         static::$models['sla_policy'] = $model;
     }
 
+    /**
+     * @param  class-string<SlaClock>  $model
+     */
     public static function useSlaClockModel(string $model): void
     {
         static::$models['sla_clock'] = $model;
     }
 
+    /**
+     * @param  class-string<BusinessHours>  $model
+     */
     public static function useBusinessHoursModel(string $model): void
     {
         static::$models['business_hours'] = $model;
     }
 
+    /**
+     * @param  class-string<Holiday>  $model
+     */
     public static function useHolidayModel(string $model): void
     {
         static::$models['holiday'] = $model;
     }
 
+    /**
+     * @param  class-string<Team>  $model
+     */
     public static function useTeamModel(string $model): void
     {
         static::$models['team'] = $model;
     }
 
+    /**
+     * @param  class-string<TeamMember>  $model
+     */
     public static function useTeamMemberModel(string $model): void
     {
         static::$models['team_member'] = $model;
     }
 
+    /**
+     * @param  class-string<RoutingRule>  $model
+     */
     public static function useRoutingRuleModel(string $model): void
     {
         static::$models['routing_rule'] = $model;
     }
 
+    /**
+     * @param  class-string<TicketAttachment>  $model
+     */
+    public static function useTicketAttachmentModel(string $model): void
+    {
+        static::$models['ticket_attachment'] = $model;
+    }
+
+    /**
+     * @param  class-string<CannedResponse>  $model
+     */
+    public static function useCannedResponseModel(string $model): void
+    {
+        static::$models['canned_response'] = $model;
+    }
+
+    /**
+     * @param  class-string<Macro>  $model
+     */
+    public static function useMacroModel(string $model): void
+    {
+        static::$models['macro'] = $model;
+    }
+
+    /**
+     * @param  class-string<Tag>  $model
+     */
+    public static function useTagModel(string $model): void
+    {
+        static::$models['tag'] = $model;
+    }
+
+    /**
+     * @param  class-string<TicketLink>  $model
+     */
+    public static function useTicketLinkModel(string $model): void
+    {
+        static::$models['ticket_link'] = $model;
+    }
+
+    /**
+     * @param  class-string<SatisfactionRating>  $model
+     */
     public static function useSatisfactionRatingModel(string $model): void
     {
         static::$models['satisfaction_rating'] = $model;
     }
 
+    /**
+     * @param  class-string<AutomationRule>  $model
+     */
     public static function useAutomationRuleModel(string $model): void
     {
         static::$models['automation_rule'] = $model;
+    }
+
+    /**
+     * @param  class-string<Contact>  $model
+     */
+    public static function useContactModel(string $model): void
+    {
+        static::$models['contact'] = $model;
+    }
+
+    /**
+     * @param  class-string<KbCategory>  $model
+     */
+    public static function useKbCategoryModel(string $model): void
+    {
+        static::$models['kb_category'] = $model;
+    }
+
+    /**
+     * @param  class-string<KbArticle>  $model
+     */
+    public static function useKbArticleModel(string $model): void
+    {
+        static::$models['kb_article'] = $model;
+    }
+
+    /**
+     * @param  class-string<KbArticleVersion>  $model
+     */
+    public static function useKbArticleVersionModel(string $model): void
+    {
+        static::$models['kb_article_version'] = $model;
+    }
+
+    /**
+     * @param  class-string<KbArticleFeedback>  $model
+     */
+    public static function useKbArticleFeedbackModel(string $model): void
+    {
+        static::$models['kb_article_feedback'] = $model;
+    }
+
+    /**
+     * @param  class-string<KbArticleLink>  $model
+     */
+    public static function useKbArticleLinkModel(string $model): void
+    {
+        static::$models['kb_article_link'] = $model;
+    }
+
+    /**
+     * @param  class-string<WidgetKey>  $model
+     */
+    public static function useWidgetKeyModel(string $model): void
+    {
+        static::$models['widget_key'] = $model;
+    }
+
+    /**
+     * @param  class-string<Conversation>  $model
+     */
+    public static function useConversationModel(string $model): void
+    {
+        static::$models['conversation'] = $model;
+    }
+
+    /**
+     * @param  class-string<ConversationMessage>  $model
+     */
+    public static function useConversationMessageModel(string $model): void
+    {
+        static::$models['conversation_message'] = $model;
+    }
+
+    /**
+     * @param  class-string<AiTurn>  $model
+     */
+    public static function useAiTurnModel(string $model): void
+    {
+        static::$models['ai_turn'] = $model;
     }
 
     /**
@@ -670,6 +944,96 @@ class Ticketing
     {
         /** @var class-string<AutomationRule> */
         return static::$models['automation_rule'] ?? config('ticketing.models.automation_rule', AutomationRule::class);
+    }
+
+    /**
+     * @return class-string<Contact>
+     */
+    public static function contactModel(): string
+    {
+        /** @var class-string<Contact> */
+        return static::$models['contact'] ?? config('ticketing.models.contact', Contact::class);
+    }
+
+    /**
+     * @return class-string<KbCategory>
+     */
+    public static function kbCategoryModel(): string
+    {
+        /** @var class-string<KbCategory> */
+        return static::$models['kb_category'] ?? config('ticketing.models.kb_category', KbCategory::class);
+    }
+
+    /**
+     * @return class-string<KbArticle>
+     */
+    public static function kbArticleModel(): string
+    {
+        /** @var class-string<KbArticle> */
+        return static::$models['kb_article'] ?? config('ticketing.models.kb_article', KbArticle::class);
+    }
+
+    /**
+     * @return class-string<KbArticleVersion>
+     */
+    public static function kbArticleVersionModel(): string
+    {
+        /** @var class-string<KbArticleVersion> */
+        return static::$models['kb_article_version'] ?? config('ticketing.models.kb_article_version', KbArticleVersion::class);
+    }
+
+    /**
+     * @return class-string<KbArticleFeedback>
+     */
+    public static function kbArticleFeedbackModel(): string
+    {
+        /** @var class-string<KbArticleFeedback> */
+        return static::$models['kb_article_feedback'] ?? config('ticketing.models.kb_article_feedback', KbArticleFeedback::class);
+    }
+
+    /**
+     * @return class-string<KbArticleLink>
+     */
+    public static function kbArticleLinkModel(): string
+    {
+        /** @var class-string<KbArticleLink> */
+        return static::$models['kb_article_link'] ?? config('ticketing.models.kb_article_link', KbArticleLink::class);
+    }
+
+    /**
+     * @return class-string<WidgetKey>
+     */
+    public static function widgetKeyModel(): string
+    {
+        /** @var class-string<WidgetKey> */
+        return static::$models['widget_key'] ?? config('ticketing.models.widget_key', WidgetKey::class);
+    }
+
+    /**
+     * @return class-string<Conversation>
+     */
+    public static function conversationModel(): string
+    {
+        /** @var class-string<Conversation> */
+        return static::$models['conversation'] ?? config('ticketing.models.conversation', Conversation::class);
+    }
+
+    /**
+     * @return class-string<ConversationMessage>
+     */
+    public static function conversationMessageModel(): string
+    {
+        /** @var class-string<ConversationMessage> */
+        return static::$models['conversation_message'] ?? config('ticketing.models.conversation_message', ConversationMessage::class);
+    }
+
+    /**
+     * @return class-string<AiTurn>
+     */
+    public static function aiTurnModel(): string
+    {
+        /** @var class-string<AiTurn> */
+        return static::$models['ai_turn'] ?? config('ticketing.models.ai_turn', AiTurn::class);
     }
 
     /**

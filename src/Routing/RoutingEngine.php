@@ -21,6 +21,8 @@ use Selli\Ticketing\Tenancy\TenantGuard;
  * Evaluates the ordered, data-driven routing rules for a ticket and routes the
  * first match (that yields a valid target) to its team/assignee/strategy.
  * Conditions are versionable data, not `if` statements in code.
+ *
+ * @internal
  */
 class RoutingEngine
 {
@@ -116,6 +118,8 @@ class RoutingEngine
         return match ($field) {
             'type' => $this->typeKey($ticket),
             'category' => $ticket->category,
+            'channel' => $ticket->channel,
+            'language' => $ticket->language,
             'priority' => $ticket->priority->value,
             'subject_type' => $ticket->subject_type,
             'status' => $ticket->status,

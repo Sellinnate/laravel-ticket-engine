@@ -13,8 +13,6 @@ use Selli\Ticketing\Routing\Strategies\ManualStrategy;
 use Selli\Ticketing\Tenancy\TenantContext;
 use Selli\Ticketing\Tests\Fixtures\TestRequester;
 
-const API = '/ticketing/api/v1';
-
 it('creates a ticket', function (): void {
     $this->actingAs(makeUser());
 
@@ -54,12 +52,22 @@ it('lists and shows tickets scoped to the tenant', function (): void {
     $this->getJson(API.'/tickets/'.$mine->getKey())->assertOk()->assertJsonPath('data.reference', $mine->reference);
 });
 
-it('ignores array-shaped list filters instead of 500ing', function (): void {
+it('treats array-shaped list filters as any-of instead of 500ing', function (): void {
     Ticketing::open(type: 'support', title: 'Mine', requester: makeUser());
     $this->actingAs(makeUser());
 
-    // ?status[]=open&priority[]=10&per_page[]=5 must not reach where() as arrays.
-    $this->getJson(API.'/tickets?status[]=open&priority[]=10&per_page[]=5')
+    // ?status[]=open&priority[]=10&priority[]=20 is an any-of filter; an array
+    // per_page falls back to the default instead of reaching the paginator.
+    $this->getJson(API.'/tickets?status[]=open&priority[]=10&priority[]=20&per_page[]=5')
+        ->assertOk()
+        ->assertJsonCount(1, 'data');
+
+    $this->getJson(API.'/tickets?status[]=open&priority[]=10')
+        ->assertOk()
+        ->assertJsonCount(0, 'data');
+
+    // Nested arrays are dropped, never bound into SQL.
+    $this->getJson(API.'/tickets?status[0][]=open')
         ->assertOk()
         ->assertJsonCount(1, 'data');
 });
