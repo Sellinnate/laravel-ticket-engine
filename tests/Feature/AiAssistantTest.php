@@ -796,6 +796,34 @@ it('does not escalate a resolved ticket when the provider fails late', function 
         ->and(AiTurn::query()->sole()->outcome)->toBe(AiOutcome::Failed);
 });
 
+it('lets one of two retries that saw the same generation reclaim a turn, and keeps each winner\'s own', function (): void {
+    fakeAi()->queueAnswer(confidentAnswer());
+    customerAsks('Question');
+    $turn = AiTurn::query()->sole();
+    // Left running by a worker that died.
+    $turn->forceFill(['status' => AiTurn::STATUS_RUNNING, 'attempts' => 1])->save();
+
+    $assistant = app(AiAssistant::class);
+    $reclaim = fn (AiTurn $seen): ?AiTurn => (fn () => $this->reclaim($seen, true))->call($assistant);
+    $owns = fn (AiTurn $turn): bool => (fn () => $this->stillOwns($turn))->call($assistant);
+
+    // Two retries read generation 1 before either writes.
+    $first = AiTurn::query()->find($turn->getKey());
+    $second = AiTurn::query()->find($turn->getKey());
+    $won = $reclaim($first);
+
+    expect($won?->attempts)->toBe(2)
+        ->and($reclaim($second))->toBeNull();
+
+    // A later takeover: the earlier winner keeps its generation and no longer owns the turn.
+    $later = $reclaim(AiTurn::query()->find($turn->getKey()));
+
+    expect($later?->attempts)->toBe(3)
+        ->and($won?->attempts)->toBe(2)
+        ->and($owns($won))->toBeFalse()
+        ->and($owns($later))->toBeTrue();
+});
+
 it('lets only the current owner of a reclaimed turn write', function (): void {
     $customer = Ticketing::contacts()->remember('customer@example.com');
     $ticket = Ticketing::open(type: 'support', title: 'Slow', requester: $customer);

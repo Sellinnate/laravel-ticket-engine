@@ -531,22 +531,36 @@ class AiAssistant
             return null;
         }
 
-        return $this->reclaim($turn, $retry) ? $turn->refresh() : null;
+        return $this->reclaim($turn, $retry);
     }
 
     /**
-     * Atomically take an unfinished turn back (the attempts counter makes the
-     * update change a row on every engine).
+     * Atomically take an unfinished turn back. The update only matches the
+     * generation (attempts) this worker saw — of two concurrent retries one
+     * wins — and the winner keeps the generation it wrote, even if a later
+     * worker takes the turn over again (it then no longer owns it). The
+     * counter also makes the update change a row on every engine.
      */
-    protected function reclaim(AiTurn $turn, bool $retry): bool
+    protected function reclaim(AiTurn $turn, bool $retry): ?AiTurn
     {
         $timeout = max(30, (int) config('ticketing.ai.turn_timeout', 300));
+        $generation = $turn->attempts + 1;
 
-        return Ticketing::aiTurnModel()::query()->withoutTenancy()
+        $won = Ticketing::aiTurnModel()::query()->withoutTenancy()
             ->whereKey($turn->getKey())
             ->where('status', $turn->status)
+            ->where('attempts', $turn->attempts)
             ->when(! $retry, fn ($query) => $query->where('updated_at', '<', now()->subSeconds($timeout)))
-            ->update(['updated_at' => now(), 'attempts' => DB::raw('attempts + 1')]) === 1;
+            ->update(['updated_at' => now(), 'attempts' => $generation]) === 1;
+
+        if (! $won) {
+            return null;
+        }
+
+        $turn->refresh();
+        $turn->setRawAttributes(array_merge($turn->getAttributes(), ['attempts' => $generation]), true);
+
+        return $turn;
     }
 
     /**
@@ -585,7 +599,7 @@ class AiAssistant
             return null;
         }
 
-        return $this->reclaim($turn, $retry) ? $turn->refresh() : null;
+        return $this->reclaim($turn, $retry);
     }
 
     protected function finish(AiTurn $turn, AiOutcome $outcome, ?EscalationReason $reason, ?AiAnswer $answer, AiUsage $usage, int $started, ?string $error = null, string $status = AiTurn::STATUS_DONE): void
