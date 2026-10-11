@@ -134,6 +134,18 @@ it('splits messages out of a ticket into a new one', function (): void {
     Event::assertDispatched(TicketSplit::class);
 });
 
+it('keeps the channel and language of the source on a split ticket', function (): void {
+    $source = Ticketing::open(type: 'support', title: 'By email', requester: makeUser(), channel: 'email');
+    $source->forceFill(['language' => 'it'])->save();
+    $moved = Ticketing::for($source)->postMessage(makeUser(), 'Un\'altra richiesta');
+
+    $created = Ticketing::for($source)->split([$moved->getKey()]);
+
+    expect($created->refresh()->channel)->toBe('email')
+        ->and($created->language)->toBe('it')
+        ->and(Ticketing::tickets()->channel('email')->get()->pluck('id')->all())->toContain($created->getKey());
+});
+
 it('dispatches TicketSplit with the source reflecting the moved messages', function (): void {
     Event::fake([TicketSplit::class]);
 

@@ -96,6 +96,10 @@ class SplitTicket
                 'subject_id' => $source->subject_id,
                 'category' => $source->category,
                 'priority' => $source->priority,
+                // Same request, same channel and language: reports, routing
+                // and AI settings see it as they saw the source.
+                'channel' => $source->channel,
+                'language' => $source->language,
                 // A split ticket is a fresh request: start at the initial state
                 // with clean lifecycle timestamps.
                 'status' => $this->initialState($source),

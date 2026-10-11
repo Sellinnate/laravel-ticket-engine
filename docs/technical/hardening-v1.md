@@ -117,6 +117,7 @@ found, each time with a test that would catch it again.
 | Tickets an agent took before the AI ran counted as AI-handled; filtered metrics dropped conversation turns | AI involvement from actual turns |
 | Offset dates compared in the wrong timezone; SQL Server averaged integers | Converted to the app timezone; averages cast to float |
 | CSV cells could run as spreadsheet formulas | Quoted |
+| A split ticket lost the source's channel and language (out of channel reports, routed and AI-configured without them) | Copied from the source |
 
 ## Residual risks
 
