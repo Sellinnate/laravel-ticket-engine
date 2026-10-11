@@ -138,7 +138,9 @@ class RagKnowledge
     {
         $tenant = $article->getAttribute($article->getTenantColumn());
 
-        if ($article->status !== ArticleStatus::Published || $article->trashed()) {
+        // A type switched off is purged, never written — a job queued before
+        // the switch included.
+        if (! self::indexes(self::TYPE_ARTICLE) || $article->status !== ArticleStatus::Published || $article->trashed()) {
             $this->purge($tenant, self::TYPE_ARTICLE.':'.$article->getKey());
 
             return;
@@ -208,7 +210,7 @@ class RagKnowledge
 
         // An erased requester's conversation never comes back (a backfill, a
         // late job): the exclusion is recorded in the ticket's audit trail.
-        if (! $this->requests->isClosed($ticket) || $ticket->trashed() || $this->excluded($ticket)) {
+        if (! self::indexes(self::TYPE_TICKET) || ! $this->requests->isClosed($ticket) || $ticket->trashed() || $this->excluded($ticket)) {
             $this->purge($tenant, self::TYPE_TICKET.':'.$ticket->getKey());
 
             return;
@@ -332,7 +334,7 @@ class RagKnowledge
         $this->locked($tenant, $key, function () use ($id, $tenant, $key): void {
             $canned = Ticketing::cannedResponseModel()::query()->withoutTenancy()->find($id);
 
-            if (! $canned instanceof CannedResponse || ! $canned->is_active) {
+            if (! self::indexes(self::TYPE_CANNED) || ! $canned instanceof CannedResponse || ! $canned->is_active) {
                 $this->purge($tenant, $key);
 
                 return;
@@ -716,7 +718,8 @@ class RagKnowledge
         $ids = [self::TYPE_ARTICLE => [], self::TYPE_TICKET => [], self::TYPE_CANNED => []];
 
         foreach ($hits as $hit) {
-            if (isset($ids[$hit->type])) {
+            // A type switched off since it was indexed is not used, repaired or not.
+            if (isset($ids[$hit->type]) && self::indexes($hit->type)) {
                 $ids[$hit->type][] = $hit->id;
             }
         }

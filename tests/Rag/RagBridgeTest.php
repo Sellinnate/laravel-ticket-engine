@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Queue;
 use Selli\Ticketing\Actions\Knowledge\SaveArticle;
 use Selli\Ticketing\Ai\AiManager;
 use Selli\Ticketing\Ai\AiRequest;
@@ -22,6 +23,7 @@ use Selli\Ticketing\Facades\Ticketing;
 use Selli\Ticketing\Integrations\RagEngine\RagAiDriver;
 use Selli\Ticketing\Integrations\RagEngine\RagHit;
 use Selli\Ticketing\Integrations\RagEngine\RagKnowledge;
+use Selli\Ticketing\Integrations\RagEngine\RagSyncJob;
 use Selli\Ticketing\Knowledge\KnowledgeAudience;
 use Selli\Ticketing\Models\CannedResponse;
 use Selli\Ticketing\Models\KbArticle;
@@ -188,7 +190,8 @@ it('indexes resolved tickets as internal knowledge, without internal notes', fun
     expect(app(RagKnowledge::class)->similarTickets('printer offline after driver update', null)[0]->excerpt)->toContain('version 2.1');
 
     // Reopened: not resolved knowledge any more — even before its sync job ran.
-    config()->set('ticketing.rag.index.tickets', false);
+    config()->set('ticketing.rag.queue', true);
+    Queue::fake([RagSyncJob::class]);
     Ticketing::transition($ticket->refresh(), 'reopen');
     expect(ragDocuments('ticket:'.$ticket->getKey()))->toBe(1)
         ->and(app(RagKnowledge::class)->similarTickets('printer offline after driver update', null))->toBe([]);
@@ -301,7 +304,8 @@ it('drops a ticket passage whose conversation changed since indexing', function 
     Ticketing::transition($ticket, 'resolve');
 
     // Split while the re-index is still pending.
-    config()->set('ticketing.rag.index.tickets', false);
+    config()->set('ticketing.rag.queue', true);
+    Queue::fake([RagSyncJob::class]);
     Ticketing::for($ticket->refresh())->split([$moved->getKey()]);
 
     expect(ragDocuments('ticket:'.$ticket->getKey()))->toBe(1)
@@ -314,9 +318,8 @@ it('keeps a ticket whose messages only had their metadata scrubbed', function ()
     Ticketing::postMessage($ticket, makeUser(), 'Sign out and in again to restart the cloud sync.');
     Ticketing::transition($ticket, 'resolve');
 
-    // What retention anonymisation does to an email message.
-    config()->set('ticketing.rag.index.tickets', false);
-    $ticket->messages()->oldest('id')->first()->forceFill(['meta' => ['from' => '[anonymized]']])->save();
+    // What retention anonymisation does to an email message (no resync).
+    $ticket->messages()->oldest('id')->first()->forceFill(['meta' => ['from' => '[anonymized]']])->saveQuietly();
 
     expect(app(RagKnowledge::class)->similarTickets('cloud sync stuck ninety percent', null))->toHaveCount(1);
 });
@@ -707,18 +710,33 @@ it('leaves no copy behind when an article moves to another tenant', function ():
     expect(Document::query()->withoutGlobalScopes()->where('metadata->document_key', 'kb_article:'.$article->getKey())->pluck('tenant_id')->all())->toBe(['tk-n-6']);
 });
 
-it('leaves a type switched off out of backfills and repairs', function (): void {
+it('leaves a type switched off out of searches, late jobs, backfills and repairs', function (): void {
     $ticket = Ticketing::open(type: 'support', title: 'Switched off');
     Ticketing::postMessage($ticket, null, 'A question that will be switched off.');
     Ticketing::postMessage($ticket, makeUser(), 'An answer that will be switched off.');
     Ticketing::transition($ticket, 'resolve');
+    $article = kb('Switched off article', 'An article whose kind will be switched off.');
 
-    expect(ragDocuments('ticket:'.$ticket->getKey()))->toBe(1);
+    expect(ragDocuments('ticket:'.$ticket->getKey()))->toBe(1)
+        ->and(app(RagKnowledge::class)->similarTickets('question that will be switched off', null))->toHaveCount(1);
 
+    // Never used again, even before a repair.
     config()->set('ticketing.rag.index.tickets', false);
+
+    expect(app(RagKnowledge::class)->similarTickets('question that will be switched off', null))->toBe([])
+        ->and(ragDocuments('ticket:'.$ticket->getKey()))->toBe(1);
+
     $this->artisan('ticketing:rag:index')->expectsOutputToContain('ticket — off in ticketing.rag.index')->assertSuccessful();
 
     expect(ragDocuments('ticket:'.$ticket->getKey()))->toBe(0);
+
+    // A job queued before the switch purges instead of writing.
+    config()->set('ticketing.rag.index.articles', false);
+    (new RagSyncJob(RagKnowledge::TYPE_TICKET, $ticket->getKey()))->handle(app(RagKnowledge::class));
+    (new RagSyncJob(RagKnowledge::TYPE_ARTICLE, $article->getKey()))->handle(app(RagKnowledge::class));
+
+    expect(ragDocuments('ticket:'.$ticket->getKey()))->toBe(0)
+        ->and(ragDocuments('kb_article:'.$article->getKey()))->toBe(0);
 });
 
 it('searches everything in a single-tenant app, whatever tenant the rows carry', function (): void {

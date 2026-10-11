@@ -40,13 +40,15 @@ the bridge on and backfill:
 ```
 
 ```bash
-php artisan ticketing:rag:index           # --articles / --tickets for one kind only
+php artisan ticketing:rag:index           # --articles / --tickets / --canned for some kinds only
 ```
 
 From then on the index follows the help desk by itself (queued, after commit): an article is indexed when
 published or saved and removed when archived; a ticket is indexed when resolved or closed (and refreshed on a
 late public reply, a split or a merge) and removed when reopened, merged away, anonymised or erased; a canned
-response follows its saves. Choose which with `rag.index.articles`, `.tickets`, `.canned_responses`.
+response follows its saves. Choose which with `rag.index.articles`, `.tickets`, `.canned_responses`: a kind
+switched off is never searched again, each sync purges its documents instead of writing them, and
+`ticketing:rag:index` removes the rest.
 
 **Retrieval** is hybrid by default (`rag.hybrid`): passages must clear `min_score` on the vector similarity —
 a score a threshold means something on — and are then ordered by vectors and exact words together (BM25,
