@@ -27,8 +27,8 @@ Knowledge-base articles have their own `KbArticlePolicy`: `view` follows the art
 [audience](/concepts/knowledge-base#audiences) (tenant agents also see drafts; another tenant's article is
 never visible), while `create`, `update`, `publish`, `archive` and `delete` are for agents of the article's
 tenant — for `create`, the current tenant, where the article will live. A shared article (null tenant, or
-one created with no tenant resolved) is readable by every tenant but only writable by an agent who is not
-tied to one tenant.
+one created with no tenant resolved) is readable by every tenant when `ticketing.tenancy.allow_shared` is on
+(the default), and only writable by an agent who is not tied to one tenant.
 
 The REST API authorizes every action through this policy (a stranger gets 403; a requester is limited to
 their own tickets). The facade/Action layer is intentionally unguarded — it is the trusted lower layer;
