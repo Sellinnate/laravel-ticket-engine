@@ -153,7 +153,9 @@ For the RAG bridge, use the engine's in-memory vector store and fake LLM (see
 ## Go-live checklist
 
 - [ ] Queue worker running; `ticketing:escalate` (SLA) and, with IMAP, `ticketing:mail:poll` scheduled.
-- [ ] AI enabled per type/tenant, not globally, at first; draft mode for the riskiest types.
+- [ ] AI opted in per type/tenant at first: `ticketing.ai.enabled` is `true` (the master switch — off,
+      no AI at all), `ticketing.ai.mode` stays `off`, and `ai.modes.types` / `ai.modes.tenants` turn it on
+      where wanted; draft mode for the riskiest types.
 - [ ] Escalation team and team leads (`team_members.role = lead`) set up per tenant.
 - [ ] Articles reviewed for audience: nothing internal marked `public`.
 - [ ] `min_score` and `min_confidence` tuned on real questions.

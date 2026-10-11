@@ -19,9 +19,10 @@ can only do what the person behind it may do.
 
 ## Tenants
 
-- Every package table carries the tenant column; every query goes through a global scope that **fails
-  closed** (no tenant ⇒ shared rows only). Bypasses (`withoutTenancy()`) are internal and paired with an
-  explicit tenant check.
+- Every package table carries the tenant column; with tenancy enabled (`ticketing.tenancy.enabled`, the
+  default) every query goes through a global scope that **fails closed** (no tenant ⇒ shared rows only).
+  With tenancy disabled — a single-tenant app — the scope adds no filter and every row is visible. Bypasses
+  (`withoutTenancy()`) are internal and paired with an explicit tenant check.
 - Cross-tenant links are refused: a requester, an assignee, a team, a category, a merged ticket of another
   tenant raise `CrossTenantException`.
 - Background work (queues, CLI, inbound email, widget) runs inside the tenant of the row it handles.

@@ -81,6 +81,7 @@ Built with docmd, served by the Cloudflare Worker `laravel-ticketing` (`wrangler
 the generated `404.html` for unknown paths.
 
 ```bash
+cd /path/to/laravel-ticket-engine  # back to the repository (not the smoke-test app), on the tag
 npm ci
 npm run docs:build                 # writes ./site (git-ignored)
 npx wrangler login                 # once, with the Selli Cloudflare account
