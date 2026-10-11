@@ -73,7 +73,8 @@ shared row) is always honoured.
 ## Single-tenant mode
 
 Set `ticketing.tenancy.enabled` to `false` for a single-pool deployment. Role/identity checks (authorization,
-broadcast channels) then apply without a tenant match.
+broadcast channels) then apply without a tenant match, and your models may keep a tenant value of their own:
+requesters, assignees and teams are never refused as "another tenant's".
 
 ## Configuration
 

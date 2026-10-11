@@ -43,6 +43,7 @@ found, each time with a test that would catch it again.
 | Merged widget conversations kept the source's tenant | They take the target's tenant |
 | Distinct tenant ids (`acme.eu` / `acme-eu`, `shared`) collapsed into one RAG tenant | One-to-one RAG tenant naming |
 | Streamed CSV exports read later chunks in whatever tenant was current | Each chunk is read in the tenant the export was asked in |
+| With tenancy disabled, a host user carrying a tenant value was refused as requester or assignee | The tenant guard is off in single-tenant mode, like the scope |
 
 ### Audiences and authorization
 

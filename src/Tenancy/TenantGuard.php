@@ -59,6 +59,12 @@ class TenantGuard
      */
     public function belongsToTenantOf(Model $model, Model $owner, ?string $column = null): bool
     {
+        // Single-tenant: a host model may still carry a tenant value, but
+        // there is nothing to separate (tickets have no tenant either).
+        if (! app(TenantContext::class)->enabled()) {
+            return true;
+        }
+
         $column ??= (string) config('ticketing.tenancy.column', 'tenant_id');
 
         // A model whose table has no tenant column is not scoped by us. Detect

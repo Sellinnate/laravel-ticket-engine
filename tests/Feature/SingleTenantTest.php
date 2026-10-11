@@ -29,3 +29,14 @@ it('opens tickets, posts messages and allocates references with tenancy disabled
     $second = Ticketing::open(type: 'support', title: 'Another', requester: $user);
     expect($second->reference)->toBe("SUPPORT-{$year}-00002");
 });
+
+it('serves host users carrying a tenant value when tenancy is disabled', function (): void {
+    $requester = makeUser(['name' => 'Requester', 'tenant_id' => 5]);
+    $agent = makeUser(['name' => 'Agent', 'tenant_id' => 7]);
+
+    $ticket = Ticketing::open(type: 'support', title: 'Host tenants', requester: $requester);
+    Ticketing::assign($ticket, $agent);
+
+    expect($ticket->refresh()->tenant_id)->toBeNull()
+        ->and((string) $ticket->assignee_id)->toBe((string) $agent->getKey());
+});
