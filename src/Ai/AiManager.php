@@ -10,6 +10,9 @@ use Selli\Ticketing\Ai\Drivers\FakeAiDriver;
 use Selli\Ticketing\Ai\Drivers\NullAiDriver;
 use Selli\Ticketing\Contracts\AiDriver;
 use Selli\Ticketing\Exceptions\InvalidConfigurationException;
+use Selli\Ticketing\Integrations\RagEngine\RagAiDriver;
+use Selli\Ticketing\Integrations\RagEngine\RagKnowledge;
+use Sellinnate\RagEngine\RagEngine;
 
 /**
  * Resolves the configured {@see AiDriver}. Ships `null` (never answers, so
@@ -56,6 +59,19 @@ class AiManager
     /**
      * Drop resolved instances (e.g. after changing config at runtime).
      */
+    /**
+     * @param  array<array-key, mixed>  $config
+     */
+    protected function ragEngine(array $config): AiDriver
+    {
+        if (! class_exists(RagEngine::class)) {
+            throw new InvalidConfigurationException('The rag-engine AI driver needs sellinnate/rag-engine: composer require sellinnate/rag-engine');
+        }
+
+        /** @var array<string, mixed> $config */
+        return new RagAiDriver($this->container->make(RagKnowledge::class), $config);
+    }
+
     public function forgetDrivers(): void
     {
         $this->resolved = [];
@@ -73,6 +89,7 @@ class AiManager
         return match ($name) {
             'null' => new NullAiDriver,
             'fake' => $this->container->make(FakeAiDriver::class),
+            'rag-engine' => $this->ragEngine($config),
             default => throw new InvalidConfigurationException("Unknown AI driver [{$name}]."),
         };
     }

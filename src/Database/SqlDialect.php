@@ -56,6 +56,16 @@ final class SqlDialect
     }
 
     /**
+     * `min(<column>)` or `max(<column>)` of a trusted column name.
+     */
+    public static function extreme(string $function, string $column): Expression
+    {
+        $function = $function === 'min' ? 'min' : 'max';
+
+        return self::fragment(fn (Grammar $grammar): string => $function.'('.$grammar->wrap($column).')');
+    }
+
+    /**
      * `avg(<expression>)` with a fractional result everywhere (SQL Server keeps
      * the integer type of its argument, so the value is cast first).
      */

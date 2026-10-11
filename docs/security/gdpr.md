@@ -16,7 +16,7 @@ $count = Ticketing::anonymiseRequester($requester);
 ```
 
 Scrubs the personal data the package *denormalises* (the email channel's `from`/`from-name` on the
-requester's own messages), keeps the ticket, audits each touched ticket, and emits `RequesterAnonymized` so
+requester's own messages), keeps the ticket, audits each of the person's tickets (`requester.anonymized` — a durable marker that keeps them out of later copies such as a search index; a ticket that receives their messages through a merge or split inherits it as `ticket.erasure_inherited`, which outlives the deletion of the marked ticket), and emits `RequesterAnonymized` so
 your app can anonymise its own requester model. It spans every tenant the person appears in and reaches
 soft-deleted rows, so no PII survives in trash. It also clears the short question excerpts the AI keeps for
 the knowledge-gap report.

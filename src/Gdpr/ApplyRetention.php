@@ -9,10 +9,12 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Selli\Ticketing\Contacts\ContactDirectory;
+use Selli\Ticketing\Events\TicketAnonymized;
 use Selli\Ticketing\Events\TicketErased;
 use Selli\Ticketing\Knowledge\KnowledgeBase;
 use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Models\TicketType;
+use Selli\Ticketing\Support\AuditLogger;
 use Selli\Ticketing\Support\Ticketing;
 
 /**
@@ -52,10 +54,13 @@ class ApplyRetention
 
             $erased = [];
 
-            DB::transaction(function () use ($type, $cutoff, $action, &$count, &$erased): void {
+            $anonymized = [];
+
+            DB::transaction(function () use ($type, $cutoff, $action, &$count, &$erased, &$anonymized): void {
                 // Per attempt: a re-run transaction must not announce the
                 // tickets of an attempt that rolled back.
                 $erased = [];
+                $anonymized = [];
 
                 // Re-select (and lock) inside the transaction so a ticket reopened
                 // between selection and action isn't erased on a stale snapshot.
@@ -67,6 +72,15 @@ class ApplyRetention
                         $erased[] = $ticket;
                     } else {
                         $this->anonymize($ticket);
+
+                        // Once per ticket — every daily run selects it again: a
+                        // durable marker (copies made later, such as a search
+                        // index, must not bring the conversation back) and one
+                        // announcement.
+                        if (! $ticket->activities()->withoutTenancy()->where('event', 'ticket.anonymized')->exists()) {
+                            app(AuditLogger::class)->record(ticket: $ticket, event: 'ticket.anonymized', context: ['reason' => 'retention']);
+                            $anonymized[] = $ticket;
+                        }
                     }
                 }
 
@@ -77,6 +91,10 @@ class ApplyRetention
             // only purge what is really gone.
             foreach ($erased as $ticket) {
                 TicketErased::dispatch($ticket->getKey(), $ticket->getAttribute($ticket->getTenantColumn()));
+            }
+
+            foreach ($anonymized as $ticket) {
+                TicketAnonymized::dispatch($ticket->getKey(), $ticket->getAttribute($ticket->getTenantColumn()));
             }
 
             $results[] = ['type' => $type, 'action' => $action, 'count' => $count];
@@ -166,6 +184,10 @@ class ApplyRetention
      */
     protected function delete(Ticket $ticket): void
     {
+        // Its erasure marker goes with the trail: the tickets that took its
+        // messages keep their own.
+        app(ErasureMarkers::class)->handOn($ticket);
+
         $messageModel = new (Ticketing::ticketMessageModel());
         $messageMorph = $messageModel->getMorphClass();
         $messageIds = DB::table($messageModel->getTable())

@@ -66,6 +66,11 @@ documented recipes on the [Multi-tenancy](https://laravel-ticketing.selli.io/con
 - **REST ids are strings.** `subject.id`, `assignee.id` and `author.id` are always serialised as strings
   (they are string columns); a freshly assigned ticket used to return an integer.
 - **Message sources** gain `ai` and `widget`.
+- **Erasure audit**: `anonymiseRequester()` now writes `requester.anonymized` on every ticket of the person
+  (with `context.scrubbed`), not only those where data was scrubbed; retention anonymisation writes
+  `ticket.anonymized` and dispatches `TicketAnonymized`. The returned count is unchanged. Merging or splitting
+  a marked ticket writes `ticket.erasure_inherited` on the ticket that receives its messages, and a retention
+  delete hands the marker on to those tickets first.
 - **Requesters are checked against the ticket's tenant**: opening a ticket for a requester of another tenant
   throws `CrossTenantException`, and the ticket policy no longer lets a user of another tenant in through a
   participant row.

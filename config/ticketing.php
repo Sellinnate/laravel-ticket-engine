@@ -627,6 +627,36 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | RAG Engine bridge (optional: sellinnate/rag-engine)
+    |--------------------------------------------------------------------------
+    |
+    | Keeps published articles and resolved tickets in a RAG index — each
+    | ticketing tenant in its own RAG tenant ("tenant_prefix" + n-<id>) — and
+    | powers the "rag-engine" AI driver, similar tickets and, with
+    | "knowledge_search", the semantic Ticketing::knowledge()->search().
+    | Searches filter on visibility and audience with positive conditions only
+    | (fail closed). Run `php artisan ticketing:rag:index` once to backfill.
+    |
+    */
+    'rag' => [
+        'enabled' => false,
+        'namespace' => 'ticketing',
+        'tenant_prefix' => 'tk-',
+        'queue' => true,
+        'index' => [
+            'articles' => true,
+            'tickets' => true,              // resolved/closed tickets (question + final answer, PII removed), for agents
+            'canned_responses' => true,     // active canned responses, for agents
+        ],
+        'hybrid' => true,                   // order by vectors + exact words (BM25); relevance stays on the vector score
+        'knowledge_search' => false,
+        'min_score' => 0.35,                // passages below are ignored
+        'top_k' => 5,
+        'article_url' => null,              // e.g. 'https://help.example.com/{locale}/{slug}' for citations
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | AI assistance
     |--------------------------------------------------------------------------
     |
@@ -652,6 +682,13 @@ return [
         'drivers' => [
             'null' => [],
             'fake' => [],
+
+            // Needs sellinnate/rag-engine and the "rag" section below.
+            'rag-engine' => [
+                'llm' => null,              // a rag-engine LLM name; null = its default
+                'classify' => true,         // ask the LLM to classify each message
+                'internal_sources' => false, // an assistant for agents may also cite resolved tickets and canned responses
+            ],
         ],
 
         'mode' => 'off',
