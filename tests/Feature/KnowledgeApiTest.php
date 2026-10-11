@@ -154,6 +154,27 @@ it('never shows another tenant\'s articles to an agent, even by direct Gate chec
         ->and(Gate::forUser($ownAgent)->allows('view', $article))->toBeTrue();
 });
 
+it('lets an agent create articles only in their own tenant', function (): void {
+    $tenantOne = makeUser(['tenant_id' => 1]);
+    $global = makeUser();
+    $create = fn ($agent, int|string|null $tenant): bool => app(TenantContext::class)
+        ->forTenant($tenant, fn (): bool => Gate::forUser($agent)->allows('create', KbArticle::class));
+
+    // Their own tenant; never another one, nor a shared article (no tenant).
+    expect($create($tenantOne, 1))->toBeTrue()
+        ->and($create($tenantOne, 2))->toBeFalse()
+        ->and($create($tenantOne, null))->toBeFalse()
+        // An agent tied to no tenant writes shared articles.
+        ->and($create($global, null))->toBeTrue()
+        ->and($create(TestRequester::query()->create(['name' => 'Customer']), null))->toBeFalse();
+
+    // Through the API too.
+    $this->actingAs($tenantOne);
+    app(TenantContext::class)->forTenant(2, fn () => $this->postJson(API.'/kb/articles', ['title' => 'Foreign', 'body' => 'x'])->assertForbidden());
+
+    expect(KbArticle::query()->withoutTenancy()->where('title', 'Foreign')->exists())->toBeFalse();
+});
+
 it('rejects a category filter that cannot be a category id', function (): void {
     $this->actingAs(makeUser());
 

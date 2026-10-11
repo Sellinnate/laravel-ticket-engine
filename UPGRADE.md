@@ -90,6 +90,11 @@ documented recipes on the [Multi-tenancy](https://laravel-ticketing.selli.io/con
 - **Inbound Message-IDs longer than 191 characters** are de-duplicated on their SHA-256 hash: a redelivery
   of such an email in the minutes around the upgrade may be ingested once more.
 
+### Optional integrations
+
+Nothing changes unless you opt in: `composer require directorytree/imapengine` for IMAP polling,
+`laravel/mcp` for the MCP tools, `sellinnate/rag-engine` for the RAG bridge (then `ticketing.rag.enabled`).
+
 ### Classes now marked `@internal`
 
 Listeners, the automation engine internals, SLA calculators, routing strategies, HTTP

@@ -5,11 +5,14 @@ declare(strict_types=1);
 namespace Selli\Ticketing\Mail;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\RateLimiter;
 use Selli\Ticketing\Actions\AddAttachment;
 use Selli\Ticketing\Actions\PostMessage;
+use Selli\Ticketing\Contracts\CanActOnTickets;
+use Selli\Ticketing\Contracts\CanRequestTickets;
 use Selli\Ticketing\Contracts\InboundMailRouter;
 use Selli\Ticketing\Contracts\InboundRequesterResolver;
 use Selli\Ticketing\Data\AddAttachmentData;
@@ -330,8 +333,9 @@ class ProcessInboundEmail
 
     /**
      * Has this sender already appeared on the ticket — as the sender of an
-     * earlier email, or as a contact requester/participant (a widget visitor,
-     * a Cc'd colleague)? Gate for header and subject threading only.
+     * earlier email, as a contact requester/participant (a widget visitor,
+     * a Cc'd colleague), or as a host-model participant or requester subject
+     * with this address? Gate for header and subject threading only.
      */
     protected function senderOnTicket(Ticket $ticket, InboundEmail $email): bool
     {
@@ -359,10 +363,55 @@ class ProcessInboundEmail
             ->map(fn (mixed $key): string => (string) $key)
             ->all();
 
-        return $contacts !== [] && $ticket->participants()->withoutTenancy()
+        $isContact = $contacts !== [] && $ticket->participants()->withoutTenancy()
             ->where('participant_type', $contact->getMorphClass())
             ->whereIn('participant_id', $contacts)
             ->exists();
+
+        return $isContact || $this->hostPersonOnTicket($ticket, $contact->getMorphClass(), $from);
+    }
+
+    /**
+     * A host model on the ticket (a user who opened it, a colleague, an
+     * agent) whose requester or agent address is the sender's.
+     */
+    protected function hostPersonOnTicket(Ticket $ticket, string $contactMorph, string $from): bool
+    {
+        $keys = [];
+
+        foreach ($ticket->participants()->withoutTenancy()->where('participant_type', '!=', $contactMorph)->get(['participant_type', 'participant_id']) as $participant) {
+            $keys[$participant->participant_type][] = $participant->participant_id;
+        }
+
+        // A ticket opened about its requester (Ticketing::for($user)).
+        if ($ticket->subject_type !== null && $ticket->subject_id !== null && $ticket->subject_type !== $contactMorph) {
+            $keys[$ticket->subject_type][] = $ticket->subject_id;
+        }
+
+        foreach ($keys as $type => $ids) {
+            $class = Relation::getMorphedModel($type) ?? $type;
+
+            if (! is_a($class, Model::class, true)) {
+                continue;
+            }
+
+            // Unscoped: a host's own tenancy must not hide the person from a
+            // queued or console run; only their address is compared.
+            foreach ($class::query()->withoutGlobalScopes()->whereKey(array_values(array_unique($ids)))->get() as $person) {
+                $addresses = [
+                    $person instanceof CanRequestTickets ? $person->requesterEmail() : null,
+                    $person instanceof CanActOnTickets ? $person->agentEmail() : null,
+                ];
+
+                foreach ($addresses as $address) {
+                    if (is_string($address) && strtolower(trim($address)) === $from) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
     }
 
     protected function record(Ticket $ticket, InboundEmail $email, ?Model $author): TicketMessage

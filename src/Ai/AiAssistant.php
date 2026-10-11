@@ -89,7 +89,7 @@ class AiAssistant
             return null;
         }
 
-        $turn = $this->claim($triggerKey, $ticket, null, $mode, $trigger->body, $retry);
+        $turn = $this->claim($triggerKey, $ticket, null, $mode, AiRequestFactory::text($trigger), $retry);
 
         if ($turn === null) {
             return null;
@@ -132,7 +132,7 @@ class AiAssistant
                 $reason ??= $this->policy->afterAnswer($answer);
             }
         } catch (Throwable $exception) {
-            return $this->failTicket($ticket, $turn, $mode, $exception, $usage, $started);
+            return $this->failTicket($ticket, $trigger, $turn, $mode, $exception, $usage, $started);
         }
 
         return $this->completeTicketTurn($ticket, $trigger, $turn, $mode, $reason, $answer, $usage, $started);
@@ -302,15 +302,17 @@ class AiAssistant
                 return null;
             }
 
-            /** @var Ticket $locked */
             $locked = Ticketing::ticketModel()::query()->withoutTenancy()
                 ->lockForUpdate()
                 ->whereKey($ticket->getKey())
-                ->firstOrFail();
+                ->first();
 
-            // A human took over, the ticket was escalated or resolved while the
+            // A human took over, the ticket was escalated or resolved — or the
+            // question moved to another ticket (split, merge) — while the
             // driver was thinking: never write after any of those.
-            if (($locked->ai_status !== null && ! $locked->ai_status->answers())
+            if (! $locked instanceof Ticket
+                || ! $this->stillOn($locked, $trigger)
+                || ($locked->ai_status !== null && ! $locked->ai_status->answers())
                 || $this->agentRepliedSince($locked, $trigger)
                 || $this->requests->isClosed($locked)) {
                 $this->finish($turn, AiOutcome::Skipped, null, $answer, $usage, $started);
@@ -386,24 +388,27 @@ class AiAssistant
         return $turn;
     }
 
-    protected function failTicket(Ticket $ticket, AiTurn $turn, AiMode $mode, Throwable $exception, AiUsage $usage, int $started): AiTurn
+    protected function failTicket(Ticket $ticket, TicketMessage $trigger, AiTurn $turn, AiMode $mode, Throwable $exception, AiUsage $usage, int $started): AiTurn
     {
         report($exception);
 
         // Always on: a provider error hands the customer to a human — unless,
-        // meanwhile, a human took over or the ticket was resolved.
-        $handOver = DB::transaction(function () use ($ticket, $turn, $usage, $started, $exception): ?bool {
+        // meanwhile, a human took over, the ticket was resolved or the
+        // question moved to another ticket (split, merge).
+        $handOver = DB::transaction(function () use ($ticket, $trigger, $turn, $usage, $started, $exception): ?bool {
             if (! $this->stillOwns($turn)) {
                 return null;
             }
 
-            /** @var Ticket $locked */
             $locked = Ticketing::ticketModel()::query()->withoutTenancy()
                 ->lockForUpdate()
                 ->whereKey($ticket->getKey())
-                ->firstOrFail();
+                ->first();
 
-            if (($locked->ai_status !== null && ! $locked->ai_status->answers()) || $this->requests->isClosed($locked)) {
+            if (! $locked instanceof Ticket
+                || ! $this->stillOn($locked, $trigger)
+                || ($locked->ai_status !== null && ! $locked->ai_status->answers())
+                || $this->requests->isClosed($locked)) {
                 $this->finish($turn, AiOutcome::Failed, null, null, $usage, $started, $exception->getMessage());
 
                 return false;
@@ -529,22 +534,36 @@ class AiAssistant
             return null;
         }
 
-        return $this->reclaim($turn, $retry) ? $turn->refresh() : null;
+        return $this->reclaim($turn, $retry);
     }
 
     /**
-     * Atomically take an unfinished turn back (the attempts counter makes the
-     * update change a row on every engine).
+     * Atomically take an unfinished turn back. The update only matches the
+     * generation (attempts) this worker saw — of two concurrent retries one
+     * wins — and the winner keeps the generation it wrote, even if a later
+     * worker takes the turn over again (it then no longer owns it). The
+     * counter also makes the update change a row on every engine.
      */
-    protected function reclaim(AiTurn $turn, bool $retry): bool
+    protected function reclaim(AiTurn $turn, bool $retry): ?AiTurn
     {
         $timeout = max(30, (int) config('ticketing.ai.turn_timeout', 300));
+        $generation = $turn->attempts + 1;
 
-        return Ticketing::aiTurnModel()::query()->withoutTenancy()
+        $won = Ticketing::aiTurnModel()::query()->withoutTenancy()
             ->whereKey($turn->getKey())
             ->where('status', $turn->status)
+            ->where('attempts', $turn->attempts)
             ->when(! $retry, fn ($query) => $query->where('updated_at', '<', now()->subSeconds($timeout)))
-            ->update(['updated_at' => now(), 'attempts' => DB::raw('attempts + 1')]) === 1;
+            ->update(['updated_at' => now(), 'attempts' => $generation]) === 1;
+
+        if (! $won) {
+            return null;
+        }
+
+        $turn->refresh();
+        $turn->setRawAttributes(array_merge($turn->getAttributes(), ['attempts' => $generation]), true);
+
+        return $turn;
     }
 
     /**
@@ -558,7 +577,7 @@ class AiAssistant
     {
         $subject = $ticket ?? $conversation;
         $model = Ticketing::aiTurnModel();
-        $plain = AiRequestFactory::plain($question);
+        $plain = Str::squish($question);
 
         /** @var AiTurn $turn */
         $turn = $model::query()->withoutTenancy()->createOrFirst(
@@ -583,7 +602,7 @@ class AiAssistant
             return null;
         }
 
-        return $this->reclaim($turn, $retry) ? $turn->refresh() : null;
+        return $this->reclaim($turn, $retry);
     }
 
     protected function finish(AiTurn $turn, AiOutcome $outcome, ?EscalationReason $reason, ?AiAnswer $answer, AiUsage $usage, int $started, ?string $error = null, string $status = AiTurn::STATUS_DONE): void
@@ -671,6 +690,18 @@ class AiAssistant
                 app(Ticketing::class)->changePriority($locked, $suggested);
             }
         });
+    }
+
+    /**
+     * Whether the triggering message is still part of the ticket's
+     * conversation (not split or merged away).
+     */
+    protected function stillOn(Ticket $ticket, TicketMessage $trigger): bool
+    {
+        return Ticketing::ticketMessageModel()::query()->withoutTenancy()
+            ->whereKey($trigger->getKey())
+            ->where('ticket_id', $ticket->getKey())
+            ->exists();
     }
 
     /**

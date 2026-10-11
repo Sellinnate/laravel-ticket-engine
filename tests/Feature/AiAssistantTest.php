@@ -391,6 +391,85 @@ it('never writes after a takeover that happens while the driver is thinking', fu
         ->and($ticket->refresh()->ai_status)->toBe(AiStatus::Suspended);
 });
 
+it('never answers a question split or merged into another ticket while the driver is thinking', function (string $move): void {
+    app(AiManager::class)->extend('moving', fn () => new class($move) implements AiDriver
+    {
+        public function __construct(private string $move) {}
+
+        public function classify(AiRequest $request): AiClassification
+        {
+            return AiClassification::none();
+        }
+
+        public function answer(AiRequest $request): AiAnswer
+        {
+            // An agent moves the question elsewhere mid-turn.
+            $ticket = $request->ticket;
+            assert($ticket instanceof Ticket);
+
+            if ($this->move === 'split') {
+                Ticketing::for($ticket)->split([$ticket->messages()->latest('id')->value('id')]);
+            } else {
+                Ticketing::for(Ticketing::open(type: 'support', title: 'Target'))->mergeFrom([$ticket]);
+            }
+
+            return new AiAnswer('Late answer', [new AiSource('faq', '1', 'F')], 0.99);
+        }
+
+        public function summarize(AiRequest $request): AiSummary
+        {
+            return new AiSummary('');
+        }
+    });
+    config()->set('ticketing.ai.driver', 'moving');
+
+    customerAsks('A question that moves');
+
+    expect(Ticketing::ticketMessageModel()::query()->where('body', 'Late answer')->exists())->toBeFalse()
+        ->and(AiTurn::query()->sole()->outcome)->toBe(AiOutcome::Skipped);
+})->with(['split', 'merge']);
+
+it('does not escalate on a provider error once the question moved to another ticket', function (): void {
+    app(AiManager::class)->extend('moving-then-failing', fn () => new class implements AiDriver
+    {
+        public function classify(AiRequest $request): AiClassification
+        {
+            return AiClassification::none();
+        }
+
+        public function answer(AiRequest $request): AiAnswer
+        {
+            $ticket = $request->ticket;
+            assert($ticket instanceof Ticket);
+            Ticketing::for($ticket)->split([$ticket->messages()->latest('id')->value('id')]);
+
+            throw new RuntimeException('provider down');
+        }
+
+        public function summarize(AiRequest $request): AiSummary
+        {
+            return new AiSummary('');
+        }
+    });
+    config()->set('ticketing.ai.driver', 'moving-then-failing');
+
+    $ticket = customerAsks('A question that moves before the provider fails');
+
+    expect($ticket->refresh()->escalated_at)->toBeNull()
+        ->and(AiTurn::query()->sole()->outcome)->toBe(AiOutcome::Failed)
+        ->and(AiTurn::query()->sole()->escalation_reason)->toBeNull();
+});
+
+it('gives the AI a plain-text question as written, markup-like text included', function (): void {
+    fakeAi()->queueAnswer(confidentAnswer());
+
+    customerAsks('The error is <PermissionDenied> when I write to <jane@example.com>');
+    $request = collect(fakeAi()->requests())->firstWhere('operation', 'answer')['request'];
+
+    expect($request->question)->toBe('The error is <PermissionDenied> when I write to <jane@example.com>')
+        ->and(AiTurn::query()->sole()->question)->toContain('<PermissionDenied>');
+});
+
 it('escalates on a provider error', function (): void {
     Event::fake([AiTurnFailed::class, TicketEscalated::class]);
     fakeAi()->failNext('timeout');
@@ -756,6 +835,34 @@ it('does not escalate a resolved ticket when the provider fails late', function 
         ->and($ticket->escalated_at)->toBeNull()
         ->and($ticket->messages()->where('body', 'A human will follow up.')->exists())->toBeFalse()
         ->and(AiTurn::query()->sole()->outcome)->toBe(AiOutcome::Failed);
+});
+
+it('lets one of two retries that saw the same generation reclaim a turn, and keeps each winner\'s own', function (): void {
+    fakeAi()->queueAnswer(confidentAnswer());
+    customerAsks('Question');
+    $turn = AiTurn::query()->sole();
+    // Left running by a worker that died.
+    $turn->forceFill(['status' => AiTurn::STATUS_RUNNING, 'attempts' => 1])->save();
+
+    $assistant = app(AiAssistant::class);
+    $reclaim = fn (AiTurn $seen): ?AiTurn => (fn () => $this->reclaim($seen, true))->call($assistant);
+    $owns = fn (AiTurn $turn): bool => (fn () => $this->stillOwns($turn))->call($assistant);
+
+    // Two retries read generation 1 before either writes.
+    $first = AiTurn::query()->find($turn->getKey());
+    $second = AiTurn::query()->find($turn->getKey());
+    $won = $reclaim($first);
+
+    expect($won?->attempts)->toBe(2)
+        ->and($reclaim($second))->toBeNull();
+
+    // A later takeover: the earlier winner keeps its generation and no longer owns the turn.
+    $later = $reclaim(AiTurn::query()->find($turn->getKey()));
+
+    expect($later?->attempts)->toBe(3)
+        ->and($won?->attempts)->toBe(2)
+        ->and($owns($won))->toBeFalse()
+        ->and($owns($later))->toBeTrue();
 });
 
 it('lets only the current owner of a reclaimed turn write', function (): void {

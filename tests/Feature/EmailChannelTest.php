@@ -136,6 +136,23 @@ it('accepts header threading from a contact on the ticket who never emailed', fu
     expect($reply?->ticket_id)->toBe($ticket->getKey());
 });
 
+it('accepts header and subject threading from a host user on the ticket who never emailed', function (): void {
+    // Opened in the app by a user (requester), or about them (subject).
+    $user = makeUser(['name' => 'App User', 'email' => 'App.User@example.test']);
+    $opened = Ticketing::open(type: 'support', title: 'From the app', requester: $user);
+    $about = Ticketing::for($user)->open(type: 'support', title: 'About the user');
+    $answer = Ticketing::postMessage($opened, makeUser(), 'Hello!');
+    $ourId = sentAs((new ReplyPostedNotification($opened, $answer))->toMail($user))->getHeaders()->get('Message-ID')?->getBodyAsString();
+
+    $reply = Ticketing::receiveEmail(incoming(['from' => 'app.user@example.test', 'in_reply_to' => $ourId]));
+    $bySubject = Ticketing::receiveEmail(incoming(['from' => 'app.user@example.test', 'subject' => 'Re: ['.$about->reference.']', 'text' => 'Any news?']));
+    $stranger = Ticketing::receiveEmail(incoming(['from' => 'mallory@evil.test', 'in_reply_to' => $ourId, 'text' => 'Inject']));
+
+    expect($reply?->ticket_id)->toBe($opened->getKey())
+        ->and($bySubject?->ticket_id)->toBe($about->getKey())
+        ->and($stranger?->ticket_id)->not->toBe($opened->getKey());
+});
+
 it('drops bounces, no-reply senders and our own mail', function (array $email): void {
     expect(Ticketing::receiveEmail(incoming($email)))->toBeNull()
         ->and(Ticket::query()->count())->toBe(0);

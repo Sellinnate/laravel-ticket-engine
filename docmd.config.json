@@ -22,7 +22,7 @@
     },
     "footer": {
       "style": "minimal",
-      "content": "© 2026 Sellinnate S.r.l. — The agnostic ticketing engine for Laravel (MIT).",
+      "content": "© 2026 Sellinnate S.r.l. — The headless, multi-tenant help-desk engine for Laravel (MIT).",
       "branding": true
     }
   },
@@ -88,16 +88,20 @@
       "title": "Guides",
       "icon": "compass",
       "children": [
-        { "title": "Widget on an external site", "path": "/guides/external-widget", "icon": "globe" }
+        { "title": "An AI help desk with RAG", "path": "/guides/ai-help-desk", "icon": "sparkles" },
+        { "title": "Widget on an external site", "path": "/guides/external-widget", "icon": "globe" },
+        { "title": "Migrating a ticket module", "path": "/guides/migrating", "icon": "truck" }
       ]
     },
     {
       "title": "Security",
       "icon": "shield",
       "children": [
+        { "title": "Security model", "path": "/security/model", "icon": "shield-alert" },
         { "title": "Authorization", "path": "/security/authorization", "icon": "lock" },
         { "title": "Audit trail", "path": "/security/audit-trail", "icon": "history" },
-        { "title": "GDPR & retention", "path": "/security/gdpr", "icon": "user-x" }
+        { "title": "GDPR & retention", "path": "/security/gdpr", "icon": "user-x" },
+        { "title": "v1 hardening review", "path": "/technical/hardening-v1", "icon": "search-check" }
       ]
     },
     {
@@ -116,14 +120,16 @@
         { "title": "Artisan commands", "path": "/reference/commands", "icon": "command" },
         { "title": "Database schema", "path": "/reference/database-schema", "icon": "database" },
         { "title": "Public API", "path": "/reference/public-api", "icon": "shield-check" },
-        { "title": "Versioning & support", "path": "/reference/versioning", "icon": "tag" }
+        { "title": "Versioning & support", "path": "/reference/versioning", "icon": "tag" },
+        { "title": "Release runbook", "path": "/technical/release-runbook", "icon": "rocket" }
       ]
     },
+    { "title": "FAQ", "path": "/faq", "icon": "help-circle" },
     { "title": "GitHub", "path": "https://github.com/Sellinnate/laravel-ticket-engine", "icon": "github", "external": true }
   ],
   "plugins": {
     "seo": {
-      "defaultDescription": "The agnostic ticketing engine for Laravel: headless, multi-tenant, workflow-driven tickets you attach to your own models — SLA, routing, collaboration, CSAT, automation, REST API, email-to-ticket, broadcasting, authorization, audit trail and GDPR."
+      "defaultDescription": "The headless, multi-tenant help-desk engine for Laravel: tickets on any model, workflow, SLA, routing, email and chat-widget channels, AI with human hand-over, knowledge base, KPIs, MCP tools and a RAG bridge."
     }
   }
 }

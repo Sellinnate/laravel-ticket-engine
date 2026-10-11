@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="420" viewBox="0 0 1280 420">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1220"/>
+      <stop offset="1" stop-color="#1a1f3a"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ff2d20"/>
+      <stop offset="1" stop-color="#ff7a59"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="420" fill="url(#bg)"/>
+  <g opacity="0.08" stroke="#ffffff" stroke-width="1">
+    <path d="M0 70 H1280 M0 140 H1280 M0 210 H1280 M0 280 H1280 M0 350 H1280"/>
+    <path d="M160 0 V420 M320 0 V420 M480 0 V420 M640 0 V420 M800 0 V420 M960 0 V420 M1120 0 V420"/>
+  </g>
+  <!-- ticket glyph -->
+  <g transform="translate(96 118)">
+    <path d="M0 24 a24 24 0 0 1 24 -24 h136 a24 24 0 0 1 24 24 v40 a24 24 0 0 0 0 56 v40 a24 24 0 0 1 -24 24 h-136 a24 24 0 0 1 -24 -24 v-40 a24 24 0 0 0 0 -56 z" fill="url(#accent)"/>
+    <path d="M56 6 v172" stroke="#0b1220" stroke-width="5" stroke-dasharray="10 9"/>
+    <rect x="76" y="56" width="80" height="12" rx="6" fill="#ffffff" opacity="0.92"/>
+    <rect x="76" y="86" width="64" height="12" rx="6" fill="#ffffff" opacity="0.7"/>
+    <rect x="76" y="116" width="72" height="12" rx="6" fill="#ffffff" opacity="0.5"/>
+  </g>
+  <text x="336" y="182" font-family="Poppins" font-weight="700" font-size="76" fill="#ffffff">Selli Ticketing</text>
+  <text x="340" y="236" font-family="Poppins" font-weight="500" font-size="30" fill="#c7d2fe">The headless, multi-tenant help-desk engine for Laravel</text>
+  <text x="340" y="296" font-family="Poppins" font-weight="400" font-size="22" fill="#94a3b8">Tickets · SLA · Routing · Email &amp; widget · AI with human hand-over · RAG · KPIs · MCP</text>
+  <rect x="340" y="324" width="148" height="6" rx="3" fill="url(#accent)"/>
+</svg>
