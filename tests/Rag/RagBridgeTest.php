@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Selli\Ticketing\Actions\Knowledge\SaveArticle;
 use Selli\Ticketing\Ai\AiManager;
 use Selli\Ticketing\Ai\AiRequest;
@@ -16,6 +17,7 @@ use Selli\Ticketing\Enums\KnowledgeVisibility;
 use Selli\Ticketing\Enums\MessageSource;
 use Selli\Ticketing\Enums\MessageVisibility;
 use Selli\Ticketing\Enums\Priority;
+use Selli\Ticketing\Events\TicketMerged;
 use Selli\Ticketing\Facades\Ticketing;
 use Selli\Ticketing\Integrations\RagEngine\RagAiDriver;
 use Selli\Ticketing\Integrations\RagEngine\RagHit;
@@ -617,6 +619,28 @@ it('keeps out a ticket anonymised while the bridge was off', function (): void {
     $this->artisan('ticketing:rag:index', ['--tickets' => true])->assertSuccessful();
 
     expect(ragDocuments('ticket:'.$ticket->getKey()))->toBe(0);
+});
+
+it('keeps out the messages of an erased requester merged in while the bridge was off', function (): void {
+    $customer = Ticketing::contacts()->remember('gone@example.test');
+    $erased = Ticketing::open(type: 'support', title: 'Erased one', requester: $customer);
+    Ticketing::postMessage($erased, $customer, 'Private question of an erased person.');
+    Ticketing::anonymiseRequester($customer);
+
+    $target = Ticketing::open(type: 'support', title: 'Target');
+    Ticketing::postMessage($target, null, 'Question on the target.');
+    Ticketing::postMessage($target, makeUser(), 'Answer on the target.');
+
+    // The merge happens with nobody listening for the bridge.
+    config()->set('ticketing.rag.index.tickets', false);
+    Event::fakeFor(fn () => Ticketing::for($target)->mergeFrom([$erased]), [TicketMerged::class]);
+    Ticketing::transition($target->refresh(), 'resolve');
+
+    config()->set('ticketing.rag.index.tickets', true);
+    $this->artisan('ticketing:rag:index', ['--tickets' => true])->assertSuccessful();
+
+    expect(app(RagKnowledge::class)->excluded($target->refresh()))->toBeTrue()
+        ->and(ragDocuments('ticket:'.$target->getKey()))->toBe(0);
 });
 
 it('keeps a trashed ticket out once retention anonymised it', function (): void {

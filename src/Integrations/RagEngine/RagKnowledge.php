@@ -507,9 +507,67 @@ class RagKnowledge
      */
     public function excluded(Ticket $ticket): bool
     {
-        return $ticket->activities()->withoutTenancy()
+        return $this->excludedAmong([$ticket->getKey()]) !== [];
+    }
+
+    /**
+     * The tickets among these that must stay out of the index: marked
+     * themselves, or holding messages of a marked ticket — followed through
+     * the merge and split lineage of the audit trail, so it holds even when
+     * the bridge was off when the messages moved.
+     *
+     * @param  list<int|string>  $ticketIds
+     * @return list<string>
+     */
+    protected function excludedAmong(array $ticketIds): array
+    {
+        $activities = Ticketing::ticketActivityModel();
+        $ids = array_values(array_unique(array_map(fn (int|string $id): string => (string) $id, $ticketIds)));
+        $known = array_fill_keys($ids, true);
+        $parents = [];
+        $frontier = $ids;
+
+        for ($depth = 0; $depth < 10 && $frontier !== []; $depth++) {
+            $next = [];
+
+            foreach ($activities::query()->withoutTenancy()->whereIn('ticket_id', $frontier)->whereIn('event', ['ticket.merged_from', 'ticket.split_from'])->get(['ticket_id', 'context']) as $row) {
+                $source = is_array($row->context) ? ($row->context['source_id'] ?? null) : null;
+
+                if (is_int($source) || is_string($source)) {
+                    $parents[(string) $row->ticket_id][] = (string) $source;
+
+                    if (! isset($known[(string) $source])) {
+                        $known[(string) $source] = true;
+                        $next[] = (string) $source;
+                    }
+                }
+            }
+
+            $frontier = $next;
+        }
+
+        $marked = array_fill_keys($activities::query()->withoutTenancy()
+            ->whereIn('ticket_id', array_keys($known))
             ->whereIn('event', self::EXCLUDING_EVENTS)
-            ->exists();
+            ->pluck('ticket_id')
+            ->map(fn (mixed $key): string => (string) $key)
+            ->all(), true);
+
+        $isExcluded = function (string $id, array $seen) use (&$isExcluded, $marked, $parents): bool {
+            if (isset($marked[$id])) {
+                return true;
+            }
+
+            foreach ($parents[$id] ?? [] as $parent) {
+                if (! isset($seen[$parent]) && $isExcluded($parent, $seen + [$parent => true])) {
+                    return true;
+                }
+            }
+
+            return false;
+        };
+
+        return array_values(array_filter($ids, fn (string $id): bool => $isExcluded($id, [$id => true])));
     }
 
     /**
@@ -719,12 +777,7 @@ class RagKnowledge
         if ($ids[self::TYPE_TICKET] !== [] && $audience->agent) {
             // An erased requester's conversation never shows, even if its
             // vectors could not be purged.
-            $excluded = Ticketing::ticketActivityModel()::query()->withoutTenancy()
-                ->whereIn('ticket_id', $ids[self::TYPE_TICKET])
-                ->whereIn('event', self::EXCLUDING_EVENTS)
-                ->pluck('ticket_id')
-                ->map(fn (mixed $key): string => (string) $key)
-                ->all();
+            $excluded = $this->excludedAmong($ids[self::TYPE_TICKET]);
 
             $allowed[self::TYPE_TICKET] = $this->inTenant(Ticketing::ticketModel()::query()->withoutTenancy(), $tenant)
                 ->whereKey(array_values(array_diff($ids[self::TYPE_TICKET], $excluded)))
