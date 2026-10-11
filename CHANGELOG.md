@@ -32,8 +32,10 @@ First stable release: the public API is now covered by semantic versioning (see
 - **RAG Engine bridge** (optional, `sellinnate/rag-engine`) — indexing of articles, canned responses and
   resolved tickets (question + final answer, personal data removed), hybrid fail-closed semantic search
   re-verified in the database, `rag-engine` AI driver with citations, similar tickets, GDPR purges,
-  `ticketing:rag:index`.
-- `TicketAnonymized` event when retention anonymises a ticket.
+  `ticketing:rag:index` (backfill and reconciliation, per-kind switches).
+- `TicketAnonymized` event when retention anonymises a ticket; durable erasure markers in the audit trail
+  (`requester.anonymized`, `ticket.anonymized`, `ticket.erasure_inherited` through merge, split and
+  retention deletes) that keep erased conversations out of later copies such as a search index.
 - `TicketQuery` (`Ticketing::tickets()`): listing filters, sort, offset/cursor pagination, used by the REST
   index; `channel` on tickets; reopen on requester reply; `SqlDialect` for portable SQL.
 - Documentation site (docmd) with guides, references, security and FAQ; Cloudflare Worker config.

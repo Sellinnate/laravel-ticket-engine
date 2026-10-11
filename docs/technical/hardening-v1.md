@@ -20,7 +20,7 @@ found, each time with a test that would catch it again.
 ## Method
 
 - **Automated adversarial review** of every change set (OpenAI Codex review) until it reported nothing
-  actionable — 42 rounds on the support phase, 18 on channels, 19 on the RAG bridge, plus the documentation
+  actionable — 42 rounds on the support phase, 18 on channels, 29 on the RAG bridge, plus the documentation
   — and CodeRabbit on every pull request.
 - **Every finding fixed with a regression test**, verified to fail without the fix.
 - **Three databases on every change**: SQLite, MySQL 8.4 and PostgreSQL 16 run the whole suite (JSON paths,
@@ -95,7 +95,9 @@ found, each time with a test that would catch it again.
 | Finding | Fix |
 | --- | --- |
 | AI question excerpts, widget traces, vote comments survived erasure | Scrubbed by erasure and retention |
-| Erased requesters' conversations could re-enter the RAG index (backfill, late job, merge, split) | Durable `rag.excluded` audit marker, inherited through merge and split, checked under the document lock and at search time; recorded before the (fallible, retried) purges |
+| Erased requesters' conversations could re-enter the RAG index (backfill, late job, merge, split, bridge off at the time, source deleted by retention) | Durable erasure markers recorded by the core (`requester.anonymized`, `ticket.anonymized`), carried as `ticket.erasure_inherited` through merge, split and retention deletes, plus the bridge's `rag.excluded`; the merge/split lineage followed to its end, checked under the document lock and at search time; recorded before the (fallible, retried) purges |
+| Names of a requester the ticket is about, or of people hidden by a host's own tenancy scope, stayed in indexed tickets; tenant-scoped agents' answers were missed by queued syncs | People loaded without any global scope for redaction; agent answers recognised by the author's class |
+| A RAG kind switched off came back through late jobs and stayed searchable | Switched-off kinds are never searched, purged by every sync and by `ticketing:rag:index` |
 | Indexed tickets carried whole conversations, names and contact data | Only the question and the final answer, with emails, phone/card/IBAN numbers and the names of the people on the ticket removed |
 | Retention anonymisation left the ticket in the RAG index | New `TicketAnonymized` event; the bridge excludes and purges it |
 | Contacts' unique key allowed one NULL on SQL Server (second anonymisation failed) | Filtered unique index on SQL Server |
