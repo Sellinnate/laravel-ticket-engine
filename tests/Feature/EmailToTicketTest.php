@@ -74,6 +74,28 @@ it('routes by wildcard, regex and a stripped sub-address; drops unmatched', func
     expect($router->route(inbound()))->toBeNull();
 });
 
+it('routes and threads on an address that is only in Cc', function (): void {
+    enableInbound();
+
+    // The support address is only Cc'd on a webhook mail mapped to/cc.
+    $first = Ticketing::receiveEmail(inbound(['recipients' => [], 'to' => ['colleague@example.test'], 'cc' => ['support@example.test']]));
+
+    expect($first?->ticket_id)->not->toBeNull()
+        ->and(inbound(['recipients' => ['a@example.test'], 'cc' => ['support@example.test', 'A@example.test']])->recipients)
+        ->toBe(['a@example.test', 'support@example.test', 'A@example.test']);
+
+    // A reply whose tagged reply address is only in Cc threads on its token.
+    $token = MailThreadToken::issue($first->ticket_id);
+    $reply = Ticketing::receiveEmail(inbound([
+        'recipients' => ['colleague@example.test'],
+        'cc' => ['support+t_'.$token.'@example.test'],
+        'subject' => 'Something else entirely',
+        'text' => 'More details.',
+    ]));
+
+    expect($reply?->ticket_id)->toBe($first->ticket_id);
+});
+
 it('normalises an HTML-only body and recognises more auto-reply signals', function (): void {
     $html = InboundEmail::fromArray(['from' => 'a@b.test', 'html' => '<p>Hi</p>']);
     expect($html->body())->toBe('<p>Hi</p>')

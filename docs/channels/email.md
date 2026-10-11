@@ -32,8 +32,8 @@ Route::post('/webhooks/inbound-mail', function (Request $request) {
     Ticketing::receiveEmail(InboundEmail::fromArray([
         'from' => $request->input('From'),
         'from_name' => $request->input('FromName'),
-        'recipients' => [...$to, ...$cc],      // every To/Cc address (routing + reply token)
-        'cc' => $cc,                           // Cc alone: they become `cc` participants
+        'recipients' => $to,                   // the To addresses (routing + reply token)
+        'cc' => $cc,                           // Cc: also routed, and they become `cc` participants
         'subject' => $request->input('Subject'),
         'text' => $request->input('TextBody'),
         'html' => $request->input('HtmlBody'),

@@ -55,9 +55,13 @@ final readonly class InboundEmail
             }
         }
 
+        $cc = self::stringList($data['cc'] ?? []);
+
         return new self(
             from: (string) ($data['from'] ?? ''),
-            recipients: self::stringList($data['recipients'] ?? $data['to'] ?? []),
+            // The Cc'd addresses route and thread too (a support address or a
+            // reply token may only be in Cc), as the IMAP adapter does.
+            recipients: array_values(array_unique([...self::stringList($data['recipients'] ?? $data['to'] ?? []), ...$cc])),
             subject: (string) ($data['subject'] ?? ''),
             text: isset($data['text']) ? (string) $data['text'] : null,
             html: isset($data['html']) ? (string) $data['html'] : null,
@@ -67,7 +71,7 @@ final readonly class InboundEmail
             headers: $headers,
             attachments: self::normaliseAttachments($data['attachments'] ?? []),
             fromName: isset($data['from_name']) ? (string) $data['from_name'] : null,
-            cc: self::stringList($data['cc'] ?? []),
+            cc: $cc,
         );
     }
 
