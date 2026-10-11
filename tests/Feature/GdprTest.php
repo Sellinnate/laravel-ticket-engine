@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Illuminate\Support\Facades\Event;
 use Selli\Ticketing\Enums\MessageVisibility;
 use Selli\Ticketing\Events\RequesterAnonymized;
+use Selli\Ticketing\Events\TicketAnonymized;
 use Selli\Ticketing\Facades\Ticketing;
 use Selli\Ticketing\Gdpr\ApplyRetention;
 use Selli\Ticketing\Models\TicketActivity;
@@ -148,4 +149,11 @@ it('leaves a durable anonymisation marker on every ticket it touches', function 
     app(ApplyRetention::class)->handle();
 
     expect($old->activities()->where('event', 'ticket.anonymized')->exists())->toBeTrue();
+
+    // A later run selects it again, but neither audits nor announces it twice.
+    Event::fake([TicketAnonymized::class]);
+    app(ApplyRetention::class)->handle();
+
+    expect($old->activities()->where('event', 'ticket.anonymized')->count())->toBe(1);
+    Event::assertNotDispatched(TicketAnonymized::class);
 });

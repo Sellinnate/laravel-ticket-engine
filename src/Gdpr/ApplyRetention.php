@@ -72,10 +72,15 @@ class ApplyRetention
                         $erased[] = $ticket;
                     } else {
                         $this->anonymize($ticket);
-                        // A durable marker: copies made later (a search index)
-                        // must not bring the conversation back.
-                        app(AuditLogger::class)->record(ticket: $ticket, event: 'ticket.anonymized', context: ['reason' => 'retention']);
-                        $anonymized[] = $ticket;
+
+                        // Once per ticket — every daily run selects it again: a
+                        // durable marker (copies made later, such as a search
+                        // index, must not bring the conversation back) and one
+                        // announcement.
+                        if (! $ticket->activities()->withoutTenancy()->where('event', 'ticket.anonymized')->exists()) {
+                            app(AuditLogger::class)->record(ticket: $ticket, event: 'ticket.anonymized', context: ['reason' => 'retention']);
+                            $anonymized[] = $ticket;
+                        }
                     }
                 }
 
