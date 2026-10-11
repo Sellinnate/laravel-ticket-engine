@@ -91,8 +91,9 @@ use Selli\Ticketing\Events\{MessagePosted, ParticipantAdded, TicketAssigned, Tic
 // Only the package's domain events are silenced (routing, SLA, notifications, AI, automation, webhooks
 // listen to them); Eloquent's own events keep running — they assign the tenant to every row.
 Event::fakeFor(function () {
-    // Closed requests only (your module's closed statuses): open ones take the normal path, below.
-    SupportRequest::query()->whereIn('status', ['resolved', 'closed'])->with('messages')->chunkById(200, function ($requests) {
+    // Closed requests only — the closed states of the workflow above, which are the module's own
+    // statuses: open ones take the normal path, below.
+    SupportRequest::query()->whereIn('status', ['done', 'archived'])->with('messages')->chunkById(200, function ($requests) {
         foreach ($requests as $old) {
             app(TenantContext::class)->forTenant($old->company_id, function () use ($old) {
                 $ticket = Ticketing::open(
