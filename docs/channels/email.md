@@ -121,9 +121,10 @@ An email joins an existing ticket when, in this order:
 3. **the subject carries the ticket reference** in brackets — `Re: Printer [SUP-2026-00042]` — and exactly
    one such ticket matches (in the routed tenant).
 
-Options 2 and 3 are only accepted from a **sender already on the ticket** (who emailed it before, or a
-contact requester/participant), so a replayed Message-ID or a guessed reference can't inject into someone
-else's thread. Anything else opens a new ticket.
+Options 2 and 3 are only accepted from a **sender already on the ticket** (who emailed it before, a
+contact requester/participant, or one of your models on the ticket — participant or requester subject —
+whose `requesterEmail()` / `agentEmail()` is the sender's), so a replayed Message-ID or a guessed reference
+can't inject into someone else's thread. Anything else opens a new ticket.
 
 ## What gets stored
 

@@ -93,6 +93,7 @@ found, each time with a test that would catch it again.
 | A support mailbox copied on an email became a participant (mail loop) | Own addresses (reply-to base, sender, mailboxes, routes, configured list) excluded |
 | A Message-ID longer than 255 characters crashed PostgreSQL | Hashed when longer than the column |
 | A stored, non-RFC Message-ID could break outgoing mail; customer Markdown links became clickable in agents' mail | Invalid ids never used in headers; links neutralised |
+| A host user on the ticket (requester, subject, agent) who never emailed could not thread a reply by header or subject | The sender check also matches the requester/agent addresses of host-model participants and of a requester subject |
 
 ### Personal data
 
