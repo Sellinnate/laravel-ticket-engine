@@ -14,7 +14,8 @@ the exact commands and how to check it worked.
 - [ ] The release pull request (`feature/v1-stable` → `main`) is approved and **every check is green**:
       the test matrix (PHP 8.3–8.5 × Laravel 11–13, lowest/stable, Linux/Windows), MySQL and PostgreSQL,
       coverage ≥ 90 %, PHPStan, code style, the widget client.
-- [ ] `CHANGELOG.md` has the `## 1.0.0 - <date>` section; `UPGRADE.md` covers every behaviour change.
+- [ ] `CHANGELOG.md` has the `## 1.0.0 - <date>` section, dated the day of the tag (change it if the tag
+      comes later); `UPGRADE.md` covers every behaviour change.
 - [ ] `composer validate --strict` passes.
 
 ## 1. Merge
