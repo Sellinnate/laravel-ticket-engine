@@ -429,6 +429,47 @@ it('never answers a question split or merged into another ticket while the drive
         ->and(AiTurn::query()->sole()->outcome)->toBe(AiOutcome::Skipped);
 })->with(['split', 'merge']);
 
+it('does not escalate on a provider error once the question moved to another ticket', function (): void {
+    app(AiManager::class)->extend('moving-then-failing', fn () => new class implements AiDriver
+    {
+        public function classify(AiRequest $request): AiClassification
+        {
+            return AiClassification::none();
+        }
+
+        public function answer(AiRequest $request): AiAnswer
+        {
+            $ticket = $request->ticket;
+            assert($ticket instanceof Ticket);
+            Ticketing::for($ticket)->split([$ticket->messages()->latest('id')->value('id')]);
+
+            throw new RuntimeException('provider down');
+        }
+
+        public function summarize(AiRequest $request): AiSummary
+        {
+            return new AiSummary('');
+        }
+    });
+    config()->set('ticketing.ai.driver', 'moving-then-failing');
+
+    $ticket = customerAsks('A question that moves before the provider fails');
+
+    expect($ticket->refresh()->escalated_at)->toBeNull()
+        ->and(AiTurn::query()->sole()->outcome)->toBe(AiOutcome::Failed)
+        ->and(AiTurn::query()->sole()->escalation_reason)->toBeNull();
+});
+
+it('gives the AI a plain-text question as written, markup-like text included', function (): void {
+    fakeAi()->queueAnswer(confidentAnswer());
+
+    customerAsks('The error is <PermissionDenied> when I write to <jane@example.com>');
+    $request = collect(fakeAi()->requests())->firstWhere('operation', 'answer')['request'];
+
+    expect($request->question)->toBe('The error is <PermissionDenied> when I write to <jane@example.com>')
+        ->and(AiTurn::query()->sole()->question)->toContain('<PermissionDenied>');
+});
+
 it('escalates on a provider error', function (): void {
     Event::fake([AiTurnFailed::class, TicketEscalated::class]);
     fakeAi()->failNext('timeout');

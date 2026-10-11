@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace Selli\Ticketing\Ai;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Str;
 use Selli\Ticketing\Contracts\CanActOnTickets;
 use Selli\Ticketing\Contracts\WorkflowDriver;
+use Selli\Ticketing\Enums\BodyFormat;
 use Selli\Ticketing\Enums\ConversationRole;
 use Selli\Ticketing\Enums\MessageSource;
 use Selli\Ticketing\Enums\MessageVisibility;
@@ -50,10 +52,10 @@ class AiRequestFactory
 
         $history = [];
         foreach ($messages as $message) {
-            $history[] = new AiMessage($this->ticketRole($message, $requesters), self::plain($message->body));
+            $history[] = new AiMessage($this->ticketRole($message, $requesters), self::text($message));
         }
 
-        $question = $trigger !== null ? self::plain($trigger->body) : $ticket->title;
+        $question = $trigger !== null ? self::text($trigger) : $ticket->title;
 
         return new AiRequest(
             question: $question,
@@ -180,6 +182,15 @@ class AiRequestFactory
      */
     public static function plain(string $body): string
     {
-        return trim((string) preg_replace('/\s+/u', ' ', html_entity_decode(strip_tags($body), ENT_QUOTES | ENT_HTML5)));
+        return Str::squish(html_entity_decode(strip_tags($body), ENT_QUOTES | ENT_HTML5));
+    }
+
+    /**
+     * A ticket message as the AI reads it: an HTML body without its markup,
+     * a plain-text one as written ("<PermissionDenied>" is content there).
+     */
+    public static function text(TicketMessage $message): string
+    {
+        return $message->body_format === BodyFormat::Html ? self::plain($message->body) : Str::squish($message->body);
     }
 }
