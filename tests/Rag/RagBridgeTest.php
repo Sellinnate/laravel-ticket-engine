@@ -643,6 +643,59 @@ it('keeps out the messages of an erased requester merged in while the bridge was
         ->and(ragDocuments('ticket:'.$target->getKey()))->toBe(0);
 });
 
+it('keeps out the messages of an erased requester even once the merged-away source is deleted', function (): void {
+    $customer = Ticketing::contacts()->remember('deleted-later@example.test');
+    $erased = Ticketing::open(type: 'support', title: 'Erased then deleted', requester: $customer);
+    Ticketing::postMessage($erased, $customer, 'Private question of a person erased later.');
+    Ticketing::anonymiseRequester($customer);
+
+    $target = Ticketing::open(type: 'support', title: 'Surviving target');
+    Ticketing::postMessage($target, null, 'Question on the surviving target.');
+    Ticketing::postMessage($target, makeUser(), 'Answer on the surviving target.');
+
+    // Merged with nobody listening for the bridge; retention then deletes
+    // the source, and its audit trail with it.
+    config()->set('ticketing.rag.index.tickets', false);
+    Event::fakeFor(fn () => Ticketing::for($target)->mergeFrom([$erased]), [TicketMerged::class]);
+    Ticketing::transition($target->refresh(), 'resolve');
+    Ticketing::ticketModel()::query()->withoutGlobalScopes()->whereKey($erased->getKey())->update(['closed_at' => now()->subDays(90)]);
+    config()->set('ticketing.gdpr.retention', [['type' => 'support', 'after_days' => 30, 'action' => 'delete']]);
+    $this->artisan('ticketing:prune')->assertSuccessful();
+    config()->set('ticketing.rag.index.tickets', true);
+
+    $this->artisan('ticketing:rag:index', ['--tickets' => true])->assertSuccessful();
+
+    expect(Ticketing::ticketModel()::query()->withoutGlobalScopes()->find($erased->getKey()))->toBeNull()
+        ->and(app(RagKnowledge::class)->excluded($target->refresh()))->toBeTrue()
+        ->and(ragDocuments('ticket:'.$target->getKey()))->toBe(0);
+});
+
+it('takes out the name of a requester the ticket is about', function (): void {
+    $ticketId = app(TenantContext::class)->forTenant(4, function (): int|string {
+        $customer = Ticketing::contacts()->remember('subject.person@example.test', 'Ludovica Ferraris');
+        $ticket = Ticketing::for($customer)->open(type: 'support', title: 'Ludovica Ferraris cannot print');
+        Ticketing::postMessage($ticket, null, 'Hello, Ludovica Ferraris here: the printer jams on every page.');
+        Ticketing::postMessage($ticket, makeUser(), 'Clean the printer rollers.');
+
+        // Indexed by a queued job: no tenant in context.
+        config()->set('ticketing.rag.index.tickets', false);
+        Ticketing::transition($ticket, 'resolve');
+        config()->set('ticketing.rag.index.tickets', true);
+
+        return $ticket->getKey();
+    });
+
+    app(RagKnowledge::class)->syncTicket($ticketId, 4);
+
+    $document = Document::query()->withoutGlobalScopes()->where('metadata->document_key', 'ticket:'.$ticketId)->sole();
+    $content = Rag::forTenant('tk-n-4', fn () => Rag::ingestor()->content($document));
+
+    expect($content)->toContain('the printer jams on every page')
+        ->and($content)->not->toContain('Ludovica')
+        ->and($content)->not->toContain('Ferraris')
+        ->and((string) $document->getAttribute('title'))->not->toContain('Ferraris');
+});
+
 it('leaves no copy behind when an article moves to another tenant', function (): void {
     $article = kb('Moving article', 'This article moves between tenants.');
 

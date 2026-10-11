@@ -184,6 +184,10 @@ class ApplyRetention
      */
     protected function delete(Ticket $ticket): void
     {
+        // Its erasure marker goes with the trail: the tickets that took its
+        // messages keep their own.
+        app(ErasureMarkers::class)->handOn($ticket);
+
         $messageModel = new (Ticketing::ticketMessageModel());
         $messageMorph = $messageModel->getMorphClass();
         $messageIds = DB::table($messageModel->getTable())

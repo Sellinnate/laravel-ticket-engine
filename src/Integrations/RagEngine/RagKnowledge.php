@@ -20,12 +20,14 @@ use Selli\Ticketing\Enums\KnowledgeVisibility;
 use Selli\Ticketing\Enums\MessageSource;
 use Selli\Ticketing\Enums\MessageVisibility;
 use Selli\Ticketing\Enums\ParticipantRole;
+use Selli\Ticketing\Gdpr\ErasureMarkers;
 use Selli\Ticketing\Gdpr\RequesterTickets;
 use Selli\Ticketing\Knowledge\KnowledgeAudience;
 use Selli\Ticketing\Models\CannedResponse;
 use Selli\Ticketing\Models\KbArticle;
 use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Models\TicketMessage;
+use Selli\Ticketing\Models\TicketParticipant;
 use Selli\Ticketing\Support\AuditLogger;
 use Selli\Ticketing\Support\Ticketing;
 use Selli\Ticketing\Tenancy\TenantContext;
@@ -66,7 +68,7 @@ class RagKnowledge
      *
      * @var list<string>
      */
-    public const EXCLUDING_EVENTS = [self::EXCLUDED, 'requester.anonymized', 'ticket.anonymized'];
+    public const EXCLUDING_EVENTS = ErasureMarkers::EVENTS;
 
     public function __construct(
         protected TenantContext $tenants,
@@ -278,11 +280,28 @@ class RagKnowledge
         $names = [];
 
         // By role on the ticket — requesters, Cc'd people, watchers — never
-        // the assignee or collaborators (the agents answering).
+        // the assignee or collaborators (the agents answering). Read in the
+        // ticket's tenant: a queued sync has none, and a tenant-scoped
+        // contact would not load.
         $roles = [ParticipantRole::Requester->value, ParticipantRole::Cc->value, ParticipantRole::Watcher->value];
 
-        foreach ($ticket->participants()->withoutTenancy()->with('participant')->whereIn('role', $roles)->get() as $participant) {
-            $person = $participant->participant;
+        $people = $this->tenants->forTenant($ticket->getAttribute($ticket->getTenantColumn()), function () use ($ticket, $roles): array {
+            $people = $ticket->participants()->withoutTenancy()->with('participant')->whereIn('role', $roles)->get()
+                ->map(fn (TicketParticipant $participant): mixed => $participant->participant)
+                ->all();
+
+            // A ticket opened about a requester (Ticketing::for($contact))
+            // is theirs with no participant row.
+            $subject = $ticket->subject_type !== null ? $ticket->subject()->first() : null;
+
+            if ($subject instanceof CanRequestTickets) {
+                $people[] = $subject;
+            }
+
+            return $people;
+        });
+
+        foreach ($people as $person) {
             // The requester contract first: a host model may name it otherwise.
             $name = match (true) {
                 $person instanceof CanRequestTickets => $person->requesterLabel(),
@@ -374,29 +393,6 @@ class RagKnowledge
         }
 
         return $count;
-    }
-
-    /**
-     * Carry the exclusion of merged-in tickets over to the target — or of a
-     * split ticket over to the new one — whose conversation now holds their
-     * messages.
-     *
-     * @param  list<int|string>  $sourceIds
-     */
-    public function inheritExclusions(Ticket $target, array $sourceIds): void
-    {
-        if ($sourceIds === [] || $this->excluded($target)) {
-            return;
-        }
-
-        $excluded = Ticketing::ticketActivityModel()::query()->withoutTenancy()
-            ->whereIn('ticket_id', $sourceIds)
-            ->whereIn('event', self::EXCLUDING_EVENTS)
-            ->exists();
-
-        if ($excluded) {
-            app(AuditLogger::class)->record(ticket: $target, event: self::EXCLUDED, context: ['reason' => 'merged_excluded_ticket']);
-        }
     }
 
     /**
@@ -543,54 +539,7 @@ class RagKnowledge
      */
     protected function excludedAmong(array $ticketIds): array
     {
-        $activities = Ticketing::ticketActivityModel();
-        $ids = array_values(array_unique(array_map(fn (int|string $id): string => (string) $id, $ticketIds)));
-        $known = array_fill_keys($ids, true);
-        $parents = [];
-        $frontier = $ids;
-
-        // Until the lineage is exhausted (the known set stops cycles).
-        while ($frontier !== []) {
-            $next = [];
-
-            foreach ($activities::query()->withoutTenancy()->whereIn('ticket_id', $frontier)->whereIn('event', ['ticket.merged_from', 'ticket.split_from'])->get(['ticket_id', 'context']) as $row) {
-                $source = is_array($row->context) ? ($row->context['source_id'] ?? null) : null;
-
-                if (is_int($source) || is_string($source)) {
-                    $parents[(string) $row->ticket_id][] = (string) $source;
-
-                    if (! isset($known[(string) $source])) {
-                        $known[(string) $source] = true;
-                        $next[] = (string) $source;
-                    }
-                }
-            }
-
-            $frontier = $next;
-        }
-
-        $marked = array_fill_keys($activities::query()->withoutTenancy()
-            ->whereIn('ticket_id', array_keys($known))
-            ->whereIn('event', self::EXCLUDING_EVENTS)
-            ->pluck('ticket_id')
-            ->map(fn (mixed $key): string => (string) $key)
-            ->all(), true);
-
-        $isExcluded = function (string $id, array $seen) use (&$isExcluded, $marked, $parents): bool {
-            if (isset($marked[$id])) {
-                return true;
-            }
-
-            foreach ($parents[$id] ?? [] as $parent) {
-                if (! isset($seen[$parent]) && $isExcluded($parent, $seen + [$parent => true])) {
-                    return true;
-                }
-            }
-
-            return false;
-        };
-
-        return array_values(array_filter($ids, fn (string $id): bool => $isExcluded($id, [$id => true])));
+        return app(ErasureMarkers::class)->among($ticketIds);
     }
 
     /**

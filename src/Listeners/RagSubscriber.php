@@ -70,9 +70,6 @@ class RagSubscriber implements Subscriber
      */
     public function onSplit(TicketSplit $event): void
     {
-        // The split-off messages of an erased requester stay out too.
-        $this->rag->inheritExclusions($event->created, [$event->source->getKey()]);
-
         if (config('ticketing.rag.index.tickets', true) !== false) {
             RagSyncJob::sync(RagKnowledge::TYPE_TICKET, $event->source->getKey(), $event->source->getAttribute($event->source->getTenantColumn()));
         }
@@ -86,9 +83,6 @@ class RagSubscriber implements Subscriber
     public function onMerged(TicketMerged $event): void
     {
         $tenant = $event->target->getAttribute($event->target->getTenantColumn());
-
-        // An erased requester's messages moved into the target keep it out too.
-        $this->rag->inheritExclusions($event->target, $event->sourceIds);
 
         // Each source is purged in its own tenant (the job reads it, trashed).
         foreach ($event->sourceIds as $id) {

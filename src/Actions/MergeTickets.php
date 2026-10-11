@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\DB;
 use Selli\Ticketing\Enums\ParticipantRole;
 use Selli\Ticketing\Events\TicketMerged;
 use Selli\Ticketing\Exceptions\CrossTenantException;
+use Selli\Ticketing\Gdpr\ErasureMarkers;
 use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Sla\SlaManager;
 use Selli\Ticketing\Support\AuditLogger;
@@ -80,6 +81,10 @@ class MergeTickets
 
                 $this->audit->record($target, 'ticket.merged_from', $actor, context: ['source_id' => $source->getKey()]);
                 $this->audit->record($source, 'ticket.merged_into', $actor, context: ['target_id' => $target->getKey()]);
+
+                // An erased person's moved messages keep the target out of
+                // later copies (a search index), whatever becomes of the source.
+                app(ErasureMarkers::class)->inherit($target, [$source->getKey()]);
 
                 $source->delete();
                 $mergedIds[] = $source->getKey();

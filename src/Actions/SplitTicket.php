@@ -10,6 +10,7 @@ use Selli\Ticketing\Enums\ParticipantRole;
 use Selli\Ticketing\Events\TicketOpened;
 use Selli\Ticketing\Events\TicketSplit;
 use Selli\Ticketing\Exceptions\InvalidConfigurationException;
+use Selli\Ticketing\Gdpr\ErasureMarkers;
 use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Models\TicketType;
 use Selli\Ticketing\Sla\SlaManager;
@@ -134,6 +135,10 @@ class SplitTicket
 
             $this->audit->record($source, 'ticket.split', $actor, context: ['created_id' => $created->getKey(), 'messages' => $messageIds]);
             $this->audit->record($created, 'ticket.split_from', $actor, context: ['source_id' => $source->getKey()]);
+
+            // The split-off messages of an erased person stay out of later
+            // copies (a search index) too.
+            app(ErasureMarkers::class)->inherit($created, [$source->getKey()]);
 
             // Reconcile first_response_at for BOTH sides INSIDE the transaction
             // (before the post-commit TicketOpened) so the split is atomic. The
