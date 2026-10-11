@@ -115,8 +115,9 @@ $articles = Ticketing::knowledge()->suggest($question, KnowledgeAudience::public
 ## GDPR {#gdpr}
 
 - Anonymising a requester (or a contact) purges the vectors of **their** tickets right away — their words do
-  not survive in the index — and records `rag.excluded` in each ticket's audit trail, so no backfill or late
-  job ever indexes them again.
+  not survive in the index — and no backfill or late job ever indexes them again: the core records
+  `requester.anonymized` (and retention `ticket.anonymized`) in each ticket's audit trail even when the bridge
+  is off, and the bridge adds `rag.excluded`.
 - A ticket anonymised or erased by retention, merged away or reopened is removed from the index (the new
   `TicketAnonymized` event tells integrations about retention anonymisation).
 - Deleting a whole tenant: `app(RagKnowledge::class)->shredTenant($tenantId, 'reason')` crypto-shreds it in

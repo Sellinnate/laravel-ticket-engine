@@ -59,6 +59,15 @@ class RagKnowledge
     /** The audit event that keeps a ticket out of the index for good. */
     public const EXCLUDED = 'rag.excluded';
 
+    /**
+     * Audit events that keep a ticket out of the index — the bridge's own
+     * marker and the core's erasure markers, recorded even when the bridge
+     * was off at the time.
+     *
+     * @var list<string>
+     */
+    public const EXCLUDING_EVENTS = [self::EXCLUDED, 'requester.anonymized', 'ticket.anonymized'];
+
     public function __construct(
         protected TenantContext $tenants,
         protected AiRequestFactory $requests,
@@ -381,7 +390,7 @@ class RagKnowledge
 
         $excluded = Ticketing::ticketActivityModel()::query()->withoutTenancy()
             ->whereIn('ticket_id', $sourceIds)
-            ->whereIn('event', [self::EXCLUDED, 'requester.anonymized'])
+            ->whereIn('event', self::EXCLUDING_EVENTS)
             ->exists();
 
         if ($excluded) {
@@ -499,7 +508,7 @@ class RagKnowledge
     public function excluded(Ticket $ticket): bool
     {
         return $ticket->activities()->withoutTenancy()
-            ->whereIn('event', [self::EXCLUDED, 'requester.anonymized'])
+            ->whereIn('event', self::EXCLUDING_EVENTS)
             ->exists();
     }
 
@@ -712,7 +721,7 @@ class RagKnowledge
             // vectors could not be purged.
             $excluded = Ticketing::ticketActivityModel()::query()->withoutTenancy()
                 ->whereIn('ticket_id', $ids[self::TYPE_TICKET])
-                ->whereIn('event', [self::EXCLUDED, 'requester.anonymized'])
+                ->whereIn('event', self::EXCLUDING_EVENTS)
                 ->pluck('ticket_id')
                 ->map(fn (mixed $key): string => (string) $key)
                 ->all();

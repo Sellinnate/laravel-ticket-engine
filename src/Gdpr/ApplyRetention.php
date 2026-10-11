@@ -14,6 +14,7 @@ use Selli\Ticketing\Events\TicketErased;
 use Selli\Ticketing\Knowledge\KnowledgeBase;
 use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Models\TicketType;
+use Selli\Ticketing\Support\AuditLogger;
 use Selli\Ticketing\Support\Ticketing;
 
 /**
@@ -71,6 +72,9 @@ class ApplyRetention
                         $erased[] = $ticket;
                     } else {
                         $this->anonymize($ticket);
+                        // A durable marker: copies made later (a search index)
+                        // must not bring the conversation back.
+                        app(AuditLogger::class)->record(ticket: $ticket, event: 'ticket.anonymized', context: ['reason' => 'retention']);
                         $anonymized[] = $ticket;
                     }
                 }

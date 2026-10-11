@@ -603,6 +603,22 @@ it('repairs the index from the command after missed events', function (): void {
         ->and(ragDocuments('kb_article:'.$deleted->getKey()))->toBe(0);
 });
 
+it('keeps out a ticket anonymised while the bridge was off', function (): void {
+    $ticket = Ticketing::open(type: 'support', title: 'Anonymised earlier');
+    Ticketing::postMessage($ticket, null, 'An old question about invoices.');
+    Ticketing::postMessage($ticket, makeUser(), 'An old answer about invoices.');
+    config()->set('ticketing.rag.index.tickets', false);
+    Ticketing::transition($ticket, 'resolve');
+
+    // Recorded by the core, with no bridge listening.
+    app(AuditLogger::class)->record(ticket: $ticket, event: 'ticket.anonymized', context: ['reason' => 'retention']);
+
+    config()->set('ticketing.rag.index.tickets', true);
+    $this->artisan('ticketing:rag:index', ['--tickets' => true])->assertSuccessful();
+
+    expect(ragDocuments('ticket:'.$ticket->getKey()))->toBe(0);
+});
+
 it('keeps a trashed ticket out once retention anonymised it', function (): void {
     $ticket = Ticketing::open(type: 'support', title: 'Trashed one');
     $ticket->delete();

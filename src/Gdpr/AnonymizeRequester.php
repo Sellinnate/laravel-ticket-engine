@@ -48,19 +48,20 @@ class AnonymizeRequester
                 // The AI keeps a short excerpt of each customer question for the
                 // knowledge-gap report: a copy of the requester's words.
                 $scrubbedTurns = $this->scrubAiQuestions($ticket);
+                $scrubbed = $this->scrubMessages($ticket, $requester, $email, $label) || $scrubbedTurns;
 
-                if (! $this->scrubMessages($ticket, $requester, $email, $label) && ! $scrubbedTurns) {
-                    continue;
-                }
-
-                // Audit (and count) only tickets where data was actually scrubbed.
+                // Every ticket of the person is audited — a durable marker that
+                // keeps it out of copies made later (a search index) — but only
+                // those where data was actually scrubbed are counted.
                 $this->audit->record(
                     ticket: $ticket,
                     event: 'requester.anonymized',
-                    context: ['requester_type' => $requester->getMorphClass()],
+                    context: ['requester_type' => $requester->getMorphClass(), 'scrubbed' => $scrubbed],
                 );
 
-                $touched++;
+                if ($scrubbed) {
+                    $touched++;
+                }
             }
         });
 

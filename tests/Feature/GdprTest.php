@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\Event;
 use Selli\Ticketing\Enums\MessageVisibility;
 use Selli\Ticketing\Events\RequesterAnonymized;
 use Selli\Ticketing\Facades\Ticketing;
+use Selli\Ticketing\Gdpr\ApplyRetention;
 use Selli\Ticketing\Models\TicketActivity;
 use Selli\Ticketing\Models\TicketMessage;
 use Selli\Ticketing\Models\TicketParticipant;
@@ -129,4 +130,22 @@ it('does not touch a recently-closed ticket', function (): void {
     $this->artisan('ticketing:prune')->assertSuccessful();
 
     expect(Ticketing::ticketModel()::query()->withoutGlobalScopes()->find($ticket->getKey()))->not->toBeNull();
+});
+
+it('leaves a durable anonymisation marker on every ticket it touches', function (): void {
+    // A requester without any denormalised data to scrub still gets the marker.
+    $requester = makeUser(['name' => 'Quiet']);
+    $ticket = Ticketing::open(type: 'support', title: 'Nothing to scrub', requester: $requester);
+
+    expect(Ticketing::anonymiseRequester($requester))->toBe(0)
+        ->and($ticket->activities()->where('event', 'requester.anonymized')->sole()->context['scrubbed'])->toBeFalse();
+
+    // Retention anonymisation leaves one too.
+    $old = Ticketing::open(type: 'support', title: 'Old');
+    Ticketing::transition($old, 'close');
+    config()->set('ticketing.gdpr.retention', [['type' => '*', 'after_days' => 1, 'action' => 'anonymize']]);
+    $this->travel(2)->days();
+    app(ApplyRetention::class)->handle();
+
+    expect($old->activities()->where('event', 'ticket.anonymized')->exists())->toBeTrue();
 });
