@@ -6,6 +6,7 @@ namespace Selli\Ticketing\Integrations\RagEngine;
 
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletingScope;
 use Illuminate\Support\Facades\Cache;
 use Selli\Ticketing\Actions\Knowledge\SaveArticle;
 use Selli\Ticketing\Ai\AiRequestFactory;
@@ -389,12 +390,96 @@ class RagKnowledge
     }
 
     /**
+     * Bring every document of the index in line with its source: a document
+     * whose article, ticket or canned response is gone is purged (in its own
+     * RAG tenant), any other one is synced — which removes what is no longer
+     * eligible. For backfills and repairs after missed events.
+     */
+    public function reconcile(): int
+    {
+        $prefix = (string) config('ticketing.rag.tenant_prefix', 'tk-');
+        $count = 0;
+
+        Document::query()->withoutGlobalScopes()
+            ->where('tenant_id', 'like', $prefix.'%')
+            ->select(['id', 'tenant_id', 'metadata'])
+            ->chunkById(200, function ($documents) use (&$count, $prefix): void {
+                foreach ($documents as $document) {
+                    $key = is_array($document->metadata) ? ($document->metadata['document_key'] ?? null) : null;
+
+                    if (! str_starts_with((string) $document->tenant_id, $prefix) || ! is_string($key) || ! str_contains($key, ':')) {
+                        continue;
+                    }
+
+                    [$type, $id] = explode(':', $key, 2);
+
+                    if (! in_array($type, [self::TYPE_ARTICLE, self::TYPE_TICKET, self::TYPE_CANNED], true)) {
+                        continue;
+                    }
+                    $source = $this->source($type, $id);
+
+                    if ($source === null) {
+                        Rag::forTenant((string) $document->tenant_id, function () use ($document): void {
+                            $fresh = Document::query()->whereKey($document->getKey())->first();
+
+                            if ($fresh instanceof Document) {
+                                Rag::ingestor()->purge($fresh);
+                            }
+                        });
+                    } else {
+                        $tenant = $source->getAttribute(method_exists($source, 'getTenantColumn') ? $source->getTenantColumn() : $this->tenants->column());
+
+                        match ($type) {
+                            self::TYPE_ARTICLE => $this->syncArticle($id, $tenant),
+                            self::TYPE_CANNED => $this->syncCannedResponse($id, $tenant),
+                            default => $this->syncTicket($id, $tenant),
+                        };
+                    }
+
+                    $count++;
+                }
+            });
+
+        return $count;
+    }
+
+    /**
+     * The source row of an indexed document (trashed included), or null.
+     */
+    protected function source(string $type, string $id): ?Model
+    {
+        $model = match ($type) {
+            self::TYPE_ARTICLE => Ticketing::kbArticleModel(),
+            self::TYPE_TICKET => Ticketing::ticketModel(),
+            self::TYPE_CANNED => Ticketing::cannedResponseModel(),
+            default => null,
+        };
+
+        if ($model === null) {
+            return null;
+        }
+
+        $query = $model::query()->withoutTenancy();
+
+        // Trashed rows too, where the model soft-deletes.
+        if (RequesterTickets::softDeletes($model)) {
+            $query->withoutGlobalScope(SoftDeletingScope::class);
+        }
+
+        $found = $query->find($id);
+
+        return $found instanceof Model ? $found : null;
+    }
+
+    /**
      * Keep one ticket out of the index for good (an audited exclusion) and
      * purge it — a purge that fails is retried on the queue.
      */
     public function exclude(int|string $ticketId, int|string|null $tenant, string $reason): void
     {
-        $ticket = Ticketing::ticketModel()::query()->withoutTenancy()->find($ticketId);
+        // Trashed ones too: a restored ticket must stay out.
+        $query = Ticketing::ticketModel()::query()->withoutTenancy();
+        $ticket = (RequesterTickets::softDeletes(Ticketing::ticketModel()) ? $query->withTrashed() : $query)->find($ticketId);
 
         if ($ticket instanceof Ticket && ! $this->excluded($ticket)) {
             app(AuditLogger::class)->record(ticket: $ticket, event: self::EXCLUDED, context: ['reason' => $reason]);

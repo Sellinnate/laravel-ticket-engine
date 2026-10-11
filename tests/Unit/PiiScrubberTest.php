@@ -14,3 +14,7 @@ it('takes the personal data out of indexed text', function (): void {
 it('scrubs a phone number at the end of a sentence', function (): void {
     expect((new PiiScrubber)->scrub('Call me on +39 333 1234567. Thanks'))->toBe('Call me on [phone]. Thanks');
 });
+
+it('replaces a full name before the parts it contains', function (): void {
+    expect((new PiiScrubber)->scrub('Ann-Marie wrote, then Ann replied.', ['Ann', 'Ann-Marie']))->toBe('[customer] wrote, then [customer] replied.');
+});

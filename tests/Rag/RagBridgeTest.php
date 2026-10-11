@@ -23,6 +23,7 @@ use Selli\Ticketing\Integrations\RagEngine\RagKnowledge;
 use Selli\Ticketing\Knowledge\KnowledgeAudience;
 use Selli\Ticketing\Models\CannedResponse;
 use Selli\Ticketing\Models\KbArticle;
+use Selli\Ticketing\Models\Ticket;
 use Selli\Ticketing\Support\AuditLogger;
 use Selli\Ticketing\Tenancy\TenantContext;
 use Selli\Ticketing\Tests\Fixtures\TestRequester;
@@ -583,6 +584,32 @@ it('backfills the index from the command', function (): void {
     $this->artisan('ticketing:rag:index', ['--articles' => true])->expectsOutputToContain('articles — 1')->assertSuccessful();
 
     expect(ragFind('warranty repairs article', KnowledgeAudience::public()))->toBe(['Backfilled article']);
+});
+
+it('repairs the index from the command after missed events', function (): void {
+    $unpublished = kb('Fax support', 'Fax machines are supported through the gateway.');
+    $deleted = kb('Pager support', 'Pagers are supported through the gateway.');
+
+    // Changed and removed behind the bridge's back.
+    KbArticle::query()->whereKey($unpublished->getKey())->update(['status' => 'draft']);
+    DB::table($deleted->getTable())->where('id', $deleted->getKey())->delete();
+
+    expect(ragDocuments('kb_article:'.$unpublished->getKey()))->toBe(1)
+        ->and(ragDocuments('kb_article:'.$deleted->getKey()))->toBe(1);
+
+    $this->artisan('ticketing:rag:index')->assertSuccessful();
+
+    expect(ragDocuments('kb_article:'.$unpublished->getKey()))->toBe(0)
+        ->and(ragDocuments('kb_article:'.$deleted->getKey()))->toBe(0);
+});
+
+it('keeps a trashed ticket out once retention anonymised it', function (): void {
+    $ticket = Ticketing::open(type: 'support', title: 'Trashed one');
+    $ticket->delete();
+
+    app(RagKnowledge::class)->exclude($ticket->getKey(), null, 'retention_anonymized');
+
+    expect(app(RagKnowledge::class)->excluded(Ticket::query()->withTrashed()->findOrFail($ticket->getKey())))->toBeTrue();
 });
 
 it('shreds a whole tenant from the engine', function (): void {

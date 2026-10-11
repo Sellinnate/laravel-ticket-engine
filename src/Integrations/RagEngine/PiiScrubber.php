@@ -25,6 +25,9 @@ class PiiScrubber
         $text = (string) preg_replace('/\b(?:\d[ \-]?){13,19}\b/', '[number]', $text);
         $text = (string) preg_replace('/(?<![\w\/.])\+?\d[\d\s().\-]{6,}\d(?!\w|[.\/]\d)/', '[phone]', $text);
 
+        // Longest first: a full name before the parts it contains.
+        usort($names, fn (string $a, string $b): int => mb_strlen($b) <=> mb_strlen($a));
+
         foreach ($names as $name) {
             $name = trim($name);
 

@@ -22,6 +22,14 @@ class RagSyncJob implements ShouldQueue
 
     public int $tries = 3;
 
+    /**
+     * @return list<int> seconds between attempts
+     */
+    public function backoff(): array
+    {
+        return [10, 60, 300];
+    }
+
     public function __construct(
         public string $kind,
         public int|string $id,
@@ -37,6 +45,15 @@ class RagSyncJob implements ShouldQueue
         $job = new self($kind, $id, $tenantId);
 
         config('ticketing.rag.queue', true) === false ? dispatch_sync($job) : dispatch($job);
+    }
+
+    /**
+     * Out of attempts: reported (a GDPR purge that never happened must be
+     * seen); a later sync or `ticketing:rag:index` repairs the document.
+     */
+    public function failed(\Throwable $exception): void
+    {
+        report($exception);
     }
 
     public function handle(RagKnowledge $rag): void
