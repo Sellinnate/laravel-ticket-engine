@@ -527,7 +527,8 @@ class RagKnowledge
         $parents = [];
         $frontier = $ids;
 
-        for ($depth = 0; $depth < 10 && $frontier !== []; $depth++) {
+        // Until the lineage is exhausted (the known set stops cycles).
+        while ($frontier !== []) {
             $next = [];
 
             foreach ($activities::query()->withoutTenancy()->whereIn('ticket_id', $frontier)->whereIn('event', ['ticket.merged_from', 'ticket.split_from'])->get(['ticket_id', 'context']) as $row) {
@@ -918,6 +919,32 @@ class RagKnowledge
             $this->documents($key)->whereKeyNot($document->getKey())->get()
                 ->each(fn (Document $old) => Rag::ingestor()->purge($old));
         });
+
+        // A source that moved to another tenant leaves no copy behind.
+        $this->purgeElsewhere($key, $this->ragTenant($tenant));
+    }
+
+    /**
+     * Purge a document key from every RAG tenant of the bridge but one.
+     */
+    protected function purgeElsewhere(string $key, string $keep): void
+    {
+        $prefix = (string) config('ticketing.rag.tenant_prefix', 'tk-');
+
+        $tenants = Document::query()->withoutGlobalScopes()
+            ->where('metadata->document_key', $key)
+            ->where('tenant_id', '!=', $keep)
+            ->where('tenant_id', 'like', $prefix.'%')
+            ->distinct()
+            ->pluck('tenant_id');
+
+        foreach ($tenants as $other) {
+            if (str_starts_with((string) $other, $prefix)) {
+                Rag::forTenant((string) $other, function () use ($key): void {
+                    $this->documents($key)->get()->each(fn (Document $document) => Rag::ingestor()->purge($document));
+                });
+            }
+        }
     }
 
     /**
@@ -928,6 +955,8 @@ class RagKnowledge
         Rag::forTenant($this->ragTenant($tenant), function () use ($key): void {
             $this->documents($key)->get()->each(fn (Document $document) => Rag::ingestor()->purge($document));
         });
+
+        $this->purgeElsewhere($key, $this->ragTenant($tenant));
     }
 
     /**

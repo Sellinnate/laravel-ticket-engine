@@ -643,6 +643,17 @@ it('keeps out the messages of an erased requester merged in while the bridge was
         ->and(ragDocuments('ticket:'.$target->getKey()))->toBe(0);
 });
 
+it('leaves no copy behind when an article moves to another tenant', function (): void {
+    $article = kb('Moving article', 'This article moves between tenants.');
+
+    expect(Document::query()->withoutGlobalScopes()->where('metadata->document_key', 'kb_article:'.$article->getKey())->pluck('tenant_id')->all())->toBe(['tk-shared']);
+
+    KbArticle::query()->whereKey($article->getKey())->update(['tenant_id' => 6]);
+    app(RagKnowledge::class)->syncArticle($article->getKey(), 6);
+
+    expect(Document::query()->withoutGlobalScopes()->where('metadata->document_key', 'kb_article:'.$article->getKey())->pluck('tenant_id')->all())->toBe(['tk-n-6']);
+});
+
 it('keeps a trashed ticket out once retention anonymised it', function (): void {
     $ticket = Ticketing::open(type: 'support', title: 'Trashed one');
     $ticket->delete();
