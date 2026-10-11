@@ -124,10 +124,14 @@ class SaveArticle
             $changes['locale'] = $locale;
         }
 
+        $tenant = $article->getAttribute($article->getTenantColumn());
+        $slugSource = $data->slug ?? $article->slug;
+        $slug = null;
+
         if (($data->slug !== null && Str::slug($data->slug) !== $article->slug) || $locale !== $article->locale) {
-            $tenant = $article->getAttribute($article->getTenantColumn());
-            $changes['slug'] = $this->uniqueSlug($data->slug ?? $article->slug, $locale, $article, $tenant);
-            $changes['slug_key'] = self::slugKey($tenant, $locale, $changes['slug']);
+            $slug = $this->uniqueSlug($slugSource, $locale, $article, $tenant);
+            $changes['slug'] = $slug;
+            $changes['slug_key'] = self::slugKey($tenant, $locale, $slug);
         }
 
         $article->fill($changes);
@@ -139,7 +143,18 @@ class SaveArticle
             $article->fill($this->morph('author', $author));
         }
 
-        $article->save();
+        if ($slug !== null) {
+            // Another article renamed to the same slug meanwhile (it locked its
+            // own row, not this one): the unique key refuses it, a new suffix
+            // is picked — as on creation.
+            $this->withSlugRetry($slugSource, $locale, $article, $tenant, $slug, function (string $retried) use ($article, $tenant, $locale): KbArticle {
+                $article->forceFill(['slug' => $retried, 'slug_key' => self::slugKey($tenant, $locale, $retried)])->save();
+
+                return $article;
+            });
+        } else {
+            $article->save();
+        }
 
         if ($contentChanged) {
             $this->snapshot($article, $author);

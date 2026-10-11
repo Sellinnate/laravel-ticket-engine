@@ -56,6 +56,7 @@ found, each time with a test that would catch it again.
 | MCP tools could reach the database with keys that are not keys (bigint vs ULID), or edit a published article | Key validation per id strategy; drafts only, checked under the article lock |
 | A KB category filter that is not an id crashed PostgreSQL | Validated as a key (422) |
 | An agent could create an article in another tenant (the one resolved for the request) or a shared one | `KbArticlePolicy::create` applies the write rule to the current tenant |
+| Two articles renamed to the same free slug at once: one rename failed on the unique key | Updates retry with a new suffix in a savepoint, as creation does |
 
 ### AI under concurrency
 

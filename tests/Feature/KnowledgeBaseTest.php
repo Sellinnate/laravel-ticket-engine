@@ -389,6 +389,25 @@ it('retries the insert when a concurrent save took the slug', function (): void 
     }
 });
 
+it('retries the update when another article was renamed to the same slug meanwhile', function (): void {
+    $article = article('Pricing', 'Body', publish: false);
+    $attempts = 0;
+
+    // Another article takes "plans" between this rename's check and its write.
+    KbArticle::updating(function (KbArticle $updating) use ($article, &$attempts): void {
+        if ($updating->is($article) && $updating->isDirty('slug') && ++$attempts === 1) {
+            throw new UniqueConstraintViolationException('testing', 'update kb_articles', [], new PDOException('UNIQUE constraint failed: kb_articles.slug_key'));
+        }
+    });
+
+    $renamed = Ticketing::knowledge()->save(new ArticleData(slug: 'Plans'), $article);
+
+    expect($attempts)->toBe(2)
+        ->and($renamed->refresh()->slug)->toBe('plans')
+        ->and($renamed->slug_key)->toBe(SaveArticle::slugKey(null, 'en', 'plans'))
+        ->and($renamed->version)->toBe(1);
+});
+
 it('enforces one shared slug per locale at the database level', function (): void {
     article('Shared', 'Body', publish: false);
 
