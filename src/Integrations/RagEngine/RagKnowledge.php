@@ -266,8 +266,10 @@ class RagKnowledge
 
         // An agent's by the author's class, never by loading the author: a
         // host's own tenancy scope would hide it from a queued sync.
+        // The AI's hand-over notice ("a colleague will follow up") answers
+        // nothing.
         $isAnswer = fn (TicketMessage $message): bool => $message->author_id === null
-            ? $message->source === MessageSource::Ai
+            ? $message->source === MessageSource::Ai && data_get($message->meta, 'ai.kind') !== 'handoff'
             : ! isset($asking[$message->author_type.':'.$message->author_id]) && self::modelImplements($message->author_type, CanActOnTickets::class);
 
         // Scanned lazily, in batches, until found: however long the ticket.

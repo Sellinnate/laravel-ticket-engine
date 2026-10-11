@@ -104,6 +104,7 @@ found, each time with a test that would catch it again.
 | Names of a requester the ticket is about, or of people hidden by a host's own tenancy scope, stayed in indexed tickets; tenant-scoped agents' answers were missed by queued syncs | People loaded without any global scope for redaction; agent answers recognised by the author's class |
 | A RAG kind switched off came back through late jobs and stayed searchable | Switched-off kinds are never searched, purged by every sync and by `ticketing:rag:index` |
 | Indexed tickets carried whole conversations, names and contact data | Only the question and the final answer, with emails, phone/card/IBAN numbers and the names of the people on the ticket removed |
+| The AI's hand-over notice could be indexed as a resolved ticket's answer | Hand-over notices are never an answer; a ticket without a real answer is not indexed |
 | Retention anonymisation left the ticket in the RAG index | New `TicketAnonymized` event; the bridge excludes and purges it |
 | Contacts' unique key allowed one NULL on SQL Server (second anonymisation failed) | Filtered unique index on SQL Server |
 

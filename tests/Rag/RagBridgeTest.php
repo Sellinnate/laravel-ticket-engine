@@ -390,6 +390,31 @@ it('never takes the reply of a requester, a Cc\'d person or a watcher for the an
         ->and($content)->not->toContain('Ottavia');
 });
 
+it('never takes the AI hand-over notice for the answer', function (): void {
+    config()->set('ticketing.ai.escalation.handoff_message', 'A member of our team will follow up.');
+    $customer = Ticketing::contacts()->remember('handoff@example.test');
+    $ticket = Ticketing::open(type: 'support', title: 'Handed over');
+    $agentAnswered = Ticketing::open(type: 'support', title: 'Handed over and answered');
+
+    foreach ([$ticket, $agentAnswered] as $each) {
+        Ticketing::postMessage($each, $customer, 'The badge reader refuses my card since Monday.');
+        Ticketing::escalate($each, EscalationReason::LowConfidence, notifyCustomer: true);
+    }
+
+    Ticketing::postMessage($agentAnswered->refresh(), makeUser(), 'Your badge was re-enabled at the front desk.');
+    Ticketing::transition($ticket->refresh(), 'resolve');
+    Ticketing::transition($agentAnswered->refresh(), 'resolve');
+
+    $content = Rag::forTenant('tk-shared', fn () => Rag::ingestor()->content(
+        Document::query()->withoutGlobalScopes()->where('metadata->document_key', 'ticket:'.$agentAnswered->getKey())->sole(),
+    ));
+
+    expect($ticket->messages()->where('body', 'A member of our team will follow up.')->exists())->toBeTrue()
+        ->and(ragDocuments('ticket:'.$ticket->getKey()))->toBe(0)
+        ->and($content)->toContain('Answer: Your badge was re-enabled')
+        ->and($content)->not->toContain('follow up');
+});
+
 it('finds the answer however many follow-ups came after it', function (): void {
     $ticket = Ticketing::open(type: 'support', title: 'Tablet will not charge');
     foreach (range(1, 25) as $i) {
