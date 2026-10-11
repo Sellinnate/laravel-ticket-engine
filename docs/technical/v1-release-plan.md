@@ -262,7 +262,7 @@ feature above works on the keyword search and the configured AI driver.
 | 2. Support domain ([#19](https://github.com/Sellinnate/laravel-ticket-engine/pull/19)) | `feature/v1-stable-support` | Contacts, knowledge base, AI layer, conversations and widget API, human takeover, escalation, reference JS client. |
 | 3. Channels & insight ([#20](https://github.com/Sellinnate/laravel-ticket-engine/pull/20)) | `feature/v1-stable-channels` | Inbound email completion and IMAP adapter; KPI service and CSV export; MCP tools. |
 | 4. RAG bridge ([#21](https://github.com/Sellinnate/laravel-ticket-engine/pull/21)) | `feature/v1-stable-rag` | `Integrations\RagEngine` (indexing, AI driver, deflection, similar tickets, GDPR purge). |
-| 5. Docs & release | `feature/v1-stable-release` | Full docmd site, Cloudflare `wrangler.jsonc`, README with banner, CHANGELOG 1.0.0, `UPGRADE.md`, `SECURITY.md`, `CONTRIBUTING.md`, `.gitattributes`, `composer.json`, release runbook, final adversarial review (`hardening-v1.md`). |
+| 5. Docs & release ([#22](https://github.com/Sellinnate/laravel-ticket-engine/pull/22)) | `feature/v1-stable-release` | Full docmd site, Cloudflare `wrangler.jsonc`, README with banner, CHANGELOG 1.0.0, `UPGRADE.md`, `SECURITY.md`, `CONTRIBUTING.md`, `.gitattributes`, `composer.json`, release runbook, final adversarial review (`hardening-v1.md`). |
 
 Each phase keeps every gate green before it is merged: Pest (SQLite locally, plus MySQL and PostgreSQL),
 PHPStan level 8, Pint, coverage ≥ 90 % in CI, a local Codex review and the CodeRabbit loop on the PR.
