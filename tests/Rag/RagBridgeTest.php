@@ -17,6 +17,7 @@ use Selli\Ticketing\Enums\EscalationReason;
 use Selli\Ticketing\Enums\KnowledgeVisibility;
 use Selli\Ticketing\Enums\MessageSource;
 use Selli\Ticketing\Enums\MessageVisibility;
+use Selli\Ticketing\Enums\ParticipantRole;
 use Selli\Ticketing\Enums\Priority;
 use Selli\Ticketing\Events\TicketMerged;
 use Selli\Ticketing\Facades\Ticketing;
@@ -359,13 +360,25 @@ it('indexes the question and the final answer of a long conversation, without pe
         ->and($content)->not->toContain('1234567');
 });
 
-it('never takes the requester\'s own reply for the answer', function (): void {
+it('never takes the reply of a requester, a Cc\'d person or a watcher for the answer', function (): void {
     // makeUser() can both request and act on tickets.
     $requester = makeUser(['name' => 'Ottavia']);
     $ticket = Ticketing::open(type: 'support', title: 'Scanner offline', requester: $requester);
     Ticketing::postMessage($ticket, $requester, 'The scanner is offline after the update. Ottavia');
     Ticketing::postMessage($ticket, makeUser(['name' => 'Agent']), 'Reinstall the scanner driver.');
     Ticketing::postMessage($ticket, $requester, 'Thanks, all good now.');
+
+    foreach ([ParticipantRole::Cc, ParticipantRole::Watcher] as $role) {
+        $person = makeUser(['name' => 'Colleague '.$role->value]);
+        Ticketing::ticketParticipantModel()::query()->create(array_merge($ticket->tenantAttributes(), [
+            'ticket_id' => $ticket->getKey(),
+            'participant_type' => $person->getMorphClass(),
+            'participant_id' => $person->getKey(),
+            'role' => $role->value,
+        ]));
+        Ticketing::postMessage($ticket, $person, 'Same problem on my scanner, solved too.');
+    }
+
     Ticketing::transition($ticket, 'resolve');
 
     $content = Rag::forTenant('tk-shared', fn () => Rag::ingestor()->content(

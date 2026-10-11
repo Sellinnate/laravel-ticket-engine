@@ -70,6 +70,14 @@ class RagKnowledge
      */
     public const EXCLUDING_EVENTS = ErasureMarkers::EVENTS;
 
+    /**
+     * The people on a ticket who are not the ones answering — requesters,
+     * Cc'd people, watchers, unlike the assignee and collaborators: their
+     * names are taken out, and their messages are never the answer, even
+     * when their model can also act on tickets.
+     */
+    protected const ASKING_ROLES = [ParticipantRole::Requester->value, ParticipantRole::Cc->value, ParticipantRole::Watcher->value];
+
     public function __construct(
         protected TenantContext $tenants,
         protected AiRequestFactory $requests,
@@ -251,18 +259,16 @@ class RagKnowledge
         $key = (new $model)->getKeyName();
         $public = fn () => $ticket->messages()->withoutTenancy()->where('visibility', MessageVisibility::Public->value);
 
-        // The requester's own messages are never the answer, even when their
-        // model can also act on tickets.
-        $requesters = [];
-        foreach ($ticket->participants()->withoutTenancy()->where('role', ParticipantRole::Requester->value)->get(['participant_type', 'participant_id']) as $participant) {
-            $requesters[$participant->participant_type.':'.$participant->participant_id] = true;
+        $asking = [];
+        foreach ($ticket->participants()->withoutTenancy()->whereIn('role', self::ASKING_ROLES)->get(['participant_type', 'participant_id']) as $participant) {
+            $asking[$participant->participant_type.':'.$participant->participant_id] = true;
         }
 
         // An agent's by the author's class, never by loading the author: a
         // host's own tenancy scope would hide it from a queued sync.
         $isAnswer = fn (TicketMessage $message): bool => $message->author_id === null
             ? $message->source === MessageSource::Ai
-            : ! isset($requesters[$message->author_type.':'.$message->author_id]) && self::modelImplements($message->author_type, CanActOnTickets::class);
+            : ! isset($asking[$message->author_type.':'.$message->author_id]) && self::modelImplements($message->author_type, CanActOnTickets::class);
 
         // Scanned lazily, in batches, until found: however long the ticket.
         $question = $public()->lazyById(50, $key)->first(fn (TicketMessage $message): bool => ! $isAnswer($message));
@@ -283,13 +289,9 @@ class RagKnowledge
     {
         $names = [];
 
-        // By role on the ticket — requesters, Cc'd people, watchers — never
-        // the assignee or collaborators (the agents answering).
-        $roles = [ParticipantRole::Requester->value, ParticipantRole::Cc->value, ParticipantRole::Watcher->value];
-
         $keys = [];
 
-        foreach ($ticket->participants()->withoutTenancy()->whereIn('role', $roles)->get(['participant_type', 'participant_id']) as $participant) {
+        foreach ($ticket->participants()->withoutTenancy()->whereIn('role', self::ASKING_ROLES)->get(['participant_type', 'participant_id']) as $participant) {
             $keys[$participant->participant_type][] = $participant->participant_id;
         }
 
