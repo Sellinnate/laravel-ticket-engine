@@ -42,7 +42,21 @@ class RagIndexCommand extends Command
         // Every source row is synced — which also removes what is no longer
         // eligible (unpublished, reopened, inactive) — then documents whose
         // source is gone are purged.
-        if ($all || $this->option('articles')) {
+        $wanted = array_values(array_filter([
+            $all || $this->option('articles') ? RagKnowledge::TYPE_ARTICLE : null,
+            $all || $this->option('tickets') ? RagKnowledge::TYPE_TICKET : null,
+            $all || $this->option('canned') ? RagKnowledge::TYPE_CANNED : null,
+        ]));
+
+        // A type switched off in ticketing.rag.index is not indexed here either
+        // (and the reconciliation below removes what is left of it).
+        foreach ($wanted as $type) {
+            if (! RagKnowledge::indexes($type)) {
+                $this->line("  {$type} — off in ticketing.rag.index");
+            }
+        }
+
+        if (in_array(RagKnowledge::TYPE_ARTICLE, $wanted, true) && RagKnowledge::indexes(RagKnowledge::TYPE_ARTICLE)) {
             $count = 0;
             Ticketing::kbArticleModel()::query()->withoutTenancy()->withTrashed()
                 ->chunkById(200, function ($articles) use ($rag, &$count): void {
@@ -56,7 +70,7 @@ class RagIndexCommand extends Command
             $this->line("  articles — {$count}");
         }
 
-        if ($all || $this->option('tickets')) {
+        if (in_array(RagKnowledge::TYPE_TICKET, $wanted, true) && RagKnowledge::indexes(RagKnowledge::TYPE_TICKET)) {
             $count = 0;
             Ticketing::ticketModel()::query()->withoutTenancy()
                 ->where(fn ($query) => $query->whereNotNull('resolved_at')->orWhereNotNull('closed_at'))
@@ -71,7 +85,7 @@ class RagIndexCommand extends Command
             $this->line("  tickets — {$count}");
         }
 
-        if ($all || $this->option('canned')) {
+        if (in_array(RagKnowledge::TYPE_CANNED, $wanted, true) && RagKnowledge::indexes(RagKnowledge::TYPE_CANNED)) {
             $count = 0;
             Ticketing::cannedResponseModel()::query()->withoutTenancy()
                 ->chunkById(200, function ($responses) use ($rag, &$count): void {
@@ -84,7 +98,7 @@ class RagIndexCommand extends Command
             $this->line("  canned responses — {$count}");
         }
 
-        $this->line('  index documents checked — '.$rag->reconcile());
+        $this->line('  index documents checked — '.$rag->reconcile($wanted));
 
         return self::SUCCESS;
     }

@@ -85,7 +85,8 @@ class RagKnowledge
     {
         $prefix = (string) config('ticketing.rag.tenant_prefix', 'tk-');
 
-        if ($tenant === null || (string) $tenant === '') {
+        // Single-tenant: every row is readable by everyone, so one RAG tenant.
+        if ($tenant === null || (string) $tenant === '' || ! $this->tenants->enabled()) {
             return $prefix.'shared';
         }
 
@@ -404,15 +405,19 @@ class RagKnowledge
      * RAG tenant), any other one is synced — which removes what is no longer
      * eligible. For backfills and repairs after missed events.
      */
-    public function reconcile(): int
+    /**
+     * @param  list<string>|null  $types  the document types to reconcile (default: all)
+     */
+    public function reconcile(?array $types = null): int
     {
+        $types ??= [self::TYPE_ARTICLE, self::TYPE_TICKET, self::TYPE_CANNED];
         $prefix = (string) config('ticketing.rag.tenant_prefix', 'tk-');
         $count = 0;
 
         Document::query()->withoutGlobalScopes()
             ->where('tenant_id', 'like', $prefix.'%')
             ->select(['id', 'tenant_id', 'metadata'])
-            ->chunkById(200, function ($documents) use (&$count, $prefix): void {
+            ->chunkById(200, function ($documents) use (&$count, $prefix, $types): void {
                 foreach ($documents as $document) {
                     $key = is_array($document->metadata) ? ($document->metadata['document_key'] ?? null) : null;
 
@@ -422,10 +427,12 @@ class RagKnowledge
 
                     [$type, $id] = explode(':', $key, 2);
 
-                    if (! in_array($type, [self::TYPE_ARTICLE, self::TYPE_TICKET, self::TYPE_CANNED], true)) {
+                    if (! in_array($type, $types, true)) {
                         continue;
                     }
-                    $source = $this->source($type, $id);
+
+                    // A type switched off in the config is not kept either.
+                    $source = self::indexes($type) ? $this->source($type, $id) : null;
 
                     if ($source === null) {
                         Rag::forTenant((string) $document->tenant_id, function () use ($document): void {
@@ -450,6 +457,21 @@ class RagKnowledge
             });
 
         return $count;
+    }
+
+    /**
+     * Whether a document type is indexed (`ticketing.rag.index.*`).
+     */
+    public static function indexes(string $type): bool
+    {
+        $key = match ($type) {
+            self::TYPE_ARTICLE => 'articles',
+            self::TYPE_TICKET => 'tickets',
+            self::TYPE_CANNED => 'canned_responses',
+            default => null,
+        };
+
+        return $key !== null && config('ticketing.rag.index.'.$key, true) !== false;
     }
 
     /**
@@ -861,6 +883,11 @@ class RagKnowledge
      */
     protected function inTenant(Builder $query, int|string|null $tenant): Builder
     {
+        // Single-tenant: the tenant column means nothing (as for the scope).
+        if (! $this->tenants->enabled()) {
+            return $query;
+        }
+
         // The model's own tenant column (a host model may rename it).
         $model = $query->getModel();
         $column = method_exists($model, 'getQualifiedTenantColumn') ? $model->getQualifiedTenantColumn() : $this->tenants->column();

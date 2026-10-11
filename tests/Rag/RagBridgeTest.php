@@ -654,6 +654,32 @@ it('leaves no copy behind when an article moves to another tenant', function ():
     expect(Document::query()->withoutGlobalScopes()->where('metadata->document_key', 'kb_article:'.$article->getKey())->pluck('tenant_id')->all())->toBe(['tk-n-6']);
 });
 
+it('leaves a type switched off out of backfills and repairs', function (): void {
+    $ticket = Ticketing::open(type: 'support', title: 'Switched off');
+    Ticketing::postMessage($ticket, null, 'A question that will be switched off.');
+    Ticketing::postMessage($ticket, makeUser(), 'An answer that will be switched off.');
+    Ticketing::transition($ticket, 'resolve');
+
+    expect(ragDocuments('ticket:'.$ticket->getKey()))->toBe(1);
+
+    config()->set('ticketing.rag.index.tickets', false);
+    $this->artisan('ticketing:rag:index')->expectsOutputToContain('ticket — off in ticketing.rag.index')->assertSuccessful();
+
+    expect(ragDocuments('ticket:'.$ticket->getKey()))->toBe(0);
+});
+
+it('searches everything in a single-tenant app, whatever tenant the rows carry', function (): void {
+    config()->set('ticketing.tenancy.enabled', false);
+    app()->forgetInstance(TenantContext::class);
+
+    $article = kb('Single tenant article', 'Single tenant article about badge printers.');
+    KbArticle::query()->whereKey($article->getKey())->update(['tenant_id' => 3]);
+    app(RagKnowledge::class)->syncArticle($article->getKey(), 3);
+
+    expect(app(RagKnowledge::class)->ragTenant(3))->toBe('tk-shared')
+        ->and(ragFind('badge printers article', KnowledgeAudience::public()))->toBe(['Single tenant article']);
+});
+
 it('keeps a trashed ticket out once retention anonymised it', function (): void {
     $ticket = Ticketing::open(type: 'support', title: 'Trashed one');
     $ticket->delete();
