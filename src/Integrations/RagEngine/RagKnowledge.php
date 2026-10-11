@@ -273,7 +273,9 @@ class RagKnowledge
             : ! isset($asking[$message->author_type.':'.$message->author_id]) && self::modelImplements($message->author_type, CanActOnTickets::class);
 
         // Scanned lazily, in batches, until found: however long the ticket.
-        $question = $public()->lazyById(50, $key)->first(fn (TicketMessage $message): bool => ! $isAnswer($message));
+        // The question is the customer's: never an answer, never anything the
+        // AI posted (its hand-over notice may come first).
+        $question = $public()->lazyById(50, $key)->first(fn (TicketMessage $message): bool => ! $isAnswer($message) && $message->source !== MessageSource::Ai);
         $answer = $public()->lazyByIdDesc(50, $key)->first($isAnswer);
 
         $text = fn (?TicketMessage $message): ?string => $message === null ? null

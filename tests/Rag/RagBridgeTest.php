@@ -405,6 +405,20 @@ it('never takes the AI hand-over notice for the answer', function (): void {
     Ticketing::transition($ticket->refresh(), 'resolve');
     Ticketing::transition($agentAnswered->refresh(), 'resolve');
 
+    // Handed over before the customer wrote: the notice is not the question either.
+    $noticeFirst = Ticketing::open(type: 'support', title: 'Notice first');
+    Ticketing::escalate($noticeFirst, EscalationReason::LowConfidence, notifyCustomer: true);
+    Ticketing::postMessage($noticeFirst->refresh(), $customer, 'The parking gate does not open with my badge.');
+    Ticketing::postMessage($noticeFirst->refresh(), makeUser(), 'The gate list was updated, try again.');
+    Ticketing::transition($noticeFirst->refresh(), 'resolve');
+
+    $noticeFirstContent = Rag::forTenant('tk-shared', fn () => Rag::ingestor()->content(
+        Document::query()->withoutGlobalScopes()->where('metadata->document_key', 'ticket:'.$noticeFirst->getKey())->sole(),
+    ));
+
+    expect($noticeFirstContent)->toContain('Question: The parking gate does not open with my badge.')
+        ->and($noticeFirstContent)->not->toContain('follow up');
+
     $content = Rag::forTenant('tk-shared', fn () => Rag::ingestor()->content(
         Document::query()->withoutGlobalScopes()->where('metadata->document_key', 'ticket:'.$agentAnswered->getKey())->sole(),
     ));
